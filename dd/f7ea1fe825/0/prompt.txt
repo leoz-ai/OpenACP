@@ -1,0 +1,77 @@
+review và cài đặt project này nhé.
+
+---
+
+làm sao lấy được chat id nhỉ
+
+---
+
+done rồi. giờ check config và start project
+
+---
+
+bật group topic rồi. cần config thêm gì
+
+---
+
+ELIFECYCLE  Command failed with exit code 1.
+> pnpm start
+
+> openacp@ start /Users/kienduong/works/ai-agents/OpenACP
+> node packages/core/dist/main.js
+
+2026-03-19T08:40:34.017Z [INFO] Config loaded from /Users/kienduong/.openacp/config.json
+2026-03-19T08:40:34.057Z [INFO] Telegram adapter registered
+2026-03-19T08:40:34.402Z [ERROR] Fatal: HttpError: Network request for 'createForumTopic' failed!
+    at toHttpError (/Users/kienduong/works/ai-agents/OpenACP/node_modules/.pnpm/grammy@1.41.1/node_modules/grammy/out/core/error.js:82:12)
+    at ApiClient.call (/Users/kienduong/works/ai-agents/OpenACP/node_modules/.pnpm/grammy@1.41.1/node_modules/grammy/out/core/client.js:58:50)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async ApiClient.callApi (/Users/kienduong/works/ai-agents/OpenACP/node_modules/.pnpm/grammy@1.41.1/node_modules/grammy/out/core/client.js:96:22)
+    at async ensureTopics (file:///Users/kienduong/works/ai-agents/OpenACP/packages/adapters/telegr/dist/topics.js:7:23)
+    at async TelegramAdapter.start (file:///Users/kienduong/works/ai-agents/OpenACP/packages/adapters/telegram/dist/adapter.js:31:24)
+    at async OpenACPCore.start (file:///Users/kienduong/works/ai-agents/OpenACP/packages/core/dist/core.js:23:13)
+    at async main (file:///Users/kienduong/works/ai-agents/OpenACP/packages/core/dist/main.js:28:5) {
+  error: FetchError: request to https://api.telegram.org/bot8717090851:REDACTED/createForumTopic failed, reason: 
+      at ClientRequest.<anonymous> (/Users/kienduong/works/ai-agents/OpenACP/node_modules/.pnpm/node-fetch@2.7.0/node_modules/node-fetch/lib/index.js:1501:11)
+      at ClientRequest.emit (node:events:518:28)
+      at emitErrorEvent (node:_http_client:101:11)
+      at TLSSocket.socketErrorListener (node:_http_client:504:5)
+      at TLSSocket.emit (node:events:518:28)
+      at emitErrorNT (node:internal/streams/destroy:169:8)
+      at emitErrorCloseNT (node:internal/streams/destroy:128:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+    type: 'system',
+    errno: 'ETIMEDOUT',
+    code: 'ETIMEDOUT'
+  }
+}
+ ELIFECYCLE  Command failed with exit code 1.
+~/works/ai-agents/OpenACP develop >
+
+---
+
+ok stop đi
+
+---
+
+cập nhat command cho bot
+
+---
+
+tự động build menu select các acton command
+
+---
+
+về mặt UI/UX khi khởi đầu cần hiện thông báo giữa màn hình và các action button. hiện tại đang show 2 message.
+
+---
+
+change remote origin sang bản fork https://github.com/rex-qa-bot/OpenACP.git
+
+---
+
+note lại với project này. code hoặc comment luôn luôn là tieng anh. không dung TIENG VIỆT nhes
+
+---
+
+ok commit lên nhưng gì đã fix bản hiện tai nhé
