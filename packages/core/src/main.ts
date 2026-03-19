@@ -31,18 +31,9 @@ export async function startServer() {
     if (!channelConfig.enabled) continue
 
     if (channelName === 'telegram') {
-      // Built-in adapter — try bundled import first, fall back to relative path for dev
-      let TelegramAdapter: any
-      try {
-        // @ts-ignore — optional peer dependency, may not be installed
-        const mod = await import('@openacp/adapter-telegram')
-        TelegramAdapter = mod.TelegramAdapter
-      } catch {
-        // Dev mode: resolve from workspace via relative path
-        const adapterPath = new URL('../../adapters/telegram/dist/index.js', import.meta.url).pathname
-        const mod = await import(adapterPath)
-        TelegramAdapter = mod.TelegramAdapter
-      }
+      // Built-in adapter — loaded via getTelegramAdapter()
+      const { getTelegramAdapter } = await import('./builtin-adapters.js')
+      const TelegramAdapter = await getTelegramAdapter()
       core.registerAdapter('telegram', new TelegramAdapter(core, channelConfig))
       log.info('Telegram adapter registered (built-in)')
     } else if (channelConfig.adapter) {
