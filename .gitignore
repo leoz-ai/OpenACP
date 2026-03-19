@@ -1,0 +1,6 @@
+# References (external/third-party code)
+references/
+node_modules/
+dist/
+*.tsbuildinfo
+.env
