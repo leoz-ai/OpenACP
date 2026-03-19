@@ -1,8 +1,7 @@
 import type { Bot } from 'grammy'
 import { InlineKeyboard } from 'grammy'
 import { nanoid } from 'nanoid'
-import type { PermissionRequest, NotificationMessage } from '@openacp/core'
-import type { Session } from '@openacp/core'
+import type { PermissionRequest, NotificationMessage, Session } from '../../core/index.js'
 import { escapeHtml } from './formatting.js'
 import { buildDeepLink } from './topics.js'
 

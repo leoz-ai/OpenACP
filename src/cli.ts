@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { installPlugin, uninstallPlugin, listPlugins } from './plugin-manager.js'
+import { installPlugin, uninstallPlugin, listPlugins } from './core/plugin-manager.js'
 
 const args = process.argv.slice(2)
 const command = args[0]

@@ -1,5 +1,4 @@
-import type { OpenACPCore, ChannelAdapter, Config } from "@openacp/core";
-import type { Session } from "@openacp/core";
+import type { OpenACPCore, ChannelAdapter, Config, Session } from "../../core/index.js";
 
 export async function spawnAssistant(
   core: OpenACPCore,

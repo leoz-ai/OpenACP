@@ -1,6 +1,6 @@
 import type { Bot, Context } from "grammy";
 import { InlineKeyboard } from "grammy";
-import type { OpenACPCore } from "@openacp/core";
+import type { OpenACPCore } from "../../core/index.js";
 import { escapeHtml } from "./formatting.js";
 import { createSessionTopic } from "./topics.js";
 

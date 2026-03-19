@@ -1,5 +1,5 @@
 import { Bot } from 'grammy'
-import { ChannelAdapter, type OpenACPCore, type OutgoingMessage, type PermissionRequest, type NotificationMessage, type Session, log } from '@openacp/core'
+import { ChannelAdapter, type OpenACPCore, type OutgoingMessage, type PermissionRequest, type NotificationMessage, type Session, log } from '../../core/index.js'
 import type { TelegramChannelConfig } from './types.js'
 import { MessageDraft } from './streaming.js'
 import { ensureTopics, createSessionTopic, renameSessionTopic } from './topics.js'

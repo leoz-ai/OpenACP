@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { ConfigManager } from './config.js'
-import { OpenACPCore } from './core.js'
-import { loadAdapterFactory } from './plugin-manager.js'
-import { log } from './log.js'
+import { ConfigManager } from './core/config.js'
+import { OpenACPCore } from './core/core.js'
+import { loadAdapterFactory } from './core/plugin-manager.js'
+import { log } from './core/log.js'
+import { TelegramAdapter } from './adapters/telegram/index.js'
 
 let shuttingDown = false
 
@@ -13,7 +14,7 @@ export async function startServer() {
   const configExists = await configManager.exists()
 
   if (!configExists) {
-    const { runSetup } = await import('./setup.js')
+    const { runSetup } = await import('./core/setup.js')
     const shouldStart = await runSetup(configManager)
     if (!shouldStart) process.exit(0)
   }
@@ -31,11 +32,8 @@ export async function startServer() {
     if (!channelConfig.enabled) continue
 
     if (channelName === 'telegram') {
-      // Built-in adapter — loaded via getTelegramAdapter()
-      const { getTelegramAdapter } = await import('./builtin-adapters.js')
-      const TelegramAdapter = await getTelegramAdapter()
       core.registerAdapter('telegram', new TelegramAdapter(core, channelConfig))
-      log.info('Telegram adapter registered (built-in)')
+      log.info('Telegram adapter registered')
     } else if (channelConfig.adapter) {
       // Plugin adapter
       const factory = await loadAdapterFactory(channelConfig.adapter)
