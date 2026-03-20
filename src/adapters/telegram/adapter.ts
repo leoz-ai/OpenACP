@@ -46,7 +46,15 @@ export class TelegramAdapter extends ChannelAdapter {
   private sessionDrafts: Map<string, MessageDraft> = new Map();
   private toolCallMessages: Map<
     string,
-    Map<string, { msgId: number; name: string; kind?: string; viewerLinks?: { file?: string; diff?: string } }>
+    Map<
+      string,
+      {
+        msgId: number;
+        name: string;
+        kind?: string;
+        viewerLinks?: { file?: string; diff?: string };
+      }
+    >
   > = new Map(); // sessionId → (toolCallId → state)
   private permissionHandler!: PermissionHandler;
   private assistantSession: Session | null = null;
@@ -60,7 +68,7 @@ export class TelegramAdapter extends ChannelAdapter {
   }
 
   async start(): Promise<void> {
-    this.bot = new Bot(this.telegramConfig.botToken);
+    this.bot = new Bot(this.telegramConfig.botToken, { client: { fetch } });
 
     // Global error handler — prevent unhandled errors from crashing the bot
     this.bot.catch((err) => {
@@ -272,7 +280,14 @@ export class TelegramAdapter extends ChannelAdapter {
 
       case "tool_call": {
         await this.finalizeDraft(sessionId);
-        const meta = content.metadata as never as { id: string; name: string; kind?: string; status?: string; content?: unknown; viewerLinks?: { file?: string; diff?: string } };
+        const meta = content.metadata as never as {
+          id: string;
+          name: string;
+          kind?: string;
+          status?: string;
+          content?: unknown;
+          viewerLinks?: { file?: string; diff?: string };
+        };
         const msg = await this.bot.api.sendMessage(
           this.telegramConfig.chatId,
           formatToolCall(meta),
@@ -295,7 +310,14 @@ export class TelegramAdapter extends ChannelAdapter {
       }
 
       case "tool_update": {
-        const meta = content.metadata as never as { id: string; name: string; kind?: string; status: string; content?: unknown; viewerLinks?: { file?: string; diff?: string } };
+        const meta = content.metadata as never as {
+          id: string;
+          name: string;
+          kind?: string;
+          status: string;
+          content?: unknown;
+          viewerLinks?: { file?: string; diff?: string };
+        };
         const toolState = this.toolCallMessages.get(sessionId)?.get(meta.id);
         if (toolState) {
           // Carry forward viewerLinks from previous updates if not present in current
@@ -326,7 +348,11 @@ export class TelegramAdapter extends ChannelAdapter {
         await this.finalizeDraft(sessionId);
         await this.bot.api.sendMessage(
           this.telegramConfig.chatId,
-          formatPlan(content.metadata as never as { entries: Array<{ content: string; status: string }> }),
+          formatPlan(
+            content.metadata as never as {
+              entries: Array<{ content: string; status: string }>;
+            },
+          ),
           {
             message_thread_id: threadId,
             parse_mode: "HTML",
@@ -340,7 +366,13 @@ export class TelegramAdapter extends ChannelAdapter {
         // Show usage stats
         await this.bot.api.sendMessage(
           this.telegramConfig.chatId,
-          formatUsage(content.metadata as never as { tokensUsed?: number; contextSize?: number; cost?: { amount: number; currency: string } }),
+          formatUsage(
+            content.metadata as never as {
+              tokensUsed?: number;
+              contextSize?: number;
+              cost?: { amount: number; currency: string };
+            },
+          ),
           {
             message_thread_id: threadId,
             parse_mode: "HTML",
@@ -439,8 +471,13 @@ export class TelegramAdapter extends ChannelAdapter {
     );
   }
 
-  async sendSkillCommands(sessionId: string, commands: AgentCommand[]): Promise<void> {
-    const session = (this.core as OpenACPCore).sessionManager.getSession(sessionId);
+  async sendSkillCommands(
+    sessionId: string,
+    commands: AgentCommand[],
+  ): Promise<void> {
+    const session = (this.core as OpenACPCore).sessionManager.getSession(
+      sessionId,
+    );
     if (!session) return;
     const threadId = Number(session.threadId);
     if (!threadId) return;
@@ -487,9 +524,13 @@ export class TelegramAdapter extends ChannelAdapter {
       );
       this.skillMessages.set(sessionId, msg.message_id);
 
-      await this.bot.api.pinChatMessage(this.telegramConfig.chatId, msg.message_id, {
-        disable_notification: true,
-      });
+      await this.bot.api.pinChatMessage(
+        this.telegramConfig.chatId,
+        msg.message_id,
+        {
+          disable_notification: true,
+        },
+      );
     } catch (err) {
       log.error({ err, sessionId }, "Failed to send skill commands");
     }
@@ -516,16 +557,23 @@ export class TelegramAdapter extends ChannelAdapter {
 
     this.skillMessages.delete(sessionId);
     clearSkillCallbacks(sessionId);
-
   }
 
-  private async updateCommandAutocomplete(agentName: string, skillCommands: AgentCommand[]): Promise<void> {
+  private async updateCommandAutocomplete(
+    agentName: string,
+    skillCommands: AgentCommand[],
+  ): Promise<void> {
     // Telegram requires: 1-32 chars, lowercase a-z, 0-9, underscores only
     const prefix = `[${agentName}] `;
     const validSkills = skillCommands
       .map((c) => ({
-        command: c.name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32),
-        description: (prefix + ((c.description || c.name).replace(/\n/g, " "))).slice(0, 256),
+        command: c.name
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, "_")
+          .slice(0, 32),
+        description: (
+          prefix + (c.description || c.name).replace(/\n/g, " ")
+        ).slice(0, 256),
       }))
       .filter((c) => c.command.length > 0);
     const all = [...STATIC_COMMANDS, ...validSkills];
@@ -533,9 +581,15 @@ export class TelegramAdapter extends ChannelAdapter {
       await this.bot.api.setMyCommands(all, {
         scope: { type: "chat", chat_id: this.telegramConfig.chatId },
       });
-      log.info({ count: all.length, skills: validSkills.length }, "Updated command autocomplete");
+      log.info(
+        { count: all.length, skills: validSkills.length },
+        "Updated command autocomplete",
+      );
     } catch (err) {
-      log.error({ err, commands: all }, "Failed to update command autocomplete");
+      log.error(
+        { err, commands: all },
+        "Failed to update command autocomplete",
+      );
     }
   }
 

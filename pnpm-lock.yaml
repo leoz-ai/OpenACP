@@ -48,6 +48,9 @@ importers:
         specifier: ^3.25.0
         version: 3.25.76
     devDependencies:
+      '@rolldown/binding-darwin-arm64':
+        specifier: 1.0.0-rc.10
+        version: 1.0.0-rc.10
       '@types/diff':
         specifier: ^8.0.0
         version: 8.0.0
@@ -552,7 +555,6 @@ packages:
   '@rolldown/binding-darwin-arm64@1.0.0-rc.10':
     resolution: {integrity: sha512-gED05Teg/vtTZbIJBc4VNMAxAFDUPkuO/rAIyyxZjTj1a1/s6z5TII/5yMGZ0uLRCifEtwUQn8OlYzuYc0m70w==}
     engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
     os: [darwin]
 
   '@rolldown/binding-darwin-x64@1.0.0-rc.10':
@@ -1896,8 +1898,7 @@ snapshots:
   '@rolldown/binding-android-arm64@1.0.0-rc.10':
     optional: true
 
-  '@rolldown/binding-darwin-arm64@1.0.0-rc.10':
-    optional: true
+  '@rolldown/binding-darwin-arm64@1.0.0-rc.10': {}
 
   '@rolldown/binding-darwin-x64@1.0.0-rc.10':
     optional: true
