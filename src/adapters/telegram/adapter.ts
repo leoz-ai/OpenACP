@@ -40,6 +40,32 @@ import {
   formatUsage,
 } from "./formatting.js";
 
+/**
+ * Wraps native fetch to work around grammY's polyfilled AbortController.
+ * grammY uses abort-controller polyfill whose AbortSignal fails instanceof
+ * checks in Node 24+ native fetch. This wrapper re-creates a native
+ * AbortSignal from the polyfilled one before passing it to fetch.
+ */
+function patchedFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  if (init?.signal && !(init.signal instanceof AbortSignal)) {
+    const nativeController = new AbortController();
+    const polyfillSignal = init.signal as unknown as {
+      aborted: boolean;
+      addEventListener: (event: string, fn: () => void) => void;
+    };
+    if (polyfillSignal.aborted) {
+      nativeController.abort();
+    } else {
+      polyfillSignal.addEventListener("abort", () => nativeController.abort());
+    }
+    init = { ...init, signal: nativeController.signal };
+  }
+  return fetch(input, init);
+}
+
 export class TelegramAdapter extends ChannelAdapter {
   private bot!: Bot;
   private telegramConfig: TelegramChannelConfig;
@@ -68,7 +94,7 @@ export class TelegramAdapter extends ChannelAdapter {
   }
 
   async start(): Promise<void> {
-    this.bot = new Bot(this.telegramConfig.botToken, { client: { fetch } });
+    this.bot = new Bot(this.telegramConfig.botToken, { client: { fetch: patchedFetch } });
 
     // Global error handler — prevent unhandled errors from crashing the bot
     this.bot.catch((err) => {
