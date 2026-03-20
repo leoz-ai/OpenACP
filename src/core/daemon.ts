@@ -107,8 +107,8 @@ export function stopDaemon(pidPath: string = DEFAULT_PID_PATH): { stopped: boole
   try {
     process.kill(pid, 'SIGTERM')
     // PID file is cleaned up by the child process on SIGTERM (see main.ts shutdown handler).
-    // Give the child a moment, then remove PID file if it's still there (child may have crashed).
-    setTimeout(() => removePidFile(pidPath), 2000)
+    // Also remove here in case child crashes before cleanup.
+    removePidFile(pidPath)
     return { stopped: true, pid }
   } catch (e) {
     return { stopped: false, error: `Failed to stop: ${(e as Error).message}` }

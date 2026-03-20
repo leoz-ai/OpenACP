@@ -374,6 +374,7 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
 // --- Main Config Editor ---
 
 export async function runConfigEditor(configManager: ConfigManager): Promise<void> {
+  await configManager.load()
   const config = configManager.get()
   const updates: ConfigUpdates = {}
 
