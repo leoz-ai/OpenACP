@@ -187,21 +187,83 @@ export class PlanCard {
   }
 }
 
-// ─── ActivityTracker placeholder (implemented in Task 4) ─────────────────────
+// ─── ActivityTracker ──────────────────────────────────────────────────────────
 
 export class ActivityTracker {
+  private isFirstEvent = true
+  private hasPlanCard = false
+  private thinking: ThinkingIndicator
+  private planCard: PlanCard
+  private usage: UsageMessage
+
   constructor(
-    _api: Bot['api'],
-    _chatId: number,
-    _threadId: number,
-    _sendQueue: TelegramSendQueue,
-  ) {}
-  async onNewPrompt(): Promise<void> {}
-  async onThought(): Promise<void> {}
-  async onPlan(_entries: PlanEntry[]): Promise<void> {}
-  async onToolCall(): Promise<void> {}
-  async onTextStart(): Promise<void> {}
-  async sendUsage(_data: { tokensUsed?: number; contextSize?: number }): Promise<void> {}
-  async onComplete(): Promise<void> {}
-  destroy(): void {}
+    private api: Bot['api'],
+    private chatId: number,
+    private threadId: number,
+    private sendQueue: TelegramSendQueue,
+  ) {
+    this.thinking = new ThinkingIndicator(api, chatId, threadId, sendQueue)
+    this.planCard = new PlanCard(api, chatId, threadId, sendQueue)
+    this.usage = new UsageMessage(api, chatId, threadId, sendQueue)
+  }
+
+  async onNewPrompt(): Promise<void> {
+    this.isFirstEvent = true
+    this.hasPlanCard = false
+    await this.thinking.dismiss()
+  }
+
+  async onThought(): Promise<void> {
+    await this._firstEventGuard()
+    await this.thinking.show()
+  }
+
+  async onPlan(entries: PlanEntry[]): Promise<void> {
+    await this._firstEventGuard()
+    await this.thinking.dismiss()
+    this.hasPlanCard = true
+    this.planCard.update(entries)
+  }
+
+  async onToolCall(): Promise<void> {
+    await this._firstEventGuard()
+    await this.thinking.dismiss()
+  }
+
+  async onTextStart(): Promise<void> {
+    await this._firstEventGuard()
+    await this.thinking.dismiss()
+  }
+
+  async sendUsage(data: { tokensUsed?: number; contextSize?: number }): Promise<void> {
+    await this.usage.send(data)
+  }
+
+  async onComplete(): Promise<void> {
+    if (this.hasPlanCard) {
+      await this.planCard.finalize()
+    } else {
+      try {
+        await this.sendQueue.enqueue(() =>
+          this.api.sendMessage(this.chatId, '✅ <b>Done</b>', {
+            message_thread_id: this.threadId,
+            parse_mode: 'HTML',
+            disable_notification: true,
+          }),
+        )
+      } catch (err) {
+        log.warn({ err }, 'ActivityTracker.onComplete() Done send failed')
+      }
+    }
+  }
+
+  destroy(): void {
+    this.planCard.destroy()
+  }
+
+  private async _firstEventGuard(): Promise<void> {
+    if (!this.isFirstEvent) return
+    this.isFirstEvent = false
+    await this.usage.delete()
+  }
 }

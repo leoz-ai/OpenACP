@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ThinkingIndicator, UsageMessage, PlanCard } from './activity.js'
+import { ThinkingIndicator, UsageMessage, PlanCard, ActivityTracker } from './activity.js'
 import type { TelegramSendQueue } from './send-queue.js'
 
 // Minimal mock for TelegramSendQueue: runs the fn immediately, returns result
@@ -225,5 +225,122 @@ describe('PlanCard', () => {
     card.destroy()
     await vi.advanceTimersByTimeAsync(3500)
     expect(api.sendMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('ActivityTracker', () => {
+  let api: ReturnType<typeof makeMockApi>
+  let queue: TelegramSendQueue
+  let tracker: ActivityTracker
+
+  beforeEach(() => {
+    api = makeMockApi()
+    queue = makeMockQueue()
+    tracker = new ActivityTracker(api as never, 100, 200, queue)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    tracker.destroy()
+  })
+
+  it('onThought() shows thinking indicator', async () => {
+    await tracker.onThought()
+    expect(api.sendMessage).toHaveBeenCalledWith(
+      100,
+      '💭 <i>Thinking...</i>',
+      expect.anything(),
+    )
+  })
+
+  it('onThought() called multiple times only sends one message', async () => {
+    await tracker.onThought()
+    await tracker.onThought()
+    await tracker.onThought()
+    expect(api.sendMessage).toHaveBeenCalledOnce()
+  })
+
+  it('onToolCall() dismisses thinking indicator', async () => {
+    await tracker.onThought()
+    await tracker.onToolCall()
+    expect(api.deleteMessage).toHaveBeenCalledOnce()
+  })
+
+  it('onTextStart() dismisses thinking indicator', async () => {
+    await tracker.onThought()
+    await tracker.onTextStart()
+    expect(api.deleteMessage).toHaveBeenCalledOnce()
+  })
+
+  it('firstEvent guard: deletes usage message on first event', async () => {
+    // Simulate a previous usage message existing
+    await tracker.sendUsage({ tokensUsed: 1000, contextSize: 10000 })
+    expect(api.sendMessage).toHaveBeenCalledOnce() // usage sent
+
+    // Simulate new prompt cycle
+    await tracker.onNewPrompt()
+    expect(api.deleteMessage).not.toHaveBeenCalled() // not deleted yet
+
+    // First event of new cycle triggers deletion
+    await tracker.onThought()
+    expect(api.deleteMessage).toHaveBeenCalledOnce() // usage deleted
+  })
+
+  it('firstEvent guard only runs once per prompt cycle', async () => {
+    await tracker.sendUsage({ tokensUsed: 1000, contextSize: 10000 })
+    await tracker.onNewPrompt()
+    await tracker.onThought()
+    await tracker.onThought()
+    await tracker.onToolCall()
+    // deleteMessage called once for usage, once for thinking indicator
+    expect(api.deleteMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('onNewPrompt() resets hasPlanCard', async () => {
+    const entries: import('../../core/types.js').PlanEntry[] = [
+      { content: 'Task', status: 'pending', priority: 'high' },
+    ]
+    await tracker.onPlan(entries)
+    await vi.advanceTimersByTimeAsync(3500)
+
+    await tracker.onNewPrompt()
+
+    // onComplete() should send ✅ Done (not try to finalize plan)
+    await tracker.onComplete()
+    const calls = (api.sendMessage as ReturnType<typeof vi.fn>).mock.calls
+    const doneCall = calls.find((c: unknown[]) => String(c[1]).includes('Done'))
+    expect(doneCall).toBeDefined()
+  })
+
+  it('onComplete() sends Done when no plan', async () => {
+    await tracker.onComplete()
+    expect(api.sendMessage).toHaveBeenCalledWith(
+      100,
+      '✅ <b>Done</b>',
+      expect.anything(),
+    )
+  })
+
+  it('onComplete() finalizes plan when hasPlanCard is true', async () => {
+    const entries: import('../../core/types.js').PlanEntry[] = [
+      { content: 'Task', status: 'completed', priority: 'high' },
+    ]
+    await tracker.onPlan(entries)
+    // Timer not fired yet — finalize() should handle it
+    await tracker.onComplete()
+    const calls = (api.sendMessage as ReturnType<typeof vi.fn>).mock.calls
+    const planCall = calls.find((c: unknown[]) => String(c[1]).includes('📋'))
+    expect(planCall).toBeDefined()
+    // Should NOT send Done
+    const doneCall = calls.find((c: unknown[]) => String(c[1]).includes('Done'))
+    expect(doneCall).toBeUndefined()
+  })
+
+  it('onNewPrompt() defensively dismisses stale ThinkingIndicator', async () => {
+    await tracker.onThought()
+    expect(api.sendMessage).toHaveBeenCalledOnce()
+    await tracker.onNewPrompt()
+    expect(api.deleteMessage).toHaveBeenCalledOnce()
   })
 })
