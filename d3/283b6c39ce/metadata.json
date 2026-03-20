@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "d3283b6c39ce",
+  "strategy": "manual-commit",
+  "branch": "develop",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/superpowers/plans/2026-03-20-session-persistence.md",
+    "docs/superpowers/specs/2026-03-20-session-persistence-design.md",
+    "src/adapters/telegram/adapter.ts",
+    "src/cli.ts",
+    "src/core/agent-instance.ts",
+    "src/core/core.ts",
+    "src/core/session-store.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/283b6c39ce/0/metadata.json",
+      "transcript": "/d3/283b6c39ce/0/full.jsonl",
+      "context": "/d3/283b6c39ce/0/context.md",
+      "content_hash": "/d3/283b6c39ce/0/content_hash.txt",
+      "prompt": "/d3/283b6c39ce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 345,
+    "cache_creation_tokens": 195200,
+    "cache_read_tokens": 24575549,
+    "output_tokens": 61075,
+    "api_call_count": 238
+  }
+}
