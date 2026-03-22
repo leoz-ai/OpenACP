@@ -440,9 +440,13 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
       }
 
       case "text": {
+        // CRITICAL: This handler must be fully synchronous to preserve text ordering.
+        // sendMessage() is not awaited in wireSessionEvents, so multiple text events
+        // run concurrently. Any await here creates a gap where subsequent text events
+        // process first, causing out-of-order buffer accumulation.
         if (!this.draftManager.hasDraft(sessionId)) {
           const tracker = this.getOrCreateTracker(sessionId, threadId);
-          await tracker.onTextStart();
+          tracker.onTextStart().catch(() => {}); // Fire-and-forget, no await
         }
         const draft = this.draftManager.getOrCreate(sessionId, threadId);
         draft.append(content.text);
