@@ -194,7 +194,7 @@ async function startConfirmStep(
   });
 }
 
-async function createSessionDirect(
+export async function createSessionDirect(
   ctx: Context,
   core: OpenACPCore,
   chatId: number,

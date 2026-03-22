@@ -2,6 +2,7 @@ import type { Context } from "grammy";
 import { InlineKeyboard } from "grammy";
 import type { OpenACPCore } from "../../../core/core.js";
 import type { InstallProgress } from "../../../core/types.js";
+import { escapeHtml } from "../formatting.js";
 
 export async function handleAgents(ctx: Context, core: OpenACPCore): Promise<void> {
   const catalog = core.agentCatalog;
@@ -115,6 +116,3 @@ async function installAgentWithProgress(ctx: Context, core: OpenACPCore, nameOrI
   await catalog.install(nameOrId, progress);
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}

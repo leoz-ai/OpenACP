@@ -3,7 +3,7 @@ import type { OpenACPCore } from "../../../core/index.js";
 import type { CommandsAssistantContext } from "../types.js";
 
 // Domain modules
-import { handleNew, handleNewChat, setupNewSessionCallbacks } from "./new-session.js";
+import { handleNew, handleNewChat, setupNewSessionCallbacks, createSessionDirect } from "./new-session.js";
 import { handleCancel, handleStatus, handleTopics, setupSessionCallbacks } from "./session.js";
 import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart } from "./admin.js";
 import { handleMenu, handleHelp, handleClear, buildMenuKeyboard } from "./menu.js";
@@ -60,14 +60,7 @@ export function setupAllCallbacks(
   bot.callbackQuery(/^na:/, async (ctx) => {
     const agentKey = ctx.callbackQuery.data!.replace("na:", "");
     await ctx.answerCallbackQuery();
-    try {
-      const session = await core.handleNewSession("telegram", agentKey);
-      if (session.threadId) {
-        await ctx.reply(`✅ Session started with ${agentKey}. Check the new topic above.`);
-      }
-    } catch (err) {
-      await ctx.reply(`❌ Could not start session: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await createSessionDirect(ctx, core, chatId, agentKey, core.configManager.get().workspace.baseDir);
   });
 
   // Broad m: handler for remaining menu dispatch — LAST

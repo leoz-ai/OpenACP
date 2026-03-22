@@ -195,6 +195,27 @@ async function readResponseWithProgress(
   return Buffer.concat(chunks);
 }
 
+function validateExtractedPaths(destDir: string): void {
+  const realDest = fs.realpathSync(destDir);
+  const entries = fs.readdirSync(destDir, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    const parentPath = (entry as unknown as { parentPath?: string; path?: string }).parentPath ?? (entry as unknown as { path: string }).path;
+    const fullPath = path.join(parentPath, entry.name);
+    let realPath: string;
+    try {
+      realPath = fs.realpathSync(fullPath);
+    } catch {
+      // Broken symlink — check where it points
+      const linkTarget = fs.readlinkSync(fullPath);
+      realPath = path.resolve(path.dirname(fullPath), linkTarget);
+    }
+    if (!realPath.startsWith(realDest + path.sep) && realPath !== realDest) {
+      fs.rmSync(destDir, { recursive: true, force: true });
+      throw new Error(`Archive contains unsafe path: ${entry.name}`);
+    }
+  }
+}
+
 async function extractTarGz(buffer: Buffer, destDir: string): Promise<void> {
   const { execFileSync } = await import("node:child_process");
   const tmpFile = path.join(destDir, "_archive.tar.gz");
@@ -204,6 +225,7 @@ async function extractTarGz(buffer: Buffer, destDir: string): Promise<void> {
   } finally {
     fs.unlinkSync(tmpFile);
   }
+  validateExtractedPaths(destDir);
 }
 
 async function extractZip(buffer: Buffer, destDir: string): Promise<void> {
@@ -215,6 +237,7 @@ async function extractZip(buffer: Buffer, destDir: string): Promise<void> {
   } finally {
     fs.unlinkSync(tmpFile);
   }
+  validateExtractedPaths(destDir);
 }
 
 export async function uninstallAgent(

@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AvailabilityResult } from "./types.js";
 
 export interface AgentDependency {
@@ -60,13 +62,23 @@ export function getAgentCapabilities(agentName: string): AgentCapability {
   return AGENT_CAPABILITIES[agentName] ?? { supportsResume: false };
 }
 
-function commandExists(cmd: string): boolean {
+export function commandExists(cmd: string): boolean {
   try {
     execFileSync("which", [cmd], { stdio: "pipe" });
     return true;
   } catch {
-    return false;
+    // not in PATH
   }
+  // Check node_modules/.bin (walks up from cwd)
+  let dir = process.cwd();
+  while (true) {
+    const binPath = path.join(dir, "node_modules", ".bin", cmd);
+    if (fs.existsSync(binPath)) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return false;
 }
 
 export function checkDependencies(registryId: string): AvailabilityResult {
