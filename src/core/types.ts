@@ -143,6 +143,7 @@ export interface AgentListItem {
   registryId: string;
   name: string;
   version: string;
+  description?: string;
   distribution: AgentDistribution;
   installed: boolean;
   available: boolean;

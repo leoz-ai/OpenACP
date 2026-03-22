@@ -67,8 +67,13 @@ const publishPkg = {
     type: 'git',
     url: 'https://github.com/Open-ACP/OpenACP',
   },
+  homepage: 'https://github.com/Open-ACP/OpenACP',
+  author: {
+    name: 'OpenACP',
+    url: 'https://x.com/Open_ACP',
+  },
   license: 'AGPL-3.0',
-  keywords: ['acp', 'ai', 'coding-agent', 'telegram', 'claude', 'codex'],
+  keywords: ['acp', 'ai', 'coding-agent', 'telegram', 'claude', 'codex', 'gemini', 'cursor', 'agent-client-protocol'],
 }
 
 fs.writeFileSync(

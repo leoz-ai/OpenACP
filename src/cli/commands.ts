@@ -834,6 +834,9 @@ async function agentsList(): Promise<void> {
       console.log(
         `  \x1b[32m✓\x1b[0m ${item.key.padEnd(18)} ${item.name.padEnd(22)} v${item.version.padEnd(10)} ${item.distribution}${deps}`,
       );
+      if (item.description) {
+        console.log(`    \x1b[2m${item.description}\x1b[0m`);
+      }
     }
     console.log("");
   }
@@ -848,6 +851,9 @@ async function agentsList(): Promise<void> {
       console.log(
         `  ${icon} ${item.key.padEnd(18)} ${item.name.padEnd(22)} v${item.version.padEnd(10)} ${item.distribution}${deps}`,
       );
+      if (item.description) {
+        console.log(`    \x1b[2m${item.description}\x1b[0m`);
+      }
     }
     console.log("");
   }
@@ -875,17 +881,20 @@ async function agentsInstall(nameOrId: string | undefined, force: boolean): Prom
       process.stdout.write(`\n  ⏳ Installing ${name}...\n`);
     },
     onStep(step) {
-      process.stdout.write(`  ✓ ${step}\n`);
+      process.stdout.write(`  \x1b[32m✓\x1b[0m ${step}\n`);
     },
     onDownloadProgress(percent) {
-      process.stdout.write(`\r  ⬇ Downloading... ${percent}%`);
+      const filled = Math.round(percent / 5);
+      const empty = 20 - filled;
+      const bar = "█".repeat(filled) + "░".repeat(empty);
+      process.stdout.write(`\r  ${bar} ${String(percent).padStart(3)}%`);
       if (percent >= 100) process.stdout.write("\n");
     },
     onSuccess(name) {
-      console.log(`  \x1b[32m✓ ${name} installed successfully!\x1b[0m\n`);
+      console.log(`\n  \x1b[32m✓ ${name} installed successfully!\x1b[0m\n`);
     },
     onError(error) {
-      console.log(`  \x1b[31m✗ ${error}\x1b[0m\n`);
+      console.log(`\n  \x1b[31m✗ ${error}\x1b[0m\n`);
     },
   };
 

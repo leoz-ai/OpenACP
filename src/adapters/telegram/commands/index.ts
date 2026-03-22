@@ -7,7 +7,7 @@ import { handleNew, handleNewChat, setupNewSessionCallbacks, createSessionDirect
 import { handleCancel, handleStatus, handleTopics, setupSessionCallbacks } from "./session.js";
 import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart } from "./admin.js";
 import { handleMenu, handleHelp, handleClear, buildMenuKeyboard } from "./menu.js";
-import { handleAgents, handleInstall, handleAgentInstallCallback } from "./agents.js";
+import { handleAgents, handleInstall, handleAgentCallback } from "./agents.js";
 import { handleIntegrate } from "./integrate.js";
 import { handleSettings, setupSettingsCallbacks } from "./settings.js";
 import { handleDoctor, setupDoctorCallbacks } from "./doctor.js";
@@ -53,8 +53,8 @@ export function setupAllCallbacks(
   // Doctor handlers — must be before broad m: handler
   setupDoctorCallbacks(bot);
 
-  // Agent install callback — must be before broad m: handler
-  bot.callbackQuery(/^ag:/, (ctx) => handleAgentInstallCallback(ctx, core));
+  // Agent callbacks (install + pagination) — must be before broad m: handler
+  bot.callbackQuery(/^ag:/, (ctx) => handleAgentCallback(ctx, core));
 
   // New session with specific agent callback — must be before broad m: handler
   bot.callbackQuery(/^na:/, async (ctx) => {

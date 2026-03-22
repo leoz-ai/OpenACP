@@ -109,11 +109,15 @@ export class AgentCatalog {
       const availability = agent.registryId
         ? checkDependencies(agent.registryId)
         : { available: true };
+      const registryEntry = agent.registryId
+        ? this.registryAgents.find((a) => a.id === agent.registryId)
+        : undefined;
       items.push({
         key,
         registryId: agent.registryId ?? key,
         name: agent.name,
         version: agent.version,
+        description: registryEntry?.description,
         distribution: agent.distribution,
         installed: true,
         available: availability.available,
@@ -134,6 +138,7 @@ export class AgentCatalog {
         registryId: agent.id,
         name: agent.name,
         version: agent.version,
+        description: agent.description,
         distribution: dist?.type ?? "binary",
         installed: false,
         available: dist !== null && availability.available,
