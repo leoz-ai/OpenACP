@@ -959,6 +959,19 @@ async function agentsInstall(nameOrId: string | undefined, force: boolean): Prom
     process.exit(1);
   }
 
+  // Auto-integrate handoff if agent supports it
+  const { getAgentCapabilities } = await import("../core/agent-dependencies.js");
+  const caps = getAgentCapabilities(result.agentKey);
+  if (caps.integration) {
+    const { installIntegration } = await import("./integrate.js");
+    const intResult = await installIntegration(result.agentKey, caps.integration);
+    if (intResult.success) {
+      console.log(`  \x1b[32m✓\x1b[0m Handoff integration installed for ${result.agentKey}`);
+    } else {
+      console.log(`  \x1b[33m⚠ Handoff integration failed: ${intResult.logs[intResult.logs.length - 1] ?? "unknown error"}\x1b[0m`);
+    }
+  }
+
   // Show setup steps if any
   if (result.setupSteps?.length) {
     console.log("  \x1b[1mNext steps to get started:\x1b[0m\n");
@@ -981,6 +994,14 @@ async function agentsUninstall(name: string | undefined): Promise<void> {
 
   const result = await catalog.uninstall(name);
   if (result.ok) {
+    // Auto-uninstall handoff integration if exists
+    const { getAgentCapabilities } = await import("../core/agent-dependencies.js");
+    const caps = getAgentCapabilities(name);
+    if (caps.integration) {
+      const { uninstallIntegration } = await import("./integrate.js");
+      await uninstallIntegration(name, caps.integration);
+      console.log(`  \x1b[32m✓\x1b[0m Handoff integration removed for ${name}`);
+    }
     console.log(`\n  \x1b[32m✓ ${name} removed.\x1b[0m\n`);
   } else {
     console.log(`\n  \x1b[31m✗ ${result.error}\x1b[0m`);
