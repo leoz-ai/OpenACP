@@ -358,7 +358,7 @@ export class ApiServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let agent: string | undefined;
     let workspace: string | undefined;
 
@@ -456,7 +456,7 @@ export class ApiServer {
       return;
     }
 
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let prompt: string | undefined;
     if (body) {
       try {
@@ -492,7 +492,7 @@ export class ApiServer {
       return;
     }
 
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let permissionId: string | undefined;
     let optionId: string | undefined;
     if (body) {
@@ -564,7 +564,7 @@ export class ApiServer {
       return;
     }
 
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let enabled: boolean | undefined;
     if (body) {
       try {
@@ -650,7 +650,7 @@ export class ApiServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let configPath: string | undefined;
     let value: unknown;
 
@@ -770,7 +770,7 @@ export class ApiServer {
       this.sendJson(res, 400, { error: "Tunnel service is not enabled" });
       return;
     }
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     if (!body) {
       this.sendJson(res, 400, { error: "Missing request body" });
       return;
@@ -822,7 +822,7 @@ export class ApiServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let message: string | undefined;
     if (body) {
       try {
@@ -893,7 +893,7 @@ export class ApiServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     if (!body) {
       return this.sendJson(res, 400, {
         error: "bad_request",
@@ -1013,7 +1013,7 @@ export class ApiServer {
       this.sendJson(res, 501, { error: "Topic management not available" });
       return;
     }
-    const body = await this.readBody(req);
+    const body = await this.readBody(req, res);
     let statuses: string[] | undefined;
     if (body) {
       try {
@@ -1026,22 +1026,32 @@ export class ApiServer {
     this.sendJson(res, 200, result);
   }
 
-  private readBody(req: http.IncomingMessage): Promise<string> {
+  private readBody(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<string | null> {
     const MAX_BODY_SIZE = 1024 * 1024; // 1MB
     return new Promise((resolve) => {
       let data = "";
       let size = 0;
+      let destroyed = false;
       req.on("data", (chunk: Buffer) => {
         size += chunk.length;
-        if (size > MAX_BODY_SIZE) {
+        if (size > MAX_BODY_SIZE && !destroyed) {
+          destroyed = true;
           req.destroy();
-          resolve("");
+          this.sendJson(res, 413, { error: "Request body too large" });
+          resolve(null);
           return;
         }
-        data += chunk;
+        if (!destroyed) data += chunk;
       });
-      req.on("end", () => resolve(data));
-      req.on("error", () => resolve(""));
+      req.on("end", () => {
+        if (!destroyed) resolve(data);
+      });
+      req.on("error", () => {
+        if (!destroyed) resolve("");
+      });
     });
   }
 }

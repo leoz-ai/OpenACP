@@ -49,7 +49,7 @@ export class StaticServer {
     if (!this.uiDir) return false;
 
     const urlPath = (req.url || "/").split("?")[0];
-    const safePath = path.normalize(urlPath).replace(/^(\.\.[/\\])+/, "");
+    const safePath = path.normalize(urlPath);
 
     // Try exact file match
     const filePath = path.join(this.uiDir, safePath);

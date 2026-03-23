@@ -48,7 +48,7 @@ export function ConfigPage() {
     if (!loading && !groups.has(activeGroup) && groups.size > 0) {
       setActiveGroup(Array.from(groups.keys()).sort()[0]);
     }
-  }, [loading, groups.size, activeGroup]);
+  }, [loading, groups, activeGroup]);
 
   const handleSave = useCallback(async (path: string, value: unknown) => {
     setSaving(path);
@@ -74,7 +74,14 @@ export function ConfigPage() {
 
   const handleRestart = useCallback(async () => {
     setShowRestartModal(false);
-    await api.post("/api/restart");
+    try {
+      await api.post("/api/restart");
+    } catch (err) {
+      setToast({
+        message: `Restart failed: ${(err as Error).message}`,
+        type: "error",
+      });
+    }
   }, []);
 
   if (loading) {
