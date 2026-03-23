@@ -69,8 +69,10 @@ User sends /archive in session topic
 
 ```
 POST /api/sessions/:id/archive
-Response: { ok: true, newTopicId: number } | { ok: false, error: string }
+Response: { ok: true, newThreadId: string } | { ok: false, error: string }
 ```
+
+> Core returns `newThreadId: string` (adapter-agnostic). Telegram-specific consumers can cast to number for `topicId`.
 
 ### Assistant Guidance
 
@@ -92,6 +94,10 @@ Go to the session topic you want to archive and type /archive there."
 | Deep links to old topic break | Accepted trade-off — noted in confirmation message |
 | Active streaming/draft in progress | Finalize draft before archiving, abort pending edits |
 | Adapter routing uses `topicId` for message delivery | Must update all in-memory routing maps |
+| Agent emits events during delete→create gap | Set `session.archiving = true` flag to buffer/drop events during transition |
+| Repeated archives stack 🔄 emoji prefix | Strip existing 🔄 prefix before adding new one |
+| `createForumTopic` fails after delete (orphan) | Try/catch around create; on failure, notify Notifications topic with session details |
+| `patchRecord` replaces entire `platform` object | Spread existing platform data: `{ ...existingPlatform, topicId: newTopicId }` |
 
 ### Error Handling
 

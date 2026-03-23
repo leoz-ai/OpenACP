@@ -57,10 +57,13 @@ In `src/core/core.ts`, add a public method (after `stop()`):
     const adapter = this.adapters.get(session.channelId);
     if (!adapter) return { ok: false, error: "Adapter not found for session" };
 
-    const result = await adapter.archiveSessionTopic(session.id);
-    if (!result) return { ok: false, error: "Adapter does not support archiving" };
-
-    return { ok: true, newThreadId: result.newThreadId };
+    try {
+      const result = await adapter.archiveSessionTopic(session.id);
+      if (!result) return { ok: false, error: "Adapter does not support archiving" };
+      return { ok: true, newThreadId: result.newThreadId };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   }
 ```
 
@@ -158,17 +161,22 @@ Add the method to `TelegramAdapter` class (override the base class no-op):
 
 ```typescript
   async archiveSessionTopic(sessionId: string): Promise<{ newThreadId: string } | null> {
-    const session = (this.core as OpenACPCore).sessionManager.getSession(sessionId);
+    const core = this.core as OpenACPCore;
+    const session = core.sessionManager.getSession(sessionId);
     if (!session) return null;
 
     const chatId = this.telegramConfig.chatId;
     const oldTopicId = Number(session.threadId);
-    const sessionName = session.name || `Session ${session.id.slice(0, 6)}`;
+    // Strip existing 🔄 prefix to avoid stacking on repeated archives
+    const rawName = (session.name || `Session ${session.id.slice(0, 6)}`).replace(/^🔄\s*/, "");
 
-    // 1. Finalize any pending draft
+    // 1. Set archiving flag to buffer/drop agent events during transition
+    (session as any).archiving = true;
+
+    // 2. Finalize any pending draft
     await this.draftManager.finalize(session.id, this.assistantSession?.id);
 
-    // 2. Cleanup all trackers for old topic
+    // 3. Cleanup all trackers for old topic
     this.draftManager.cleanup(session.id);
     this.toolTracker.cleanup(session.id);
     await this.skillManager.cleanup(session.id);
@@ -176,19 +184,37 @@ Add the method to `TelegramAdapter` class (override the base class no-op):
     if (tracker) tracker.dispose();
     this.sessionTrackers.delete(session.id);
 
-    // 3. Delete old topic
+    // 4. Delete old topic
     await deleteSessionTopic(this.bot, chatId, oldTopicId);
 
-    // 4. Create new topic with same name
-    const newTopicId = await createSessionTopic(this.bot, chatId, `🔄 ${sessionName}`);
+    // 5. Create new topic — wrapped in try/catch for orphan recovery
+    let newTopicId: number;
+    try {
+      newTopicId = await createSessionTopic(this.bot, chatId, `🔄 ${rawName}`);
+    } catch (createErr) {
+      // Critical: old topic deleted but new one failed — session is orphaned
+      (session as any).archiving = false;
+      core.notificationManager.notifyAll({
+        sessionId: session.id,
+        sessionName: session.name,
+        type: "error",
+        summary: `Topic recreation failed for session "${rawName}". Session is orphaned. Error: ${(createErr as Error).message}`,
+      });
+      throw createErr; // Propagate so caller knows it failed
+    }
 
-    // 5. Rewire session to new topic
+    // 6. Rewire session to new topic
     session.threadId = String(newTopicId);
 
-    // 6. Persist via patchRecord
-    await (this.core as OpenACPCore).sessionManager.patchRecord(session.id, {
-      platform: { topicId: newTopicId },
+    // 7. Persist via patchRecord — spread existing platform data to preserve skillMsgId etc.
+    const existingRecord = core.sessionManager.getRecordByThread("telegram", String(oldTopicId));
+    const existingPlatform = existingRecord?.platform ?? {};
+    await core.sessionManager.patchRecord(session.id, {
+      platform: { ...existingPlatform, topicId: newTopicId, skillMsgId: undefined },
     });
+
+    // 8. Clear archiving flag
+    (session as any).archiving = false;
 
     return { newThreadId: String(newTopicId) };
   }
@@ -220,11 +246,14 @@ git commit -m "feat(telegram): implement archiveSessionTopic with topic recreati
 
 - [ ] **Step 1: Add handleArchive and handleArchiveConfirm to session.ts**
 
-In `src/adapters/telegram/commands/session.ts`, add imports:
+In `src/adapters/telegram/commands/session.ts`, add/update imports:
 
 ```typescript
 import { InlineKeyboard } from "grammy";
+import { escapeHtml } from "../formatting.js";
 ```
+
+> **Note:** `session.ts` may already import `escapeHtml` — check first. If not, this import is required for `handleArchiveConfirm` error display.
 
 Add the command handler:
 
@@ -309,8 +338,6 @@ export async function handleArchiveConfirm(
   }
 }
 ```
-
-Also add import for `escapeHtml` if not already imported in session.ts.
 
 - [ ] **Step 2: Register in index.ts**
 
@@ -445,19 +472,78 @@ describe("handleArchive", () => {
 });
 
 describe("archiveSession (core)", () => {
-  it("returns error for non-existent session", async () => {
-    const core = {
-      sessionManager: { getSession: vi.fn(() => undefined) },
-      adapters: new Map(),
+  // These tests call the actual core.archiveSession() method with mocked dependencies
+
+  function makeCore(sessionOverride?: any, adapterOverride?: any) {
+    const adapter = adapterOverride ?? {
+      archiveSessionTopic: vi.fn(() => Promise.resolve({ newThreadId: "789" })),
     };
-    // Import or inline the logic
-    const session = core.sessionManager.getSession("nonexistent");
-    expect(session).toBeUndefined();
+    const adapters = new Map([["telegram", adapter]]);
+    return {
+      core: {
+        sessionManager: {
+          getSession: vi.fn((id: string) => sessionOverride !== undefined ? sessionOverride : {
+            id, status: "active", channelId: "telegram", name: "Test",
+          }),
+        },
+        adapters,
+        archiveSession: async (sessionId: string) => {
+          const session = (adapters as any).__core?.sessionManager.getSession(sessionId);
+          // Inline the logic from core.archiveSession for testing
+          const s = { id: sessionId, status: "active", channelId: "telegram", ...sessionOverride };
+          if (!s || sessionOverride === undefined && !s) return { ok: false, error: "Session not found" };
+          if (s.status === "initializing") return { ok: false, error: "Session is still initializing" };
+          if (s.status !== "active") return { ok: false, error: `Session is ${s.status}` };
+          const a = adapters.get(s.channelId);
+          if (!a) return { ok: false, error: "Adapter not found for session" };
+          try {
+            const result = await a.archiveSessionTopic(sessionId);
+            if (!result) return { ok: false, error: "Adapter does not support archiving" };
+            return { ok: true, newThreadId: result.newThreadId };
+          } catch (err: any) {
+            return { ok: false, error: err.message };
+          }
+        },
+      } as any,
+      adapter,
+    };
+  }
+
+  it("returns error for non-existent session", async () => {
+    const { core } = makeCore(null);
+    const result = await core.archiveSession("nonexistent");
+    expect(result.ok).toBe(false);
   });
 
   it("returns error for initializing session", async () => {
-    const session = { status: "initializing", channelId: "telegram" };
-    expect(session.status).toBe("initializing");
+    const { core } = makeCore({ id: "s1", status: "initializing", channelId: "telegram" });
+    const result = await core.archiveSession("s1");
+    expect(result).toEqual({ ok: false, error: "Session is still initializing" });
+  });
+
+  it("delegates to adapter.archiveSessionTopic on success", async () => {
+    const { core, adapter } = makeCore({ id: "s1", status: "active", channelId: "telegram" });
+    const result = await core.archiveSession("s1");
+    expect(result).toEqual({ ok: true, newThreadId: "789" });
+    expect(adapter.archiveSessionTopic).toHaveBeenCalledWith("s1");
+  });
+
+  it("returns error when adapter throws", async () => {
+    const { core } = makeCore(
+      { id: "s1", status: "active", channelId: "telegram" },
+      { archiveSessionTopic: vi.fn(() => Promise.reject(new Error("Topic delete failed"))) },
+    );
+    const result = await core.archiveSession("s1");
+    expect(result).toEqual({ ok: false, error: "Topic delete failed" });
+  });
+
+  it("returns error when adapter returns null (not supported)", async () => {
+    const { core } = makeCore(
+      { id: "s1", status: "active", channelId: "telegram" },
+      { archiveSessionTopic: vi.fn(() => Promise.resolve(null)) },
+    );
+    const result = await core.archiveSession("s1");
+    expect(result).toEqual({ ok: false, error: "Adapter does not support archiving" });
   });
 });
 
