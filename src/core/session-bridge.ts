@@ -145,6 +145,13 @@ export class SessionBridge {
           log.debug({ commands: event.commands }, "Commands available");
           this.adapter.sendSkillCommands(this.session.id, event.commands);
           break;
+
+        case "system_message":
+          this.adapter.sendMessage(
+            this.session.id,
+            this.deps.messageTransformer.transform(event),
+          );
+          break;
       }
     };
 

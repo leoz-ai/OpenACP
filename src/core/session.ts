@@ -5,6 +5,8 @@ import { TypedEmitter } from "./typed-emitter.js";
 import { PromptQueue } from "./prompt-queue.js";
 import { PermissionGate } from "./permission-gate.js";
 import { createChildLogger, createSessionLogger, type Logger } from "./log.js";
+import type { SpeechService } from "./speech/index.js";
+import * as fs from "node:fs";
 const moduleLog = createChildLogger({ module: "session" });
 
 // Valid state transitions: from → Set<to>
@@ -42,6 +44,7 @@ export class Session extends TypedEmitter<SessionEvents> {
 
   readonly permissionGate = new PermissionGate();
   private readonly queue: PromptQueue;
+  private speechService?: SpeechService;
 
   constructor(opts: {
     id?: string;
@@ -49,6 +52,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     agentName: string;
     workingDirectory: string;
     agentInstance: AgentInstance;
+    speechService?: SpeechService;
   }) {
     super();
     this.id = opts.id || nanoid(12);
@@ -56,6 +60,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.agentName = opts.agentName;
     this.workingDirectory = opts.workingDirectory;
     this.agentInstance = opts.agentInstance;
+    this.speechService = opts.speechService;
     this.log = createSessionLogger(this.id, moduleLog);
     this.log.info({ agentName: this.agentName }, "Session created");
 
@@ -126,7 +131,6 @@ export class Session extends TypedEmitter<SessionEvents> {
   }
 
   private async processPrompt(text: string, attachments?: Attachment[]): Promise<void> {
-    // Handle warmup sentinel
     if (text === "\x00__warmup__") {
       await this.runWarmup();
       return;
@@ -138,16 +142,76 @@ export class Session extends TypedEmitter<SessionEvents> {
     const promptStart = Date.now();
     this.log.debug("Prompt execution started");
 
-    await this.agentInstance.prompt(text, attachments);
+    // STT: transcribe audio attachments if agent doesn't support audio
+    const processed = await this.maybeTranscribeAudio(text, attachments);
+
+    await this.agentInstance.prompt(processed.text, processed.attachments);
     this.log.info(
       { durationMs: Date.now() - promptStart },
       "Prompt execution completed",
     );
 
-    // Auto-name after first user prompt
     if (!this.name) {
       await this.autoName();
     }
+  }
+
+  private async maybeTranscribeAudio(
+    text: string,
+    attachments?: Attachment[],
+  ): Promise<{ text: string; attachments?: Attachment[] }> {
+    if (!attachments?.length || !this.speechService) {
+      return { text, attachments };
+    }
+
+    const hasAudioCapability = this.agentInstance.promptCapabilities?.audio === true;
+    if (hasAudioCapability) {
+      return { text, attachments };
+    }
+
+    if (!this.speechService.isSTTAvailable()) {
+      return { text, attachments };
+    }
+
+    let transcribedText = text;
+    const remainingAttachments: Attachment[] = [];
+
+    for (const att of attachments) {
+      if (att.type !== "audio") {
+        remainingAttachments.push(att);
+        continue;
+      }
+
+      try {
+        const audioPath = att.originalFilePath || att.filePath;
+        const audioMime = att.originalFilePath ? "audio/ogg" : att.mimeType;
+        const audioBuffer = await fs.promises.readFile(audioPath);
+        const result = await this.speechService.transcribe(audioBuffer, audioMime);
+        this.log.info({ provider: "stt", duration: result.duration }, "Voice transcribed");
+        // Notify user of transcription result
+        this.emit("agent_event", {
+          type: "system_message",
+          message: `🎤 You said: ${result.text}`,
+        });
+        // Strip [Audio: ...] placeholder since we have the transcription
+        transcribedText = transcribedText.replace(/\[Audio:\s*[^\]]*\]\s*/g, "").trim();
+        transcribedText = transcribedText
+          ? `${transcribedText}\n${result.text}`
+          : result.text;
+      } catch (err) {
+        this.log.warn({ err }, "STT transcription failed, keeping audio attachment");
+        this.emit("agent_event", {
+          type: "error",
+          message: `Voice transcription failed: ${(err as Error).message}`,
+        });
+        remainingAttachments.push(att);
+      }
+    }
+
+    return {
+      text: transcribedText,
+      attachments: remainingAttachments.length > 0 ? remainingAttachments : undefined,
+    };
   }
 
   // NOTE: This injects a summary prompt into the agent's conversation history.

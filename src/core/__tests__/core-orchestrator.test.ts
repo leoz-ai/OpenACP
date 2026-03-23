@@ -66,6 +66,8 @@ function mockConfigManager(config?: any) {
     sessionStore: { ttlDays: 30 },
     tunnel: { enabled: false, port: 3100, provider: 'cloudflare', options: {}, storeTtlMinutes: 60, auth: { enabled: false } },
     integrations: {},
+    usage: { enabled: false, warningThreshold: 0.8, currency: 'USD', retentionDays: 90 },
+    speech: { stt: { provider: null, providers: {} }, tts: { provider: null, providers: {} } },
   }
 
   return {
@@ -141,6 +143,8 @@ describe('OpenACPCore', () => {
         tunnel: { enabled: false, port: 3100, provider: 'cloudflare', options: {}, storeTtlMinutes: 60, auth: { enabled: false } },
         logging: { level: 'silent' },
         integrations: {},
+        usage: { enabled: false, warningThreshold: 0.8, currency: 'USD', retentionDays: 90 },
+        speech: { stt: { provider: null, providers: {} }, tts: { provider: null, providers: {} } },
       })
       const secureCore = new OpenACPCore(config)
       secureCore.registerAdapter('telegram', adapter)
@@ -173,6 +177,8 @@ describe('OpenACPCore', () => {
         tunnel: { enabled: false, port: 3100, provider: 'cloudflare', options: {}, storeTtlMinutes: 60, auth: { enabled: false } },
         logging: { level: 'silent' },
         integrations: {},
+        usage: { enabled: false, warningThreshold: 0.8, currency: 'USD', retentionDays: 90 },
+        speech: { stt: { provider: null, providers: {} }, tts: { provider: null, providers: {} } },
       })
       const secureCore = new OpenACPCore(config)
       secureCore.registerAdapter('telegram', adapter)

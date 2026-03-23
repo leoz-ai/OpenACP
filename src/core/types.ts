@@ -4,6 +4,7 @@ export interface Attachment {
   fileName: string;
   mimeType: string;
   size: number;
+  originalFilePath?: string;
 }
 
 export interface IncomingMessage {
@@ -24,7 +25,8 @@ export interface OutgoingMessage {
     | "usage"
     | "session_end"
     | "error"
-    | "attachment";
+    | "attachment"
+    | "system_message";
   text: string;
   metadata?: Record<string, unknown>;
   attachment?: Attachment;
@@ -92,7 +94,8 @@ export type AgentEvent =
   | { type: "image_content"; data: string; mimeType: string }
   | { type: "audio_content"; data: string; mimeType: string }
   | { type: "session_end"; reason: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "system_message"; message: string };
 
 export interface PlanEntry {
   content: string;

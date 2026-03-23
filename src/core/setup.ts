@@ -751,6 +751,10 @@ export async function runSetup(configManager: ConfigManager): Promise<boolean> {
         retentionDays: 90,
       },
       integrations: {},
+      speech: {
+        stt: { provider: null, providers: {} },
+        tts: { provider: null, providers: {} },
+      },
     };
 
     try {
