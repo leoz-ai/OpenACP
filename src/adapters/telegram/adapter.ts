@@ -52,6 +52,29 @@ interface TelegramMessageCtx {
   threadId: number;
 }
 
+interface ToolCallMetadata {
+  id: string;
+  name: string;
+  kind?: string;
+  status?: string;
+  content?: unknown;
+  viewerLinks?: { file?: string; diff?: string };
+  viewerFilePath?: string;
+}
+
+interface ToolUpdateMetadata extends ToolCallMetadata {
+  status: string;
+}
+
+interface PlanMetadata {
+  entries: Array<{ content: string; status: string; priority: string }>;
+}
+
+interface UsageMetadata {
+  tokensUsed?: number;
+  contextSize?: number;
+}
+
 /**
  * Wraps native fetch to work around grammY's polyfilled AbortController.
  * grammY uses abort-controller polyfill whose AbortSignal fails instanceof
@@ -110,7 +133,7 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
   }
 
   constructor(core: OpenACPCore, config: TelegramChannelConfig) {
-    super(core, config as never);
+    super(core, config);
     this.telegramConfig = config;
   }
 
@@ -165,7 +188,7 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
     // Ensure allowed_updates includes callback_query on every poll
     this.bot.api.config.use((prev, method, payload, signal) => {
       if (method === "getUpdates") {
-        const p = payload as never as Record<string, unknown>;
+        const p = payload as Record<string, unknown>;
         p.allowed_updates = (p.allowed_updates as string[] | undefined) ?? [
           "message",
           "callback_query",
@@ -520,42 +543,24 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
       const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
       await tracker.onToolCall();
       await this.draftManager.finalize(ctx.sessionId, this.assistantSession?.id);
-      const meta = content.metadata as never as {
-        id: string;
-        name: string;
-        kind?: string;
-        status?: string;
-        content?: unknown;
-        viewerLinks?: { file?: string; diff?: string };
-      };
+      const meta = content.metadata as ToolCallMetadata | undefined;
       await this.toolTracker.trackNewCall(ctx.sessionId, ctx.threadId, {
-        ...meta,
-        viewerFilePath: (content.metadata as any)?.viewerFilePath,
+        ...meta!,
       });
     },
 
     onToolUpdate: async (ctx, content) => {
-      const meta = content.metadata as never as {
-        id: string;
-        name: string;
-        kind?: string;
-        status: string;
-        content?: unknown;
-        viewerLinks?: { file?: string; diff?: string };
-      };
+      const meta = content.metadata as ToolUpdateMetadata | undefined;
       await this.toolTracker.updateCall(ctx.sessionId, {
-        ...meta,
-        viewerFilePath: (content.metadata as any)?.viewerFilePath,
+        ...meta!,
       });
     },
 
     onPlan: async (ctx, content) => {
-      const meta = content.metadata as never as {
-        entries: Array<{ content: string; status: string; priority: string }>;
-      };
+      const meta = content.metadata as PlanMetadata | undefined;
       const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
       await tracker.onPlan(
-        meta.entries.map(e => ({
+        meta!.entries.map(e => ({
           content: e.content,
           status: e.status as 'pending' | 'in_progress' | 'completed',
           priority: (e.priority ?? 'medium') as 'high' | 'medium' | 'low',
@@ -564,13 +569,10 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
     },
 
     onUsage: async (ctx, content) => {
-      const meta = content.metadata as never as {
-        tokensUsed?: number;
-        contextSize?: number;
-      };
+      const meta = content.metadata as UsageMetadata | undefined;
       await this.draftManager.finalize(ctx.sessionId, this.assistantSession?.id);
       const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-      await tracker.sendUsage(meta);
+      await tracker.sendUsage(meta ?? {});
 
       // Notify the Notifications topic that a prompt has completed
       if (this.notificationTopicId && ctx.sessionId !== this.assistantSession?.id) {
