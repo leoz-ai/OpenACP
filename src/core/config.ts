@@ -72,6 +72,31 @@ const UsageSchema = z
 
 export type UsageConfig = z.infer<typeof UsageSchema>;
 
+const SpeechProviderSchema = z
+  .object({
+    apiKey: z.string().min(1),
+    model: z.string().optional(),
+  })
+  .passthrough();
+
+const SpeechSchema = z
+  .object({
+    stt: z
+      .object({
+        provider: z.string().nullable().default(null),
+        providers: z.record(SpeechProviderSchema).default({}),
+      })
+      .default({}),
+    tts: z
+      .object({
+        provider: z.string().nullable().default(null),
+        providers: z.record(SpeechProviderSchema).default({}),
+      })
+      .default({}),
+  })
+  .optional()
+  .default({});
+
 export const ConfigSchema = z.object({
   channels: z.record(z.string(), BaseChannelSchema),
   agents: z.record(z.string(), AgentSchema).optional().default({}),
@@ -113,6 +138,7 @@ export const ConfigSchema = z.object({
       }),
     )
     .default({}),
+  speech: SpeechSchema,
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -338,6 +364,23 @@ export class ConfigManager extends EventEmitter {
       raw.tunnel = raw.tunnel || {};
       (raw.tunnel as Record<string, unknown>).provider =
         process.env.OPENACP_TUNNEL_PROVIDER;
+    }
+
+    // Speech env var overrides
+    if (process.env.OPENACP_SPEECH_STT_PROVIDER) {
+      raw.speech = raw.speech || {};
+      const speech = raw.speech as Record<string, any>;
+      speech.stt = speech.stt || {};
+      speech.stt.provider = process.env.OPENACP_SPEECH_STT_PROVIDER;
+    }
+    if (process.env.OPENACP_SPEECH_GROQ_API_KEY) {
+      raw.speech = raw.speech || {};
+      const speech = raw.speech as Record<string, any>;
+      speech.stt = speech.stt || {};
+      speech.stt.providers = speech.stt.providers || {};
+      speech.stt.providers.groq = speech.stt.providers.groq || {};
+      speech.stt.providers.groq.apiKey =
+        process.env.OPENACP_SPEECH_GROQ_API_KEY;
     }
   }
 

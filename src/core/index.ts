@@ -72,3 +72,14 @@ export {
   getConfigValue,
   type ConfigFieldDef,
 } from "./config-registry.js";
+export { SpeechService, GroqSTT } from "./speech/index.js";
+export type {
+  STTProvider,
+  TTSProvider,
+  STTOptions,
+  STTResult,
+  TTSOptions,
+  TTSResult,
+  SpeechServiceConfig,
+  SpeechProviderConfig,
+} from "./speech/index.js";

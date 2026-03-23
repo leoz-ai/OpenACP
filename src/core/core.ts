@@ -19,6 +19,7 @@ import { getAgentCapabilities } from "./agent-registry.js";
 import { AgentCatalog } from "./agent-catalog.js";
 import { EventBus } from "./event-bus.js";
 import { createChildLogger } from "./log.js";
+import { SpeechService, GroqSTT } from "./speech/index.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -29,6 +30,7 @@ export class OpenACPCore {
   notificationManager: NotificationManager;
   messageTransformer: MessageTransformer;
   fileService: FileService;
+  readonly speechService: SpeechService;
   adapters: Map<string, ChannelAdapter> = new Map();
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
@@ -68,6 +70,22 @@ export class OpenACPCore {
       path.join(os.homedir(), ".openacp", "files"),
     );
 
+    // Initialize speech service
+    const speechConfig = config.speech ?? {
+      stt: { provider: null, providers: {} },
+      tts: { provider: null, providers: {} },
+    };
+    this.speechService = new SpeechService(speechConfig);
+
+    // Register built-in STT providers
+    const groqConfig = speechConfig.stt?.providers?.groq;
+    if (groqConfig?.apiKey) {
+      this.speechService.registerSTTProvider(
+        "groq",
+        new GroqSTT(groqConfig.apiKey, groqConfig.model),
+      );
+    }
+
     // Hot-reload: handle config changes that need side effects
     this.configManager.on(
       "config:changed",
@@ -76,6 +94,22 @@ export class OpenACPCore {
           const { setLogLevel } = await import("./log.js");
           setLogLevel(value);
           log.info({ level: value }, "Log level changed at runtime");
+        }
+        if (configPath.startsWith("speech.")) {
+          const newConfig = this.configManager.get();
+          const newSpeechConfig = newConfig.speech ?? {
+            stt: { provider: null, providers: {} },
+            tts: { provider: null, providers: {} },
+          };
+          this.speechService.updateConfig(newSpeechConfig);
+          const groqCfg = newSpeechConfig.stt?.providers?.groq;
+          if (groqCfg?.apiKey) {
+            this.speechService.registerSTTProvider(
+              "groq",
+              new GroqSTT(groqCfg.apiKey, groqCfg.model),
+            );
+          }
+          log.info("Speech service config updated at runtime");
         }
       },
     );
@@ -258,6 +292,7 @@ export class OpenACPCore {
       agentName: params.agentName,
       workingDirectory: params.workingDirectory,
       agentInstance,
+      speechService: this.speechService,
     });
     session.agentSessionId = agentInstance.sessionId;
     if (params.initialName) {

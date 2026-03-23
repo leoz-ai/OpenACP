@@ -699,6 +699,21 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
         );
         break;
       }
+
+      case "system_message": {
+        await this.sendQueue.enqueue(() =>
+          this.bot.api.sendMessage(
+            this.telegramConfig.chatId,
+            escapeHtml(content.text),
+            {
+              message_thread_id: threadId,
+              parse_mode: "HTML",
+              disable_notification: true,
+            },
+          ),
+        );
+        break;
+      }
     }
   }
 
@@ -851,18 +866,28 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
     if (!downloaded) return;
 
     let buffer = downloaded.buffer;
+    let originalFilePath: string | undefined;
+    const sessionId = this.resolveSessionId(threadId) || "unknown";
+
     if (convertOggToWav) {
+      // Save original OGG for STT (smaller, API-compatible)
+      const oggAtt = await this.fileService.saveFile(sessionId, "voice.ogg", downloaded.buffer, "audio/ogg");
+      originalFilePath = oggAtt.filePath;
+
       try {
         buffer = await this.fileService.convertOggToWav(buffer);
       } catch (err) {
         log.warn({ err }, "OGG→WAV conversion failed, saving original OGG");
         fileName = "voice.ogg";
         mimeType = "audio/ogg";
+        originalFilePath = undefined;
       }
     }
 
-    const sessionId = this.resolveSessionId(threadId) || "unknown";
     const att = await this.fileService.saveFile(sessionId, fileName, buffer, mimeType);
+    if (originalFilePath) {
+      att.originalFilePath = originalFilePath;
+    }
 
     const rawText = caption || `[${att.type === "image" ? "Photo" : att.type === "audio" ? "Audio" : "File"}: ${att.fileName}]`;
     const text = rawText.startsWith("/") ? rawText.slice(1) : rawText;

@@ -719,12 +719,17 @@ export class ApiServer {
     const cloned = structuredClone(currentConfig) as Record<string, unknown>;
     let target: Record<string, unknown> = cloned;
     for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
       if (
-        target[parts[i]] &&
-        typeof target[parts[i]] === "object" &&
-        !Array.isArray(target[parts[i]])
+        target[part] &&
+        typeof target[part] === "object" &&
+        !Array.isArray(target[part])
       ) {
-        target = target[parts[i]] as Record<string, unknown>;
+        target = target[part] as Record<string, unknown>;
+      } else if (target[part] === undefined || target[part] === null) {
+        // Create intermediate objects for new paths (e.g. speech.stt.providers.groq.apiKey)
+        target[part] = {};
+        target = target[part] as Record<string, unknown>;
       } else {
         this.sendJson(res, 400, { error: "Invalid config path" });
         return;
@@ -732,11 +737,6 @@ export class ApiServer {
     }
 
     const lastKey = parts[parts.length - 1];
-    if (!(lastKey in target)) {
-      this.sendJson(res, 400, { error: "Invalid config path" });
-      return;
-    }
-
     target[lastKey] = value;
 
     // Validate with Zod

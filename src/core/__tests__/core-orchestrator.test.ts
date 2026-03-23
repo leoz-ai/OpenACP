@@ -85,6 +85,10 @@ function mockConfigManager(config?: any) {
       retentionDays: 90,
     },
     integrations: {},
+    speech: {
+      stt: { provider: null, providers: {} },
+      tts: { provider: null, providers: {} },
+    },
   };
 
   return {
@@ -173,6 +177,10 @@ describe("OpenACPCore", () => {
         },
         logging: { level: "silent" },
         integrations: {},
+        speech: {
+          stt: { provider: null, providers: {} },
+          tts: { provider: null, providers: {} },
+        },
       });
       const secureCore = new OpenACPCore(config);
       secureCore.registerAdapter("telegram", adapter);
@@ -218,6 +226,10 @@ describe("OpenACPCore", () => {
         },
         logging: { level: "silent" },
         integrations: {},
+        speech: {
+          stt: { provider: null, providers: {} },
+          tts: { provider: null, providers: {} },
+        },
       });
       const secureCore = new OpenACPCore(config);
       secureCore.registerAdapter("telegram", adapter);

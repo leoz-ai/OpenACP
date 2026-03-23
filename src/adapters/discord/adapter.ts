@@ -543,6 +543,16 @@ export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
         }
         break
       }
+
+      case 'system_message': {
+        try {
+          await this.sendQueue.enqueue(
+            () => thread.send({ content: content.text }),
+            { type: 'other' },
+          )
+        } catch { /* best effort */ }
+        break
+      }
     }
   }
 

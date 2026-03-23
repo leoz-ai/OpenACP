@@ -68,6 +68,10 @@ describe("ApiServer", () => {
         autoStart: false,
         api: { port: 21420, host: "127.0.0.1" },
         integrations: {},
+        speech: {
+          stt: { provider: null, providers: {} },
+          tts: { provider: null, providers: {} },
+        },
       })),
       save: vi.fn(),
       resolveWorkspace: vi.fn(() => "/tmp/ws"),
@@ -785,6 +789,10 @@ describe("ApiServer", () => {
         options: {},
         storeTtlMinutes: 60,
         auth: { enabled: false },
+      },
+      speech: {
+        stt: { provider: null, providers: {} },
+        tts: { provider: null, providers: {} },
       },
     };
     mockCore.configManager.get.mockReturnValue(fullConfig);
