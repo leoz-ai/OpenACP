@@ -19,14 +19,17 @@ This spec addresses the 4 critical issues identified during the PR #19 code revi
 **Design:**
 
 1. **Token generation:** On first API server start, generate a 32-byte random hex token using `crypto.randomBytes(32).toString('hex')`.
-2. **Storage:** Write to `~/.openacp/api-secret` with file permission `0600`. If the file already exists, read and reuse the existing token.
-3. **Validation:** Add an `authenticate()` method to `APIServer` that extracts the token from the `Authorization: Bearer <token>` header and compares it against the stored secret. Called at the top of `handleRequest()` before any routing.
-4. **Rejection:** Return `401 Unauthorized` with `{ error: "Unauthorized" }` for missing or invalid tokens.
-5. **Client integration:** Runtime CLI commands (`openacp runtime ...`) read the token from `~/.openacp/api-secret` and attach it as an `Authorization` header when calling the API.
+2. **Storage:** Write to `~/.openacp/api-secret` with file permission `0600`. If the file already exists, read and reuse the existing token. Token persists across daemon restarts.
+3. **Validation:** Add an `authenticate()` method to `APIServer` that extracts the token from the `Authorization: Bearer <token>` header and compares it against the stored secret using timing-safe comparison. Called at the top of `handleRequest()` before routing.
+4. **Exempt routes:** `GET /api/health` and `GET /api/version` are exempt from authentication (used for monitoring/probes).
+5. **Rejection:** Return `401 Unauthorized` with `{ error: "Unauthorized" }` for missing or invalid tokens on all other routes.
+6. **Client integration:** `src/core/api-client.ts` (`apiCall()`) reads the token from `~/.openacp/api-secret` and attaches it as an `Authorization: Bearer` header. The raw `fetch()` call in `src/cli/commands.ts` (adopt endpoint) must also be migrated to use `apiCall()` or have auth added directly.
+7. **Token rotation:** Delete `~/.openacp/api-secret` and restart daemon to regenerate. No additional mechanism needed for a local-only API.
 
 **Files changed:**
-- `src/core/api-server.ts` — add auth middleware
-- Runtime CLI code that calls the API — add auth header
+- `src/core/api-server.ts` — add auth middleware, exempt health/version routes
+- `src/core/api-client.ts` — read token and attach auth header in `apiCall()`
+- `src/cli/commands.ts` — migrate raw `fetch()` at adopt endpoint to use `apiCall()` or add auth header
 
 **Edge cases:**
 - If `api-secret` file is missing when CLI tries to read it, print a clear error ("Daemon not running or API secret not found").
@@ -41,13 +44,15 @@ This spec addresses the 4 critical issues identified during the PR #19 code revi
 **Design:**
 
 1. **`escapeXml(str)`** — Escapes `&`, `<`, `>`, `"`, `'` for safe insertion into XML `<string>` elements.
-2. **`escapeSystemdExecStart(str)`** — Wraps the value in quotes and escapes embedded quotes/backslashes per systemd exec syntax.
-3. **Apply escaping** to all interpolated values in `generateLaunchdPlist()` and `generateSystemdUnit()`.
+2. **`escapeSystemdValue(str)`** — Escapes quotes, backslashes, and `%` characters (systemd specifier prefix, doubled to `%%`) for safe insertion into systemd unit values. Each argument is quoted individually on the `ExecStart=` line.
+3. **Apply escaping** to all interpolated values:
+   - `generateLaunchdPlist()`: `nodePath`, `cliPath`, `logFile` (note: `LAUNCHD_LABEL` is a constant and safe)
+   - `generateSystemdUnit()`: `nodePath`, `cliPath` (each quoted individually)
 
 **Files changed:**
 - `src/core/autostart.ts` — add escape helpers, apply to template literals
 
-**Validation:** Paths with spaces, quotes, ampersands, and angle brackets must produce valid XML/unit files.
+**Validation:** Paths with spaces, quotes, ampersands, angle brackets, and `%` characters must produce valid XML/unit files.
 
 ---
 
@@ -68,24 +73,26 @@ This spec addresses the 4 critical issues identified during the PR #19 code revi
 
 **Design:**
 
-1. **Make `stopDaemon()` async.**
+1. **Make `stopDaemon()` async.** Return type becomes `Promise<{ stopped: boolean; pid?: number; error?: string }>`.
 2. **After sending `SIGTERM`, poll `process.kill(pid, 0)` every 100ms** to check if the process is still alive.
-3. **Timeout after 5 seconds.** If the process hasn't exited, send `SIGKILL`, wait another 1 second, then remove the PID file.
-4. **Only remove PID file after confirmed exit** (or after SIGKILL timeout).
-5. **Update all callers** of `stopDaemon()` to `await` the result.
+3. **Distinguish error codes in polling:** `ESRCH` = process exited (success), `EPERM` = process exists but we lost permission (PID reuse by another user — treat as exited to avoid signaling a foreign process).
+4. **Timeout after 5 seconds.** If the process hasn't exited, attempt `SIGKILL`. If `SIGKILL` fails with `EPERM`, return an error without removing the PID file (PID was reused). If `SIGKILL` succeeds, wait another 1 second, then remove PID file.
+5. **Only remove PID file after confirmed exit** (or after successful SIGKILL).
+6. **Update all callers** of `stopDaemon()` to `await` the result, including the re-export in `src/core/index.ts`.
 
 **Files changed:**
-- `src/core/daemon.ts` — make `stopDaemon` async, add polling logic
+- `src/core/daemon.ts` — make `stopDaemon` async, add polling logic with error discrimination
+- `src/core/index.ts` — update re-export type
 - Callers of `stopDaemon()` — add `await`
 
 ---
 
 ## Testing Strategy
 
-- **Fix 1:** Unit test that requests without auth header get 401; requests with correct token succeed.
-- **Fix 2:** Unit test that `escapeXml` and `escapeSystemdExecStart` produce correct output for paths with special characters. Verify generated plist/unit are well-formed.
+- **Fix 1:** Unit test that requests without auth header get 401; requests with correct token succeed; health/version routes work without auth.
+- **Fix 2:** Unit test that `escapeXml` and `escapeSystemdValue` produce correct output for paths with special characters (`<`, `>`, `&`, `"`, `'`, `%`, spaces). Verify generated plist/unit are well-formed.
 - **Fix 3:** No test needed — just removing an import.
-- **Fix 4:** Unit test that `stopDaemon` waits for process exit before removing PID file. Mock `process.kill` to simulate delayed exit.
+- **Fix 4:** Unit test that `stopDaemon` waits for process exit before removing PID file. Mock `process.kill` to simulate delayed exit, ESRCH, and EPERM cases.
 
 ---
 
