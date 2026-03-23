@@ -52,7 +52,12 @@ function redactDeep(obj: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(obj)) {
     if (SENSITIVE_KEYS.includes(key) && typeof value === "string") {
       obj[key] = "***";
-    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === "object")
+          redactDeep(item as Record<string, unknown>);
+      }
+    } else if (value && typeof value === "object") {
       redactDeep(value as Record<string, unknown>);
     }
   }
@@ -691,10 +696,27 @@ export class ApiServer {
       return;
     }
 
+    // Block prototype pollution
+    const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+    const parts = configPath.split(".");
+    if (parts.some((p) => BLOCKED_KEYS.has(p))) {
+      this.sendJson(res, 400, { error: "Invalid config path" });
+      return;
+    }
+
+    // Enforce safe-fields scope — only fields marked 'safe' can be modified via API
+    const { getFieldDef } = await import("./config-registry.js");
+    const fieldDef = getFieldDef(configPath);
+    if (!fieldDef || fieldDef.scope !== "safe") {
+      this.sendJson(res, 403, {
+        error: "This config field cannot be modified via the API",
+      });
+      return;
+    }
+
     // Pre-validate by cloning config and applying the change
     const currentConfig = this.core.configManager.get();
     const cloned = structuredClone(currentConfig) as Record<string, unknown>;
-    const parts = configPath.split(".");
     let target: Record<string, unknown> = cloned;
     for (let i = 0; i < parts.length - 1; i++) {
       if (
