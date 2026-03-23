@@ -22,6 +22,7 @@ export {
   expandHome,
   type Config,
   type LoggingConfig,
+  type UsageConfig,
   PLUGINS_DIR,
 } from "./config.js";
 export { AgentInstance } from "./agent-instance.js";
@@ -35,6 +36,8 @@ export { FileService } from "./file-service.js";
 export { SessionManager } from "./session-manager.js";
 export { SessionBridge, type BridgeDeps } from "./session-bridge.js";
 export { OpenACPCore } from "./core.js";
+export { UsageStore } from "./usage-store.js";
+export { UsageBudget } from "./usage-budget.js";
 export {
   AdapterFactory,
   installPlugin,
