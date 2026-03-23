@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router";
 import { Layout } from "./components/layout/Layout";
 import { DashboardPage } from "./pages/DashboardPage";
+import { AgentsPage } from "./pages/AgentsPage";
 
 export function App() {
   return (
@@ -15,10 +16,7 @@ export function App() {
           path="/sessions/:id"
           element={<div className="text-xl">Session Detail — coming soon</div>}
         />
-        <Route
-          path="/agents"
-          element={<div className="text-xl">Agents — coming soon</div>}
-        />
+        <Route path="/agents" element={<AgentsPage />} />
         <Route
           path="/config"
           element={<div className="text-xl">Config — coming soon</div>}
