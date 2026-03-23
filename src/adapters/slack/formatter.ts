@@ -18,12 +18,14 @@ export interface ISlackFormatter {
 export function markdownToMrkdwn(text: string): string {
   return text
     // Fenced code blocks — preserve as-is (Slack supports ``` natively)
-    // Headers: # H1 → *H1*, ## H2 → *H2*, etc.
-    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
-    // Bold: **text** → *text*
-    .replace(/\*\*(.+?)\*\*/g, "*$1*")
-    // Italic: *text* or _text_ → _text_ (but not already-processed bold)
+    // Headers: # H1 → placeholder (protected from italic regex)
+    .replace(/^#{1,6}\s+(.+)$/gm, "\x00BOLD\x00$1\x00BOLD\x00")
+    // Bold: **text** → placeholder
+    .replace(/\*\*(.+?)\*\*/g, "\x00BOLD\x00$1\x00BOLD\x00")
+    // Italic: *text* → _text_ (won't match placeholder tokens)
     .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "_$1_")
+    // Restore bold/header placeholders → *text*
+    .replace(/\x00BOLD\x00(.+?)\x00BOLD\x00/g, "*$1*")
     // Inline code: `code` — kept as-is (Slack supports backtick)
     // Strikethrough: ~~text~~ → ~text~
     .replace(/~~(.+?)~~/g, "~$1~")

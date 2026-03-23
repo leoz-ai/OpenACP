@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SlackFormatter } from "./formatter.js";
+import { SlackFormatter, markdownToMrkdwn } from "./formatter.js";
 // Import OutgoingMessage type from core
 
 const fmt = new SlackFormatter();
@@ -32,6 +32,36 @@ describe("SlackFormatter.formatOutgoing", () => {
     const blocks = fmt.formatSessionEnd("timeout");
     expect(blocks[0].type).toBe("divider");
     expect(blocks[1].type).toBe("context");
+  });
+});
+
+describe("markdownToMrkdwn", () => {
+  it("converts bold without turning it into italic", () => {
+    expect(markdownToMrkdwn("**bold text**")).toBe("*bold text*");
+  });
+
+  it("converts italic correctly", () => {
+    expect(markdownToMrkdwn("*italic text*")).toBe("_italic text_");
+  });
+
+  it("bold and italic in same string stay separate", () => {
+    expect(markdownToMrkdwn("**bold** and *italic*")).toBe("*bold* and _italic_");
+  });
+
+  it("converts headers to bold", () => {
+    expect(markdownToMrkdwn("## Hello")).toBe("*Hello*");
+  });
+
+  it("converts links", () => {
+    expect(markdownToMrkdwn("[text](https://example.com)")).toBe("<https://example.com|text>");
+  });
+
+  it("converts strikethrough", () => {
+    expect(markdownToMrkdwn("~~strike~~")).toBe("~strike~");
+  });
+
+  it("converts list items", () => {
+    expect(markdownToMrkdwn("- item")).toBe("• item");
   });
 });
 
