@@ -30,7 +30,7 @@ import {
 } from './assistant.js'
 import type { Attachment } from '../../core/types.js'
 import type { FileService } from '../../core/file-service.js'
-import { buildFallbackText, downloadDiscordAttachment } from './media.js'
+import { buildFallbackText, downloadDiscordAttachment, isAttachmentTooLarge } from './media.js'
 
 export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
   private client: Client
@@ -489,6 +489,34 @@ export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
             { type: 'other' },
           )
         } catch { /* best effort */ }
+        break
+      }
+
+      case 'attachment': {
+        if (!content.attachment) break
+        const { attachment } = content
+        await this.draftManager.finalize(sessionId, thread, isAssistant)
+
+        // Discord free tier limit: 25MB
+        if (isAttachmentTooLarge(attachment.size)) {
+          log.warn({ sessionId, fileName: attachment.fileName, size: attachment.size }, '[discord-media] File too large (>25MB)')
+          try {
+            await this.sendQueue.enqueue(
+              () => thread.send({ content: `⚠️ File too large to send (${Math.round(attachment.size / 1024 / 1024)}MB): ${attachment.fileName}` }),
+              { type: 'other' },
+            )
+          } catch { /* best effort */ }
+          break
+        }
+
+        try {
+          await this.sendQueue.enqueue(
+            () => thread.send({ files: [{ attachment: attachment.filePath, name: attachment.fileName }] }),
+            { type: 'other' },
+          )
+        } catch (err) {
+          log.error({ err, sessionId, fileName: attachment.fileName }, '[discord-media] Failed to send attachment')
+        }
         break
       }
     }
