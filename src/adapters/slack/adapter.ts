@@ -102,8 +102,15 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
       },
       this.botUserId,
       this.slackConfig.notificationChannelId,
-      // onNewSession: no-op — session is created at startup, not on demand
-      (_text, _userId) => {},
+      // onNewSession: reply with guidance when user messages the notification channel
+      async (_text, _userId) => {
+        if (this.slackConfig.notificationChannelId) {
+          await this.queue.enqueue("chat.postMessage", {
+            channel: this.slackConfig.notificationChannelId,
+            text: "💬 To start a new session, use the `/openacp-new` slash command in any channel.",
+          }).catch((err: unknown) => log.warn({ err }, "Failed to send onNewSession reply"));
+        }
+      },
     );
     this.eventRouter.register(this.app);
 
