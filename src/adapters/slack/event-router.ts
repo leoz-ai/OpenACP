@@ -1,6 +1,8 @@
 // src/adapters/slack/event-router.ts
 import type { App } from "@slack/bolt";
 import type { SlackSessionMeta } from "./types.js";
+import { createChildLogger } from "../../core/log.js";
+const log = createChildLogger({ module: "slack-event-router" });
 
 // Callback to look up which session (if any) owns a Slack channelId
 export type SessionLookup = (channelId: string) => SlackSessionMeta | undefined;
@@ -26,6 +28,8 @@ export class SlackEventRouter implements ISlackEventRouter {
 
   register(app: App): void {
     app.message(async ({ message }) => {
+      log.debug({ message }, "Slack raw message event");
+
       // Ignore bot messages (including our own)
       if ((message as any).bot_id) return;
       if ((message as any).subtype) return;  // edited, deleted, etc.
@@ -34,15 +38,20 @@ export class SlackEventRouter implements ISlackEventRouter {
       const text: string = (message as any).text ?? "";
       const userId: string = (message as any).user ?? "";
 
+      log.debug({ channelId, userId, text }, "Slack message received");
+
       // Ignore messages from the bot itself
       if (userId === this.botUserId) return;
 
       const session = this.sessionLookup(channelId);
       if (session) {
         // Message to an existing session channel
+        log.debug({ channelId, sessionSlug: session.channelSlug }, "Routing to session");
         this.onIncoming(session.channelSlug, text, userId);
         return;
       }
+
+      log.debug({ channelId, notificationChannelId: this.notificationChannelId }, "No session found for channel");
 
       // Message to the notification channel → create new session
       if (this.notificationChannelId && channelId === this.notificationChannelId) {

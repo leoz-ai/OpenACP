@@ -18,6 +18,7 @@ import { SlackFormatter } from "./formatter.js";
 import { SlackChannelManager } from "./channel-manager.js";
 import { SlackPermissionHandler } from "./permission-handler.js";
 import { SlackEventRouter } from "./event-router.js";
+import { SlackTextBuffer } from "./text-buffer.js";
 
 export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
   private app!: App;
@@ -28,6 +29,7 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
   private permissionHandler!: SlackPermissionHandler;
   private eventRouter!: SlackEventRouter;
   private sessions = new Map<string, SlackSessionMeta>();
+  private textBuffers = new Map<string, SlackTextBuffer>();
   private botUserId = "";
   private slackConfig: SlackChannelConfig;
 
@@ -68,7 +70,6 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
     this.permissionHandler = new SlackPermissionHandler(
       this.queue,
       (requestId, optionId) => {
-        // Find the session whose pending permission request matches requestId
         for (const [sessionId, _meta] of this.sessions) {
           const session = this.core.sessionManager.getSession(sessionId);
           if (session && session.permissionGate.requestId === requestId) {
@@ -85,19 +86,12 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
     // Event router — dispatch incoming messages from session channels to core
     this.eventRouter = new SlackEventRouter(
       (slackChannelId) => {
-        // Find session meta by Slack channel ID
         for (const meta of this.sessions.values()) {
           if (meta.channelId === slackChannelId) return meta;
         }
         return undefined;
       },
       (sessionChannelSlug, text, userId) => {
-        // Find session by slug (channelSlug == threadId stored in session)
-        const session = this.core.sessionManager.getSessionByThread("slack", sessionChannelSlug);
-        if (!session) {
-          log.warn({ sessionChannelSlug }, "No session found for incoming Slack message");
-          return;
-        }
         this.core
           .handleMessage({
             channelId: "slack",
@@ -109,32 +103,41 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
       },
       this.botUserId,
       this.slackConfig.notificationChannelId,
-      (text, userId) => {
-        // Message to notification channel → create a new session
-        const config = this.core.configManager.get();
-        if (config.security.allowedUserIds.length > 0 && !config.security.allowedUserIds.includes(userId)) {
-          log.warn({ userId }, "Rejected new session request from unauthorized Slack user");
-          return;
-        }
-        this.core
-          .handleNewSession("slack")
-          .then(async (session) => {
-            // Send the first message once session channel is ready
-            await this.core.handleMessage({
-              channelId: "slack",
-              threadId: session.threadId!,
-              userId,
-              text,
-            });
-          })
-          .catch((err) => log.error({ err }, "Failed to create new session from Slack"));
-      },
+      // onNewSession: no-op — session is created at startup, not on demand
+      (_text, _userId) => {},
     );
     this.eventRouter.register(this.app);
 
     // Start Bolt (Socket Mode)
     await this.app.start();
     log.info("Slack adapter started (Socket Mode)");
+
+    // Create the startup session + channel
+    await this._createStartupSession();
+  }
+
+  private async _createStartupSession(): Promise<void> {
+    try {
+      const session = await this.core.handleNewSession("slack", undefined, undefined, { createThread: true });
+      if (!session.threadId) {
+        log.error({ sessionId: session.id }, "Startup session created without threadId");
+        return;
+      }
+      log.info({ sessionId: session.id, threadId: session.threadId }, "Slack startup session ready");
+
+      // Notify the notification channel so the user knows which channel to use
+      if (this.slackConfig.notificationChannelId) {
+        const meta = this.sessions.get(session.id);
+        if (meta) {
+          await this.queue.enqueue("chat.postMessage", {
+            channel: this.slackConfig.notificationChannelId,
+            text: `✅ OpenACP ready — chat with the agent in <#${meta.channelId}>`,
+          });
+        }
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to create Slack startup session");
+    }
   }
 
   async stop(): Promise<void> {
@@ -170,7 +173,14 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
         name: newSlug,
       });
       meta.channelSlug = newSlug;
-      await this.core.sessionManager.patchRecord(sessionId, { name: newName });
+      // Update session.threadId so getSessionByThread() keeps working after rename
+      const session = this.core.sessionManager.getSession(sessionId);
+      if (session) session.threadId = newSlug;
+      const existingRecord = this.core.sessionManager.getSessionRecord(sessionId);
+      await this.core.sessionManager.patchRecord(sessionId, {
+        name: newName,
+        platform: { ...(existingRecord?.platform ?? {}), topicId: newSlug },
+      });
       log.info({ sessionId, newSlug }, "Session channel renamed");
     } catch (err) {
       log.warn({ err, sessionId }, "Failed to rename Slack channel");
@@ -188,6 +198,17 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
       log.warn({ err, sessionId }, "Failed to archive Slack channel");
     }
     this.sessions.delete(sessionId);
+    const buf = this.textBuffers.get(sessionId);
+    if (buf) { buf.destroy(); this.textBuffers.delete(sessionId); }
+  }
+
+  private getTextBuffer(sessionId: string, channelId: string): SlackTextBuffer {
+    let buf = this.textBuffers.get(sessionId);
+    if (!buf) {
+      buf = new SlackTextBuffer(channelId, sessionId, this.queue);
+      this.textBuffers.set(sessionId, buf);
+    }
+    return buf;
   }
 
   async sendMessage(sessionId: string, content: OutgoingMessage): Promise<void> {
@@ -195,6 +216,23 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
     if (!meta) {
       log.warn({ sessionId }, "No Slack channel for session, skipping message");
       return;
+    }
+
+    // Text chunks are buffered and flushed as a single message after idle timeout
+    if (content.type === "text") {
+      const buf = this.getTextBuffer(sessionId, meta.channelId);
+      buf.append(content.text ?? "");
+      return;
+    }
+
+    // For session_end / error: flush any pending text first, then send the event
+    if (content.type === "session_end" || content.type === "error") {
+      const buf = this.textBuffers.get(sessionId);
+      if (buf) {
+        await buf.flush();
+        buf.destroy();
+        this.textBuffers.delete(sessionId);
+      }
     }
 
     const blocks = this.formatter.formatOutgoing(content);

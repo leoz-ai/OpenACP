@@ -13,6 +13,7 @@
     "dev": "tsc --watch",
     "dev:loop": "./scripts/dev-loop.sh",
     "start": "node dist/cli.js",
+    "debug": "OPENACP_DEBUG=true pnpm start 2>&1 | pino-pretty",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky"

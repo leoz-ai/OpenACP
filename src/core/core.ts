@@ -236,7 +236,9 @@ export class OpenACPCore {
       ...(existingRecord?.platform ?? {}),
     };
     if (session.threadId) {
-      platform.topicId = Number(session.threadId);
+      // Telegram uses numeric topic IDs; other adapters may use string thread IDs
+      const numericId = Number(session.threadId);
+      platform.topicId = Number.isNaN(numericId) ? session.threadId : numericId;
     }
     await this.sessionManager.patchRecord(session.id, {
       sessionId: session.id,
@@ -262,6 +264,7 @@ export class OpenACPCore {
     channelId: string,
     agentName?: string,
     workspacePath?: string,
+    options?: { createThread?: boolean },
   ): Promise<Session> {
     const config = this.configManager.get();
     const resolvedAgent = agentName || config.defaultAgent;
@@ -275,6 +278,7 @@ export class OpenACPCore {
       channelId,
       agentName: resolvedAgent,
       workingDirectory: resolvedWorkspace,
+      createThread: options?.createThread,
     });
   }
 

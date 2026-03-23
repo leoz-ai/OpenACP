@@ -11,6 +11,30 @@ export interface ISlackFormatter {
   formatSessionEnd(reason?: string): KnownBlock[];
 }
 
+/**
+ * Convert a markdown string to Slack mrkdwn format.
+ * Handles the most common patterns from AI responses.
+ */
+export function markdownToMrkdwn(text: string): string {
+  return text
+    // Fenced code blocks — preserve as-is (Slack supports ``` natively)
+    // Headers: # H1 → *H1*, ## H2 → *H2*, etc.
+    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
+    // Bold: **text** → *text*
+    .replace(/\*\*(.+?)\*\*/g, "*$1*")
+    // Italic: *text* or _text_ → _text_ (but not already-processed bold)
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "_$1_")
+    // Inline code: `code` — kept as-is (Slack supports backtick)
+    // Strikethrough: ~~text~~ → ~text~
+    .replace(/~~(.+?)~~/g, "~$1~")
+    // Links: [text](url) → <url|text>
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "<$2|$1>")
+    // Unordered lists: "- item" or "* item" → "• item"
+    .replace(/^[ \t]*[-*]\s+/gm, "• ")
+    // Ordered lists: "1. item" → "1. item" (already fine in mrkdwn)
+    .trim();
+}
+
 // Slack mrkdwn text block, max 3000 chars per section
 const SECTION_LIMIT = 3000;
 
@@ -43,8 +67,12 @@ function splitSafe(text: string, limit = SECTION_LIMIT): string[] {
 export class SlackFormatter implements ISlackFormatter {
   formatOutgoing(message: OutgoingMessage): KnownBlock[] {
     switch (message.type) {
-      case "text":
-        return splitSafe(message.text ?? "").map(chunk => section(chunk));
+      case "text": {
+        const text = message.text ?? "";
+        if (!text.trim()) return [];
+        const converted = markdownToMrkdwn(text);
+        return splitSafe(converted).map(chunk => section(chunk));
+      }
 
       case "thought":
         return [context(`💭 _${(message.text ?? "").slice(0, 500)}_`)];
