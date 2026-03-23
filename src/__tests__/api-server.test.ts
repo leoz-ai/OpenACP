@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as net from "node:net";
+import { EventBus } from "../core/event-bus.js";
 
 describe("ApiServer", () => {
   let tmpDir: string;
@@ -75,7 +76,8 @@ describe("ApiServer", () => {
     adapters: new Map(),
     notificationManager: { notifyAll: vi.fn() },
     requestRestart: vi.fn(),
-    tunnelService: undefined as any,
+    tunnelService: undefined as unknown,
+    eventBus: new EventBus(),
   };
 
   beforeEach(() => {
@@ -885,5 +887,77 @@ describe("ApiServer", () => {
     const data2 = (await res2.json()) as any;
     expect(data2.ok).toBe(true);
     expect(data2.needsRestart).toBe(true);
+  });
+
+  it("GET /api/events returns SSE headers", async () => {
+    mockCore.eventBus = new EventBus();
+    const port = await startServer();
+
+    const controller = new AbortController();
+    const res = await apiFetch(port, "/api/events", {
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    expect(res.headers.get("cache-control")).toBe("no-cache");
+    controller.abort();
+  });
+
+  it("GET /api/events streams session:created events", async () => {
+    const eventBus = new EventBus();
+    mockCore.eventBus = eventBus;
+    const port = await startServer();
+
+    const controller = new AbortController();
+    const res = await apiFetch(port, "/api/events", {
+      signal: controller.signal,
+    });
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    // Wait for SSE connection to be registered
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Emit event after connection
+    eventBus.emit("session:created", {
+      sessionId: "s1",
+      agent: "claude",
+      status: "initializing",
+    });
+
+    // Read SSE data
+    const { value } = await reader.read();
+    const text = decoder.decode(value);
+    expect(text).toContain("event: session:created");
+    expect(text).toContain('"sessionId":"s1"');
+    controller.abort();
+  });
+
+  it("GET /api/events supports sessionId filter for agent:event", async () => {
+    const eventBus = new EventBus();
+    mockCore.eventBus = eventBus;
+    const port = await startServer();
+
+    const controller = new AbortController();
+    const res = await apiFetch(port, "/api/events?sessionId=s1", {
+      signal: controller.signal,
+    });
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    // Wait for SSE connection to be registered
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Emit event for target session — should be received
+    eventBus.emit("agent:event", {
+      sessionId: "s1",
+      event: { type: "text", content: "right" } as any,
+    });
+
+    const { value } = await reader.read();
+    const text = decoder.decode(value);
+    expect(text).toContain('"sessionId":"s1"');
+    expect(text).toContain("right");
+    controller.abort();
   });
 });

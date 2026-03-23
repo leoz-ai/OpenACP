@@ -8,6 +8,10 @@ import type { TopicManager } from "./topic-manager.js";
 import { createChildLogger } from "./log.js";
 import { getAgentCapabilities } from "./agent-registry.js";
 
+interface SSEResponse extends http.ServerResponse {
+  sessionFilter?: string;
+}
+
 const log = createChildLogger({ module: "api-server" });
 
 const DEFAULT_PORT_FILE = path.join(os.homedir(), ".openacp", "api.port");
@@ -65,6 +69,9 @@ export class ApiServer {
   private actualPort: number = 0;
   private portFilePath: string;
   private startedAt = Date.now();
+  private sseConnections = new Set<http.ServerResponse>();
+  private sseCleanupHandlers = new Map<http.ServerResponse, () => void>();
+  private healthInterval?: ReturnType<typeof setInterval>;
 
   constructor(
     private core: OpenACPCore,
@@ -103,12 +110,18 @@ export class ApiServer {
           { host: this.config.host, port: this.actualPort },
           "API server listening",
         );
+        this.setupSSE();
         resolve();
       });
     });
   }
 
   async stop(): Promise<void> {
+    if (this.healthInterval) clearInterval(this.healthInterval);
+    for (const [res, cleanup] of this.sseCleanupHandlers) {
+      res.end();
+      cleanup();
+    }
     this.removePortFile();
     if (this.server) {
       await new Promise<void>((resolve) => {
@@ -214,6 +227,9 @@ export class ApiServer {
       } else if (method === "DELETE" && url.match(/^\/api\/topics\/([^/?]+)/)) {
         const match = url.match(/^\/api\/topics\/([^/?]+)/)!;
         await this.handleDeleteTopic(decodeURIComponent(match[1]), url, res);
+      } else if (method === "GET" && url.startsWith("/api/events")) {
+        this.handleSSE(req, res);
+        return; // Don't end the response — SSE keeps it open
       } else {
         this.sendJson(res, 404, { error: "Not found" });
       }
@@ -750,6 +766,87 @@ export class ApiServer {
       capabilities: getAgentCapabilities(a.name),
     }));
     this.sendJson(res, 200, { agents: agentsWithCaps, default: defaultAgent });
+  }
+
+  private setupSSE(): void {
+    const eventBus = this.core.eventBus;
+    if (!eventBus) return;
+
+    const events = [
+      "session:created",
+      "session:updated",
+      "session:deleted",
+      "agent:event",
+      "permission:request",
+    ] as const;
+
+    for (const eventName of events) {
+      eventBus.on(eventName, (data: unknown) => {
+        this.broadcastSSE(eventName, data);
+      });
+    }
+
+    // Health heartbeat every 30s
+    this.healthInterval = setInterval(() => {
+      const mem = process.memoryUsage();
+      const sessions = this.core.sessionManager.listSessions();
+      this.broadcastSSE("health", {
+        uptime: Date.now() - this.startedAt,
+        memory: {
+          rss: mem.rss,
+          heapUsed: mem.heapUsed,
+          heapTotal: mem.heapTotal,
+        },
+        sessions: {
+          active: sessions.filter(
+            (s) => s.status === "active" || s.status === "initializing",
+          ).length,
+          total: sessions.length,
+        },
+      });
+    }, 30_000);
+  }
+
+  private handleSSE(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const parsedUrl = new URL(req.url || "", "http://localhost");
+    const sessionFilter = parsedUrl.searchParams.get("sessionId");
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.flushHeaders();
+
+    // Store filter metadata on the response for broadcastSSE
+    (res as SSEResponse).sessionFilter = sessionFilter ?? undefined;
+
+    this.sseConnections.add(res);
+
+    const cleanup = () => {
+      this.sseConnections.delete(res);
+      this.sseCleanupHandlers.delete(res);
+    };
+    this.sseCleanupHandlers.set(res, cleanup);
+    req.on("close", cleanup);
+  }
+
+  private broadcastSSE(event: string, data: unknown): void {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    // Events that carry sessionId and should be filtered
+    const sessionEvents = [
+      "agent:event",
+      "permission:request",
+      "session:updated",
+    ];
+    for (const res of this.sseConnections) {
+      const filter = (res as SSEResponse).sessionFilter;
+      if (filter && sessionEvents.includes(event)) {
+        const eventData = data as { sessionId: string };
+        if (eventData.sessionId !== filter) continue;
+      }
+      res.write(payload);
+    }
   }
 
   private sendJson(
