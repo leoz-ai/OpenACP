@@ -10,47 +10,51 @@ const NAV_ITEMS = [
 
 export function Sidebar({ connectionStatus }: { connectionStatus: string }) {
   return (
-    <aside className="flex flex-col w-56 h-screen bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 shrink-0">
-      <div className="p-4 text-lg font-bold text-zinc-900 dark:text-white">
+    <aside className="flex flex-col w-64 h-screen shrink-0 border-r border-white/20 dark:border-white/5 bg-white/40 dark:bg-zinc-950/40 backdrop-blur-xl z-30 transition-all">
+      <div className="p-6 text-2xl font-black bg-gradient-to-br from-primary to-purple-500 bg-clip-text text-transparent drop-shadow-sm">
         OpenACP
       </div>
 
-      <nav className="flex-1 px-2 space-y-1">
+      <nav className="flex-1 px-4 space-y-2 mt-2">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === "/"}
             className={({ isActive }) =>
-              `flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-                isActive
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-medium"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${isActive
+                ? "bg-primary text-white shadow-lg shadow-primary/25 translate-x-1 outline-none"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-white/60 dark:hover:bg-zinc-800/50 hover:translate-x-1 outline-none"
               }`
             }
           >
-            <span>{item.icon}</span>
-            {item.label}
+            {({ isActive }) => (
+              <>
+                <span className={isActive ? "text-white" : "text-primary/70 dark:text-primary/50"}>{item.icon}</span>
+                {item.label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
 
-      <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
-        <div className="flex items-center gap-1.5">
+      <div className="p-6 mt-auto">
+        <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white/50 dark:bg-zinc-900/50 border border-white/20 dark:border-white/5 shadow-sm">
           <span
-            className={`w-2 h-2 rounded-full ${
-              connectionStatus === "connected"
-                ? "bg-green-500"
+            className={`w-2 h-2 rounded-full shadow-sm ${connectionStatus === "connected"
+                ? "bg-success shadow-success/50"
                 : connectionStatus === "connecting"
-                  ? "bg-yellow-500 animate-pulse"
-                  : "bg-red-500"
-            }`}
+                  ? "bg-warning animate-pulse shadow-warning/50"
+                  : "bg-danger shadow-danger/50"
+              }`}
           />
-          {connectionStatus === "connected"
-            ? "Online"
-            : connectionStatus === "connecting"
-              ? "Connecting..."
-              : "Offline"}
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {connectionStatus === "connected"
+              ? "Online"
+              : connectionStatus === "connecting"
+                ? "Connecting..."
+                : "Offline"}
+          </span>
         </div>
       </div>
     </aside>
