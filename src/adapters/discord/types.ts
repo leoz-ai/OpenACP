@@ -7,6 +7,7 @@ export interface DiscordChannelConfig {
   forumChannelId: string | null
   notificationChannelId: string | null
   assistantThreadId: string | null
+  [key: string]: unknown
 }
 
 export interface CommandsAssistantContext {

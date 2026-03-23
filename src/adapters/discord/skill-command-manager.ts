@@ -118,7 +118,7 @@ export class SkillCommandManager {
     // Clear persisted skillMsgId
     const record = this.sessionManager.getSessionRecord(sessionId)
     if (record) {
-      const platform = record.platform as DiscordPlatformData
+      const platform = record.platform as unknown as DiscordPlatformData
       const { skillMsgId: _removed, ...rest } = platform
       await this.sessionManager.patchRecord(sessionId, { platform: rest })
     }
