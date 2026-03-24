@@ -630,24 +630,39 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
         ctx.sessionId,
         this.assistantSession?.id,
       );
-      const meta = content.metadata as ToolCallMetadata | undefined;
+      const meta = (content.metadata ?? {}) as Partial<ToolCallMetadata>;
       await this.toolTracker.trackNewCall(ctx.sessionId, ctx.threadId, {
-        ...meta!,
+        id: meta.id ?? "",
+        name: meta.name ?? content.text ?? "Tool",
+        kind: meta.kind,
+        status: meta.status,
+        content: meta.content,
+        rawInput: meta.rawInput,
+        viewerLinks: meta.viewerLinks,
+        viewerFilePath: meta.viewerFilePath,
       });
     },
 
     onToolUpdate: async (ctx, content) => {
-      const meta = content.metadata as ToolUpdateMetadata | undefined;
+      const meta = (content.metadata ?? {}) as Partial<ToolUpdateMetadata>;
       await this.toolTracker.updateCall(ctx.sessionId, {
-        ...meta!,
+        id: meta.id ?? "",
+        name: meta.name ?? content.text ?? "",
+        kind: meta.kind,
+        status: meta.status ?? "completed",
+        content: meta.content,
+        rawInput: meta.rawInput,
+        viewerLinks: meta.viewerLinks,
+        viewerFilePath: meta.viewerFilePath,
       });
     },
 
     onPlan: async (ctx, content) => {
-      const meta = content.metadata as PlanMetadata | undefined;
+      const meta = (content.metadata ?? {}) as Partial<PlanMetadata>;
+      const entries = meta.entries ?? [];
       const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
       await tracker.onPlan(
-        meta!.entries.map((e) => ({
+        entries.map((e) => ({
           content: e.content,
           status: e.status as "pending" | "in_progress" | "completed",
           priority: (e.priority ?? "medium") as "high" | "medium" | "low",

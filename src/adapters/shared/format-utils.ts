@@ -49,7 +49,12 @@ export function splitMessage(text: string, maxLength: number): string[] {
       const closingFence = remaining.indexOf("```", splitAt);
       if (closingFence !== -1) {
         const afterFence = remaining.indexOf("\n", closingFence + 3);
-        splitAt = afterFence !== -1 ? afterFence + 1 : closingFence + 3;
+        const fenceSplit =
+          afterFence !== -1 ? afterFence + 1 : closingFence + 3;
+        // Only extend to include the closing fence if it doesn't exceed 2x maxLength
+        if (fenceSplit <= maxLength * 2) {
+          splitAt = fenceSplit;
+        }
       }
     }
 
