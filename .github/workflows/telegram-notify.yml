@@ -27,21 +27,25 @@ jobs:
           COMMITS_JSON: ${{ toJSON(github.event.commits) }}
           BRANCH: ${{ github.ref_name }}
           COMPARE_URL: ${{ github.event.compare }}
+          REPO: ${{ github.repository }}
         run: |
           COMMITS=""
+          COUNT=0
           for row in $(echo "$COMMITS_JSON" | jq -r '.[] | @base64'); do
             MSG=$(echo "$row" | base64 -d | jq -r '.message' | head -1)
             AUTHOR=$(echo "$row" | base64 -d | jq -r '.author.username')
             SHORT=$(echo "$row" | base64 -d | jq -r '.id' | cut -c1-7)
-            COMMITS="${COMMITS}• <code>${SHORT}</code> ${MSG} — ${AUTHOR}"$'\n'
+            COMMITS="${COMMITS}<code>${SHORT}</code> ${MSG} (${AUTHOR})"$'\n'
+            COUNT=$((COUNT + 1))
           done
 
           [ -z "$COMMITS" ] && exit 0
 
-          TEXT="🔀 <b>Push to ${BRANCH}</b>
+          TEXT="🔀 <b>${REPO}</b> — <code>${BRANCH}</code>
+          ${COUNT} new commit(s)
 
           ${COMMITS}
-          <a href=\"${COMPARE_URL}\">View changes</a>"
+          <a href=\"${COMPARE_URL}\">View diff</a>"
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
@@ -63,21 +67,25 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           ACTION: ${{ github.event.action }}
           MERGED: ${{ github.event.pull_request.merged }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          REPO: ${{ github.repository }}
         run: |
           if [ "$ACTION" = "closed" ] && [ "$MERGED" = "true" ]; then
-            EMOJI="✅"; STATUS="merged"
+            EMOJI="✅"; STATUS="Merged"
           elif [ "$ACTION" = "closed" ]; then
-            EMOJI="❌"; STATUS="closed"
+            EMOJI="❌"; STATUS="Closed"
           elif [ "$ACTION" = "reopened" ]; then
-            EMOJI="🔄"; STATUS="reopened"
+            EMOJI="🔄"; STATUS="Reopened"
           else
-            EMOJI="📬"; STATUS="opened"
+            EMOJI="📬"; STATUS="Opened"
           fi
 
-          TEXT="${EMOJI} <b>PR #${PR_NUM} ${STATUS}</b>
+          TEXT="${EMOJI} <b>${STATUS}: #${PR_NUM} ${PR_TITLE}</b>
+          <b>${REPO}</b> — <code>${HEAD}</code> → <code>${BASE}</code>
+          by ${AUTHOR}
 
-          <a href=\"${PR_URL}\">${PR_TITLE}</a>
-          by ${AUTHOR}"
+          <a href=\"${PR_URL}\">View pull request</a>"
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
@@ -94,14 +102,14 @@ jobs:
       - name: Send notification
         env:
           TAG: ${{ github.event.release.tag_name }}
-          RELEASE_NAME: ${{ github.event.release.name }}
           RELEASE_URL: ${{ github.event.release.html_url }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.release.author.login }}
         run: |
-          TEXT="🚀 <b>Release ${TAG}</b>
+          TEXT="🚀 <b>New Release: ${TAG}</b>
+          <b>${REPO}</b> — published by ${AUTHOR}
 
-          ${RELEASE_NAME}
-
-          <a href=\"${RELEASE_URL}\">View release</a>"
+          <a href=\"${RELEASE_URL}\">View release notes</a>"
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
@@ -121,13 +129,16 @@ jobs:
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           AUTHOR: ${{ github.event.workflow_run.actor.login }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
+
           TEXT="🔴 <b>CI Failed: ${WORKFLOW}</b>
+          <b>${REPO}</b> — <code>${BRANCH}</code> @ <code>${SHORT_SHA}</code>
+          Triggered by ${AUTHOR}
 
-          Branch: <code>${BRANCH}</code>
-          Triggered by: ${AUTHOR}
-
-          <a href=\"${RUN_URL}\">View run</a>"
+          <a href=\"${RUN_URL}\">View logs</a>"
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
