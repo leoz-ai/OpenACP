@@ -108,6 +108,93 @@ export async function handleDangerousButton(
   try { await interaction.followUp({ content: toastText, ephemeral: true }) } catch { /* ignore */ }
 }
 
+// ─── TTS ──────────────────────────────────────────────────────────────────────
+
+export function buildTTSKeyboard(
+  sessionId: string,
+  enabled: boolean,
+): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`v:${sessionId}`)
+      .setLabel(enabled ? '🔊 Text to Speech' : '🔇 Text to Speech')
+      .setStyle(enabled ? ButtonStyle.Success : ButtonStyle.Secondary),
+  )
+}
+
+export function buildSessionControlKeyboard(
+  sessionId: string,
+  dangerousMode: boolean,
+  voiceMode: boolean,
+): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`d:${sessionId}`)
+      .setLabel(dangerousMode ? '🔐 Disable Dangerous Mode' : '☠️ Enable Dangerous Mode')
+      .setStyle(dangerousMode ? ButtonStyle.Secondary : ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`v:${sessionId}`)
+      .setLabel(voiceMode ? '🔊 Text to Speech' : '🔇 Text to Speech')
+      .setStyle(voiceMode ? ButtonStyle.Success : ButtonStyle.Secondary),
+  )
+}
+
+export async function handleTTS(
+  interaction: ChatInputCommandInteraction,
+  adapter: DiscordAdapter,
+): Promise<void> {
+  await interaction.deferReply({ ephemeral: true })
+
+  const channelId = interaction.channelId
+  const session = adapter.core.sessionManager.getSessionByThread('discord', channelId)
+
+  if (!session) {
+    await interaction.editReply('⚠️ No active session in this channel.')
+    return
+  }
+
+  const mode = interaction.options.getString('mode')
+
+  if (mode === 'on') {
+    session.setVoiceMode('on')
+    await interaction.editReply('🔊 Text to Speech enabled for this session.')
+  } else if (mode === 'off') {
+    session.setVoiceMode('off')
+    await interaction.editReply('🔇 Text to Speech disabled.')
+  } else {
+    session.setVoiceMode('next')
+    await interaction.editReply('🔊 Text to Speech enabled for the next message.')
+  }
+}
+
+export async function handleTTSButton(
+  interaction: ButtonInteraction,
+  adapter: DiscordAdapter,
+): Promise<void> {
+  const sessionId = interaction.customId.slice(2) // strip 'v:'
+  const session = adapter.core.sessionManager.getSession(sessionId)
+
+  if (!session) {
+    await interaction.reply({ content: '⚠️ Session not found or not active.', ephemeral: true })
+    return
+  }
+
+  const newMode = session.voiceMode === 'on' ? 'off' : 'on'
+  session.setVoiceMode(newMode)
+
+  const toastText = newMode === 'on'
+    ? '🔊 Text to Speech enabled'
+    : '🔇 Text to Speech disabled'
+
+  try {
+    await interaction.update({
+      components: [buildSessionControlKeyboard(sessionId, session.dangerousMode, newMode === 'on')],
+    })
+  } catch { /* ignore */ }
+
+  try { await interaction.followUp({ content: toastText, ephemeral: true }) } catch { /* ignore */ }
+}
+
 export async function handleRestart(
   interaction: ChatInputCommandInteraction,
   adapter: DiscordAdapter,

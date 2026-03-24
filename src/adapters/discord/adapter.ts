@@ -529,6 +529,14 @@ export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
           () => ctx.thread.send({ files: [{ attachment: attachment.filePath, name: attachment.fileName }] }),
           { type: 'other' },
         )
+
+        // Strip [TTS]...[/TTS] block from the text message after audio is sent
+        if (attachment.type === 'audio') {
+          const draft = this.draftManager.getDraft(ctx.sessionId)
+          if (draft) {
+            draft.stripPattern(/\[TTS\][\s\S]*?\[\/TTS\]/g).catch(() => {})
+          }
+        }
       } catch (err) {
         log.error({ err, sessionId: ctx.sessionId, fileName: attachment.fileName }, '[discord-media] Failed to send attachment')
       }
