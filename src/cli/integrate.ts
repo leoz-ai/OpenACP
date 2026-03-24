@@ -34,11 +34,15 @@ function generateInjectScript(_agentKey: string, spec: AgentIntegrationSpec): st
   const sidVar = spec.sessionIdVar ?? "SESSION_ID";
   const cwdVar = spec.workingDirVar ?? "WORKING_DIR";
 
+  // Resolve jq: check ~/.openacp/bin first, then PATH
+  const jqResolver = `JQ=$(command -v jq 2>/dev/null || echo "$HOME/.openacp/bin/jq")`;
+
   if (spec.outputFormat === "plaintext") {
     return `#!/bin/bash
+${jqResolver}
 INPUT=$(cat)
-SESSION_ID=$(echo "$INPUT" | jq -r '${spec.sessionIdField}')
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+SESSION_ID=$(echo "$INPUT" | "$JQ" -r '${spec.sessionIdField}')
+CWD=$(echo "$INPUT" | "$JQ" -r '.cwd')
 
 echo "${sidVar}: $SESSION_ID"
 echo "${cwdVar}: $CWD"
@@ -49,11 +53,12 @@ exit 0
 
   // JSON output (Gemini, Cline, Cursor)
   return `#!/bin/bash
+${jqResolver}
 INPUT=$(cat)
-SESSION_ID=$(echo "$INPUT" | jq -r '${spec.sessionIdField}')
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+SESSION_ID=$(echo "$INPUT" | "$JQ" -r '${spec.sessionIdField}')
+CWD=$(echo "$INPUT" | "$JQ" -r '.cwd')
 
-jq -n --arg sid "$SESSION_ID" --arg cwd "$CWD" \\
+"$JQ" -n --arg sid "$SESSION_ID" --arg cwd "$CWD" \\
   '{"additionalContext":"${sidVar}: \\($sid)\\n${cwdVar}: \\($cwd)"}'
 
 exit 0
@@ -64,13 +69,14 @@ function generateHandoffScript(agentKey: string): string {
   return `#!/bin/bash
 SESSION_ID=$1
 CWD=$2
+CHANNEL=$3
 
 if [ -z "$SESSION_ID" ]; then
-  echo "Usage: openacp-handoff.sh <session_id> [cwd]"
+  echo "Usage: openacp-handoff.sh <session_id> [cwd] [channel]"
   exit 1
 fi
 
-openacp adopt ${agentKey} "$SESSION_ID" \${CWD:+--cwd "$CWD"}
+openacp adopt ${agentKey} "$SESSION_ID" \${CWD:+--cwd "$CWD"} \${CHANNEL:+--channel "$CHANNEL"}
 `;
 }
 
@@ -131,13 +137,21 @@ function generateHandoffCommand(_agentKey: string, spec: AgentIntegrationSpec): 
   const hooksDir = expandPath(spec.hooksDirPath);
 
   return `---
-description: Transfer current session to OpenACP (Telegram)
+description: Transfer current session to OpenACP (Telegram/Discord)
 ---
 
 Look at the context injected at the start of this message to find
 ${sidVar} and ${cwdVar}, then run:
 
-bash ${hooksDir}openacp-handoff.sh <${sidVar}> <${cwdVar}>
+bash ${hooksDir}openacp-handoff.sh <${sidVar}> <${cwdVar}> <args if any>
+
+Usage: /openacp:handoff [channel]
+  channel: telegram, discord, or omit for default adapter
+
+Examples:
+  /openacp:handoff
+  /openacp:handoff discord
+  /openacp:handoff telegram
 `;
 }
 
@@ -355,7 +369,7 @@ function buildHandoffItem(agentKey: string, spec: AgentIntegrationSpec): Integra
   return {
     id: "handoff",
     name: "Handoff",
-    description: "Transfer sessions between terminal and Telegram",
+    description: "Transfer sessions between terminal and messaging platforms",
     isInstalled(): boolean {
       return (
         existsSync(join(hooksDir, "openacp-inject-session.sh")) &&

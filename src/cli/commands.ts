@@ -9,7 +9,7 @@ function wantsHelp(args: string[]): boolean {
 export function printHelp(): void {
   console.log(`
 \x1b[1mOpenACP\x1b[0m — Self-hosted bridge for AI coding agents
-Connect Telegram (and more) to 28+ AI coding agents via ACP protocol.
+Connect messaging platforms (Telegram, Discord) to 28+ AI coding agents via ACP protocol.
 
 \x1b[1mGetting Started:\x1b[0m
   openacp                              First run launches setup wizard
@@ -39,13 +39,14 @@ Connect Telegram (and more) to 28+ AI coding agents via ACP protocol.
 \x1b[1mConfiguration:\x1b[0m
   openacp config                       Interactive config editor
   openacp config set <key> <value>     Set a config value
+  openacp onboard                      Re-run onboarding setup wizard
   openacp reset                        Re-run setup wizard
   openacp update                       Update to latest version
   openacp doctor                       Run system diagnostics
   openacp doctor --dry-run             Check only, don't fix
 
 \x1b[1mPlugins:\x1b[0m
-  openacp install <package>            Install adapter (e.g. @openacp/adapter-discord)
+  openacp install <package>            Install adapter plugin
   openacp uninstall <package>          Remove adapter
   openacp plugins                      List installed plugins
 
@@ -493,7 +494,8 @@ Shows the version of the currently running daemon process.
       const res = await apiCall(port, `/api/topics/${encodeURIComponent(sessionId)}${query}`, { method: 'DELETE' })
       const data = await res.json() as Record<string, unknown>
       if (res.status === 409) {
-        console.error(`Session "${sessionId}" is active (${(data.session as any)?.status}). Use --force to delete.`)
+        const session = data.session as Record<string, unknown> | undefined
+        console.error(`Session "${sessionId}" is active (${session?.status}). Use --force to delete.`)
         process.exit(1)
       }
       if (!res.ok) {
@@ -674,7 +676,7 @@ Shows the version of the currently running daemon process.
       const res = await apiCall(port, '/api/adapters')
       const data = await res.json() as { adapters: Array<{ name: string; type: string }> }
       if (!res.ok) {
-        console.error(`Error: ${(data as any).error}`)
+        console.error(`Error: ${(data as Record<string, unknown>).error}`)
         process.exit(1)
       }
       console.log('Registered adapters:')
@@ -737,7 +739,7 @@ Shows the version of the currently running daemon process.
       process.exit(1)
     }
   } catch (err) {
-    if (err instanceof TypeError && (err as any).cause?.code === 'ECONNREFUSED') {
+    if (err instanceof TypeError && (err.cause as Record<string, unknown> | undefined)?.code === 'ECONNREFUSED') {
       console.error('OpenACP is not running (stale port file)')
       removeStalePortFile()
       process.exit(1)
@@ -796,7 +798,7 @@ Sends a stop signal to the running OpenACP daemon process.
     return
   }
   const { stopDaemon } = await import('../core/daemon.js')
-  const result = stopDaemon()
+  const result = await stopDaemon()
   if (result.stopped) {
     console.log(`OpenACP daemon stopped (was PID ${result.pid})`)
   } else {
@@ -1017,12 +1019,12 @@ start fresh with the setup wizard. The daemon must be stopped first.
     process.exit(1)
   }
 
-  const { confirm } = await import('@inquirer/prompts')
-  const yes = await confirm({
+  const clack = await import('@clack/prompts')
+  const yes = await clack.confirm({
     message: 'This will delete all OpenACP data (~/.openacp). You will need to set up again. Continue?',
-    default: false,
+    initialValue: false,
   })
-  if (!yes) {
+  if (clack.isCancel(yes) || !yes) {
     console.log('Aborted.')
     return
   }
@@ -1078,22 +1080,24 @@ export async function cmdAdopt(args: string[]): Promise<void> {
 \x1b[1mopenacp adopt\x1b[0m — Adopt an external agent session
 
 \x1b[1mUsage:\x1b[0m
-  openacp adopt <agent> <session_id> [--cwd <path>]
+  openacp adopt <agent> <session_id> [--cwd <path>] [--channel <name>]
 
 \x1b[1mArguments:\x1b[0m
   <agent>         Agent name (e.g. claude)
   <session_id>    External session ID to adopt
 
 \x1b[1mOptions:\x1b[0m
-  --cwd <path>    Working directory for the session (default: current dir)
-  -h, --help      Show this help message
+  --cwd <path>       Working directory for the session (default: current dir)
+  --channel <name>   Target channel adapter (e.g. telegram, discord). Default: first registered
+  -h, --help         Show this help message
 
 Transfers an existing agent session into OpenACP so it appears
-as a Telegram topic. Requires a running daemon.
+as a messaging thread. Requires a running daemon.
 
 \x1b[1mExamples:\x1b[0m
   openacp adopt claude abc123-def456
   openacp adopt claude abc123 --cwd /path/to/project
+  openacp adopt claude abc123 --channel discord
 `)
     return
   }
@@ -1102,13 +1106,15 @@ as a Telegram topic. Requires a running daemon.
   const sessionId = args[2];
 
   if (!agent || !sessionId) {
-    console.log("Usage: openacp adopt <agent> <session_id> [--cwd <path>]");
+    console.log("Usage: openacp adopt <agent> <session_id> [--cwd <path>] [--channel <name>]");
     console.log("Example: openacp adopt claude abc123-def456 --cwd /path/to/project");
     process.exit(1);
   }
 
   const cwdIdx = args.indexOf("--cwd");
   const cwd = cwdIdx !== -1 && args[cwdIdx + 1] ? args[cwdIdx + 1] : process.cwd();
+  const channelIdx = args.indexOf("--channel");
+  const channel = channelIdx !== -1 && args[channelIdx + 1] ? args[channelIdx + 1] : undefined;
 
   const port = readApiPort();
   if (!port) {
@@ -1117,18 +1123,19 @@ as a Telegram topic. Requires a running daemon.
   }
 
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/sessions/adopt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent, agentSessionId: sessionId, cwd }),
-    });
+    const { apiCall } = await import('../core/api-client.js')
+    const res = await apiCall(port, '/api/sessions/adopt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent, agentSessionId: sessionId, cwd, channel }),
+    })
     const data = await res.json() as Record<string, unknown>;
 
     if (data.ok) {
       if (data.status === "existing") {
-        console.log(`Session already on Telegram. Topic pinged.`);
+        console.log(`Session already active. Topic pinged.`);
       } else {
-        console.log(`Session transferred to Telegram.`);
+        console.log(`Session transferred to messaging platform.`);
       }
       console.log(`  Session ID: ${data.sessionId}`);
       console.log(`  Thread ID:  ${data.threadId}`);
@@ -1159,7 +1166,7 @@ export async function cmdIntegrate(args: string[]): Promise<void> {
   -h, --help      Show this help message
 
 Integrations enable features like session handoff from an agent
-to OpenACP (Telegram). For example, the Claude integration adds
+to OpenACP (Telegram/Discord). For example, the Claude integration adds
 a "Handoff" slash command to Claude Code.
 
 \x1b[1mExamples:\x1b[0m
@@ -1275,18 +1282,19 @@ Fixable issues can be auto-repaired when not using --dry-run.
       if (dryRun) {
         console.log(`  🔧 ${pending.message} (use without --dry-run to fix)`);
       } else {
-        const { confirm } = await import("@inquirer/prompts");
-        const shouldFix = await confirm({
+        const clack = await import("@clack/prompts");
+        const shouldFix = await clack.confirm({
           message: `Fix: ${pending.message}?`,
-          default: false,
+          initialValue: false,
         });
-        if (shouldFix) {
-          const fixResult = await pending.fix();
-          if (fixResult.success) {
-            console.log(`  \x1b[32m✓ ${fixResult.message}\x1b[0m`);
-          } else {
-            console.log(`  \x1b[31m✗ Fix failed: ${fixResult.message}\x1b[0m`);
-          }
+        if (clack.isCancel(shouldFix) || !shouldFix) {
+          continue;
+        }
+        const fixResult = await pending.fix();
+        if (fixResult.success) {
+          console.log(`  \x1b[32m✓ ${fixResult.message}\x1b[0m`);
+        } else {
+          console.log(`  \x1b[31m✗ Fix failed: ${fixResult.message}\x1b[0m`);
         }
       }
     }
@@ -1802,6 +1810,13 @@ ACP-specific flags are automatically stripped.
   }
 }
 
+export async function cmdOnboard(): Promise<void> {
+  const { ConfigManager } = await import('../core/config.js')
+  const cm = new ConfigManager()
+  const { runSetup } = await import('../core/setup.js')
+  await runSetup(cm, { skipRunMode: true })
+}
+
 export async function cmdDefault(command: string | undefined): Promise<void> {
   const forceForeground = command === '--foreground'
 
@@ -1810,7 +1825,7 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
     const { suggestMatch } = await import('./suggest.js')
     const topLevelCommands = [
       'start', 'stop', 'status', 'logs', 'config', 'reset', 'update',
-      'install', 'uninstall', 'plugins', 'api', 'adopt', 'integrate', 'doctor', 'agents',
+      'install', 'uninstall', 'plugins', 'api', 'adopt', 'integrate', 'doctor', 'agents', 'onboard',
     ]
     const suggestion = suggestMatch(command, topLevelCommands)
     console.error(`Unknown command: ${command}`)

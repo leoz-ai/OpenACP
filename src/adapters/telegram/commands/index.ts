@@ -4,8 +4,8 @@ import type { CommandsAssistantContext } from "../types.js";
 
 // Domain modules
 import { handleNew, handleNewChat, setupNewSessionCallbacks, createSessionDirect } from "./new-session.js";
-import { handleCancel, handleStatus, handleTopics, handleArchive, handleArchiveConfirm, setupSessionCallbacks } from "./session.js";
-import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart } from "./admin.js";
+import { handleCancel, handleStatus, handleTopics, handleUsage, handleArchive, handleArchiveConfirm, setupSessionCallbacks } from "./session.js";
+import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart, handleTTS } from "./admin.js";
 import { handleMenu, handleHelp, handleClear, buildMenuKeyboard } from "./menu.js";
 import { handleAgents, handleInstall, handleAgentCallback } from "./agents.js";
 import { handleIntegrate } from "./integrate.js";
@@ -35,9 +35,11 @@ export function setupCommands(
   bot.command("integrate", (ctx) => handleIntegrate(ctx, core));
   bot.command("clear", (ctx) => handleClear(ctx, assistant));
   bot.command("doctor", (ctx) => handleDoctor(ctx));
+  bot.command("usage", (ctx) => handleUsage(ctx, core));
   bot.command("tunnel", (ctx) => handleTunnel(ctx, core));
   bot.command("tunnels", (ctx) => handleTunnels(ctx, core));
   bot.command("archive", (ctx) => handleArchive(ctx, core));
+  bot.command("text_to_speech", (ctx) => handleTTS(ctx, core));
 }
 
 export function setupAllCallbacks(
@@ -121,6 +123,7 @@ export { buildSkillMessages } from "./menu.js";
 export { handlePendingWorkspaceInput, executeNewSession, startInteractiveNewSession } from "./new-session.js";
 export { executeCancelSession } from "./session.js";
 export { setupDangerousModeCallbacks, buildDangerousModeKeyboard } from "./admin.js";
+export { setupTTSCallbacks, buildTTSKeyboard, buildSessionControlKeyboard, handleTTS } from "./admin.js";
 export { setupIntegrateCallbacks } from "./integrate.js";
 export { setupSettingsCallbacks } from "./settings.js";
 export { setupDoctorCallbacks } from "./doctor.js";
@@ -143,7 +146,9 @@ export const STATIC_COMMANDS = [
   { command: "restart", description: "Restart OpenACP" },
   { command: "update", description: "Update to latest version and restart" },
   { command: "doctor", description: "Run system diagnostics" },
+  { command: "usage", description: "View token usage and cost report" },
   { command: "tunnel", description: "Create/stop tunnel for a local port" },
   { command: "tunnels", description: "List active tunnels" },
   { command: "archive", description: "Archive session topic (recreate with clean history)" },
+  { command: "text_to_speech", description: "Toggle Text to Speech (/text_to_speech on, /text_to_speech off)" },
 ];
