@@ -352,7 +352,7 @@ export async function setupTelegram(stepNum = 1, totalSteps = 3): Promise<Config
     const s = clack.spinner();
     s.start("Validating token...");
     const result = await validateBotToken(botToken);
-    s.stop();
+    s.stop("Token validated");
 
     if (result.ok) {
       console.log(ok(`Connected to @${result.botUsername}`));
@@ -472,7 +472,7 @@ export async function setupDiscord(): Promise<DiscordChannelConfig> {
     const s = clack.spinner();
     s.start("Validating token...");
     const result = await validateDiscordToken(botToken);
-    s.stop();
+    s.stop("Token validated");
 
     if (result.ok) {
       console.log(ok(`Connected as @${result.username} (id: ${result.id})`));
@@ -584,7 +584,7 @@ export async function setupAgents(): Promise<{
 
     const installedKeys = installed.map(a => a.key);
     const selected = guardCancel(
-      await (clack as any).autocompleteMultiselect({
+      await clack.autocompleteMultiselect({
         message: "Install additional agents? (type to search, Space to select)",
         options,
         initialValues: installedKeys,
@@ -867,8 +867,10 @@ export async function runSetup(configManager: ConfigManager, opts?: { skipRunMod
 
     clack.outro(`Config saved to ${configManager.getConfigPath()}`);
 
-    console.log(ok("Starting OpenACP..."));
-    console.log("");
+    if (!opts?.skipRunMode) {
+      console.log(ok("Starting OpenACP..."));
+      console.log("");
+    }
 
     return true;
   } catch (err) {

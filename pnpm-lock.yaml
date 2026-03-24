@@ -17,9 +17,6 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
-      '@inquirer/prompts':
-        specifier: ^8.3.2
-        version: 8.3.2(@types/node@25.5.0)
       '@zed-industries/claude-agent-acp':
         specifier: ^0.22.2
         version: 0.22.2
