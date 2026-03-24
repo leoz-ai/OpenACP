@@ -144,6 +144,7 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
         }
       },
       this.slackConfig,
+      this.core.configManager.get().security.allowedUserIds,
     );
     this.eventRouter.register(this.app);
 
@@ -257,6 +258,16 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
   }
 
   async stop(): Promise<void> {
+    // Flush all active text buffers before stopping to prevent data loss
+    for (const [sessionId, buf] of this.textBuffers) {
+      try {
+        await buf.flush();
+      } catch (err) {
+        log.warn({ err, sessionId }, "Flush failed during stop");
+      }
+      buf.destroy();
+    }
+    this.textBuffers.clear();
     await this.app.stop();
     log.info("Slack adapter stopped");
   }

@@ -180,4 +180,70 @@ describe("SlackEventRouter", () => {
     expect(onNewSession).toHaveBeenCalledWith("new task", "U1");
     expect(onIncoming).not.toHaveBeenCalled();
   });
+
+  it("falls back to global allowedUserIds when Slack-specific list is empty", async () => {
+    const onIncoming = vi.fn();
+    const onNewSession = vi.fn();
+    const sessionLookup = vi.fn().mockReturnValue(undefined);
+    const router = new SlackEventRouter(
+      sessionLookup,
+      onIncoming,
+      "BOT1",
+      "NOTIF",
+      onNewSession,
+      makeConfig({ allowedUserIds: [] }),
+      ["U_GLOBAL_ALLOWED"],
+    );
+    const app = createMockApp();
+    router.register(app as any);
+
+    await app._trigger("message", { message: { channel: "NOTIF", user: "U_RANDOM", text: "hello" } });
+    expect(onNewSession).not.toHaveBeenCalled();
+
+    await app._trigger("message", { message: { channel: "NOTIF", user: "U_GLOBAL_ALLOWED", text: "hello" } });
+    expect(onNewSession).toHaveBeenCalledWith("hello", "U_GLOBAL_ALLOWED");
+  });
+
+  it("prefers Slack-specific list over global list when both are set", async () => {
+    const onIncoming = vi.fn();
+    const onNewSession = vi.fn();
+    const sessionLookup = vi.fn().mockReturnValue(undefined);
+    const router = new SlackEventRouter(
+      sessionLookup,
+      onIncoming,
+      "BOT1",
+      "NOTIF",
+      onNewSession,
+      makeConfig({ allowedUserIds: ["U_SLACK_ONLY"] }),
+      ["U_GLOBAL_ONLY"],
+    );
+    const app = createMockApp();
+    router.register(app as any);
+
+    await app._trigger("message", { message: { channel: "NOTIF", user: "U_GLOBAL_ONLY", text: "hello" } });
+    expect(onNewSession).not.toHaveBeenCalled();
+
+    await app._trigger("message", { message: { channel: "NOTIF", user: "U_SLACK_ONLY", text: "hello" } });
+    expect(onNewSession).toHaveBeenCalledWith("hello", "U_SLACK_ONLY");
+  });
+
+  it("allows all users when both Slack and global lists are empty", async () => {
+    const onIncoming = vi.fn();
+    const onNewSession = vi.fn();
+    const sessionLookup = vi.fn().mockReturnValue(undefined);
+    const router = new SlackEventRouter(
+      sessionLookup,
+      onIncoming,
+      "BOT1",
+      "NOTIF",
+      onNewSession,
+      makeConfig({ allowedUserIds: [] }),
+      [],
+    );
+    const app = createMockApp();
+    router.register(app as any);
+
+    await app._trigger("message", { message: { channel: "NOTIF", user: "U_ANYONE", text: "hello" } });
+    expect(onNewSession).toHaveBeenCalledWith("hello", "U_ANYONE");
+  });
 });

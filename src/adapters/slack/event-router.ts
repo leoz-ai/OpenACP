@@ -42,10 +42,12 @@ export class SlackEventRouter implements ISlackEventRouter {
     private notificationChannelId: string | undefined,
     private onNewSession: NewSessionCallback,
     private config: SlackChannelConfig,
+    private globalAllowedUserIds: string[] = [],
   ) {}
 
   private isAllowedUser(userId: string): boolean {
-    const allowed = this.config.allowedUserIds ?? [];
+    const slackAllowed = this.config.allowedUserIds ?? [];
+    const allowed = slackAllowed.length > 0 ? slackAllowed : this.globalAllowedUserIds;
     if (allowed.length === 0) return true;
     return allowed.includes(userId);
   }
