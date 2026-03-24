@@ -196,10 +196,14 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
       // Try to reuse existing startup channel (Telegram ensureTopics pattern)
       if (reuseChannelId) {
         try {
-          const info = await this.queue.enqueue<{ channel: { is_archived: boolean } }>(
+          const info = await this.queue.enqueue<Record<string, unknown>>(
             "conversations.info", { channel: reuseChannelId },
           );
-          if (info.channel.is_archived) {
+          const channel = (info as Record<string, unknown>)?.channel as Record<string, unknown> | undefined;
+          if (!channel || typeof channel.is_archived !== "boolean") {
+            log.warn({ reuseChannelId }, "Unexpected conversations.info response shape, creating new channel");
+            reuseChannelId = undefined;
+          } else if (channel.is_archived) {
             await this.queue.enqueue("conversations.unarchive", { channel: reuseChannelId });
             log.info({ channelId: reuseChannelId }, "Unarchived startup channel for reuse");
           }
