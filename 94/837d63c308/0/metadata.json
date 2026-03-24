@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "94837d63c308",
+  "session_id": "6675a097-983f-41eb-99fe-d14983c83fa4",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-24T08:22:38.908391Z",
+  "branch": "feat/message-formatting",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/adapters/discord/formatting.ts",
+    "src/adapters/shared/format-utils.ts",
+    "src/adapters/telegram/adapter.ts",
+    "src/adapters/telegram/formatting.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1aa1812223d7",
+  "token_usage": {
+    "input_tokens": 3573,
+    "cache_creation_tokens": 1420060,
+    "cache_read_tokens": 46598529,
+    "output_tokens": 130505,
+    "api_call_count": 342
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-24T08:22:36.161617Z",
+    "agent_lines": 0,
+    "human_added": 22,
+    "human_modified": 7,
+    "human_removed": 0,
+    "total_committed": 22,
+    "agent_percentage": 0
+  }
+}
