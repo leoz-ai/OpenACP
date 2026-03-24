@@ -14,7 +14,7 @@ const FLUSH_IDLE_MS = 2000; // flush after 2s of no new chunks
 export class SlackTextBuffer {
   private buffer = "";
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private flushing = false;
+  private flushPromise: Promise<void> | undefined;
   private lastMessageTs: string | undefined;
   private lastPostedText: string | undefined;
 
@@ -39,34 +39,37 @@ export class SlackTextBuffer {
   }
 
   async flush(): Promise<void> {
-    if (this.flushing) return;
+    if (this.flushPromise) return this.flushPromise;
     const text = this.buffer.trim();
     if (!text) return;
     this.buffer = "";
     if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
 
-    this.flushing = true;
-    try {
-      const converted = markdownToMrkdwn(text);
-      const chunks = splitSafe(converted);
-      for (const chunk of chunks) {
-        if (!chunk.trim()) continue;
-        const result = await this.queue.enqueue("chat.postMessage", {
-          channel: this.channelId,
-          text: chunk,
-          blocks: [{ type: "section", text: { type: "mrkdwn", text: chunk } }],
-        });
-        // Track last posted message for potential TTS block editing
-        this.lastMessageTs = (result as { ts?: string } | undefined)?.ts;
-        this.lastPostedText = chunk;
+    this.flushPromise = (async () => {
+      try {
+        const converted = markdownToMrkdwn(text);
+        const chunks = splitSafe(converted);
+        for (const chunk of chunks) {
+          if (!chunk.trim()) continue;
+          const result = await this.queue.enqueue("chat.postMessage", {
+            channel: this.channelId,
+            text: chunk,
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: chunk } }],
+          });
+          // Track last posted message for potential TTS block editing
+          this.lastMessageTs = (result as { ts?: string } | undefined)?.ts;
+          this.lastPostedText = chunk;
+        }
+      } finally {
+        this.flushPromise = undefined;
+        // Re-flush if content arrived while we were flushing
+        if (this.buffer.trim()) {
+          await this.flush();
+        }
       }
-    } finally {
-      this.flushing = false;
-      // Re-flush if content arrived while we were flushing
-      if (this.buffer.trim()) {
-        await this.flush();
-      }
-    }
+    })();
+
+    return this.flushPromise;
   }
 
   destroy(): void {

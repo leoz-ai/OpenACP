@@ -33,8 +33,9 @@
 | `src/core/channel.ts`                      | **No change** |                                                    |
 | `src/adapters/slack/__tests__/event-router.test.ts` | **New (R2)** | EventRouter unit tests              |
 | `src/adapters/slack/__tests__/permission-handler.test.ts` | **New (R2)** | PermissionHandler unit tests   |
-| `src/adapters/slack/__tests__/channel-manager.test.ts` | **New (R2)** | ChannelManager retry test        |
+| `src/adapters/slack/channel-manager.test.ts` | **New (R2)** | ChannelManager retry test        |
 | `src/adapters/slack/slack-voice.test.ts` | **New (T14)** | Voice STT/TTS integration tests |
+| `src/adapters/slack/utils.ts`            | **Modify (R3)** | +export `isAudioClip` from adapter |
 
 
 ---
@@ -2191,10 +2192,10 @@ pnpm build
 
 - [ ] **Step 3: Add test for name_taken retry**
 
-Create or update `src/adapters/slack/__tests__/channel-manager.test.ts`:
+Create or update `src/adapters/slack/channel-manager.test.ts`:
 
 ```typescript
-// src/adapters/slack/__tests__/channel-manager.test.ts
+// src/adapters/slack/channel-manager.test.ts
 import { describe, it, expect, vi } from "vitest";
 import { SlackChannelManager } from "../channel-manager.js";
 
@@ -2251,7 +2252,7 @@ Expected: Both tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/adapters/slack/channel-manager.ts src/adapters/slack/__tests__/channel-manager.test.ts
+git add src/adapters/slack/channel-manager.ts src/adapters/slack/channel-manager.test.ts
 git commit -m "fix(slack): add name_taken retry with regenerated suffix in channel creation"
 ```
 
@@ -3025,3 +3026,869 @@ console.log('autoCreateSession:', result.data?.channels?.slack?.autoCreateSessio
 ```
 
 Expected: `autoCreateSession: true` (default applied).
+
+---
+
+## Task 15: Fix code review issues — Review Round 3 (PR #42)
+
+**Spec section:** Post-Implementation Issues — Review Round 3 (2026-03-24)
+**Review:** PR #42 review ID 3998413467 by @0xmrpeter
+
+Nine issues total: 3 must-fix, 3 should-fix, 3 minor.
+
+---
+
+### R3-1: `TextBuffer.flush()` race — promise-based lock
+
+**Files:**
+- Modify: `src/adapters/slack/text-buffer.ts`
+- Modify: `src/adapters/slack/text-buffer.test.ts`
+
+- [ ] **Step 1: Write failing test for concurrent flush race**
+
+Add test to `text-buffer.test.ts` that verifies when flush is called while another flush is in progress, the second call awaits the first:
+
+```typescript
+it("concurrent flush() awaits ongoing flush instead of returning immediately", async () => {
+  // Arrange: enqueue is slow (simulates network delay)
+  let resolveFirst!: () => void;
+  const firstCallPromise = new Promise<void>(r => { resolveFirst = r; });
+  const postResults: string[] = [];
+
+  const mockQueue: ISlackSendQueue = {
+    enqueue: vi.fn().mockImplementation(async (_method, params) => {
+      if (postResults.length === 0) {
+        // First flush — slow
+        postResults.push("first-start");
+        await firstCallPromise;
+        postResults.push("first-end");
+      } else {
+        postResults.push("second");
+      }
+      return { ts: "123" };
+    }),
+  };
+
+  const buf = new SlackTextBuffer("C123", "sess-1", mockQueue);
+  buf.append("hello ");
+
+  // Act: start first flush (will block on firstCallPromise)
+  const flush1 = buf.flush();
+
+  // Append more text while first flush is in progress
+  buf.append("world");
+
+  // Second flush should return the same promise (await ongoing)
+  const flush2 = buf.flush();
+
+  // Release first flush
+  resolveFirst();
+  await flush1;
+  await flush2;
+
+  // Assert: "world" was flushed in the re-flush, not lost
+  expect(mockQueue.enqueue).toHaveBeenCalledTimes(2);
+  expect(postResults).toContain("second");
+
+  buf.destroy();
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pnpm test -- src/adapters/slack/text-buffer.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: FAIL — current `flush()` returns immediately on `if (this.flushing) return`, second call never awaits.
+
+- [ ] **Step 3: Implement promise-based flush lock**
+
+Replace the boolean `flushing` flag with a promise in `text-buffer.ts`:
+
+```typescript
+// Remove these lines:
+//   private flushing = false;
+
+// Add:
+  private flushPromise: Promise<void> | undefined;
+
+// Replace flush() method:
+  async flush(): Promise<void> {
+    if (this.flushPromise) return this.flushPromise;
+    const text = this.buffer.trim();
+    if (!text) return;
+    this.buffer = "";
+    if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+
+    this.flushPromise = (async () => {
+      try {
+        const converted = markdownToMrkdwn(text);
+        const chunks = splitSafe(converted);
+        for (const chunk of chunks) {
+          if (!chunk.trim()) continue;
+          const result = await this.queue.enqueue("chat.postMessage", {
+            channel: this.channelId,
+            text: chunk,
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: chunk } }],
+          });
+          this.lastMessageTs = (result as { ts?: string } | undefined)?.ts;
+          this.lastPostedText = chunk;
+        }
+      } finally {
+        this.flushPromise = undefined;
+        // Re-flush if content arrived while we were flushing
+        if (this.buffer.trim()) {
+          await this.flush();
+        }
+      }
+    })();
+
+    return this.flushPromise;
+  }
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+pnpm test -- src/adapters/slack/text-buffer.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: PASS
+
+- [ ] **Step 5: Run full test suite**
+
+```bash
+pnpm test 2>&1 | tail -10
+```
+
+Expected: All existing tests still pass.
+
+---
+
+### R3-2: Lazy import of Slack adapter in `main.ts`
+
+**Files:**
+- Modify: `src/main.ts`
+
+- [ ] **Step 1: Change static import to dynamic import**
+
+In `main.ts`, remove the static import at the top:
+
+```typescript
+// REMOVE this line:
+import { SlackAdapter } from './adapters/slack/adapter.js'
+// REMOVE this line:
+import type { SlackChannelConfig } from './adapters/slack/types.js'
+```
+
+Change the Slack registration block (around line 96-98) from:
+
+```typescript
+    } else if (channelName === 'slack') {
+      core.registerAdapter('slack', new SlackAdapter(core, channelConfig as SlackChannelConfig))
+      log.info({ adapter: 'slack' }, 'Adapter registered')
+```
+
+To:
+
+```typescript
+    } else if (channelName === 'slack') {
+      const { SlackAdapter } = await import('./adapters/slack/adapter.js')
+      const slackConfig = channelConfig as import('./adapters/slack/types.js').SlackChannelConfig
+      core.registerAdapter('slack', new SlackAdapter(core, slackConfig))
+      log.info({ adapter: 'slack' }, 'Adapter registered')
+```
+
+- [ ] **Step 2: Build to verify no errors**
+
+```bash
+pnpm build 2>&1 | tail -10
+```
+
+Expected: Zero errors.
+
+- [ ] **Step 3: Run tests**
+
+```bash
+pnpm test 2>&1 | tail -10
+```
+
+Expected: All pass.
+
+---
+
+### R3-3: Remove unused `channelId` param from `notifyChannel`
+
+**Files:**
+- Modify: `src/adapters/slack/channel-manager.ts`
+
+- [ ] **Step 1: Check call sites**
+
+```bash
+cd /Users/hieu/Documents/Companies/Lab3/opensource/OpenACP && grep -rn "notifyChannel" src/adapters/slack/
+```
+
+Identify all callers to update signature.
+
+- [ ] **Step 2: Update interface and implementation**
+
+In `channel-manager.ts`, change:
+
+```typescript
+// Interface — remove channelId parameter
+export interface ISlackChannelManager {
+  createChannel(sessionId: string, sessionName: string): Promise<SlackSessionMeta>;
+  archiveChannel(channelId: string): Promise<void>;
+  notifyChannel(text: string): Promise<void>;
+}
+
+// Implementation — remove channelId parameter
+async notifyChannel(text: string): Promise<void> {
+  if (this.config.notificationChannelId) {
+    await this.queue.enqueue("chat.postMessage", {
+      channel: this.config.notificationChannelId,
+      text,
+    });
+  }
+}
+```
+
+- [ ] **Step 3: Update all call sites**
+
+Update any callers of `notifyChannel` in `adapter.ts` or tests to remove the first argument.
+
+- [ ] **Step 4: Update channel-manager.test.ts**
+
+Fix test expectations to match new signature.
+
+- [ ] **Step 5: Build + test**
+
+```bash
+pnpm build 2>&1 | tail -5 && pnpm test 2>&1 | tail -10
+```
+
+Expected: Zero build errors, all tests pass.
+
+---
+
+### R3-4: Permission button cleanup on session end
+
+**Files:**
+- Modify: `src/adapters/slack/permission-handler.ts`
+- Modify: `src/adapters/slack/adapter.ts`
+- Modify: `src/adapters/slack/permission-handler.test.ts`
+
+- [ ] **Step 1: Write failing test for session cleanup**
+
+Add to `permission-handler.test.ts`:
+
+```typescript
+it("cleanupSession edits pending permission messages to remove buttons", async () => {
+  const mockQueue: ISlackSendQueue = {
+    enqueue: vi.fn().mockResolvedValue({ ts: "msg-ts-1" }),
+  };
+  const handler = new SlackPermissionHandler(mockQueue, vi.fn());
+
+  // Simulate a pending permission message
+  handler.trackPendingMessage("req-1", "C123", "msg-ts-1");
+
+  await handler.cleanupSession("C123");
+
+  expect(mockQueue.enqueue).toHaveBeenCalledWith("chat.update", expect.objectContaining({
+    channel: "C123",
+    ts: "msg-ts-1",
+    blocks: [],
+  }));
+});
+```
+
+- [ ] **Step 2: Run test — verify failure**
+
+```bash
+pnpm test -- src/adapters/slack/permission-handler.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: FAIL — `trackPendingMessage` and `cleanupSession` don't exist yet.
+
+- [ ] **Step 3: Implement tracking and cleanup in PermissionHandler**
+
+In `permission-handler.ts`:
+
+```typescript
+export class SlackPermissionHandler implements ISlackPermissionHandler {
+  // Add tracking map
+  private pendingMessages = new Map<string, { channelId: string; messageTs: string }>();
+
+  // Add public method to track
+  trackPendingMessage(requestId: string, channelId: string, messageTs: string): void {
+    this.pendingMessages.set(requestId, { channelId, messageTs });
+  }
+
+  // Add cleanup method
+  async cleanupSession(channelId: string): Promise<void> {
+    for (const [requestId, msg] of this.pendingMessages) {
+      if (msg.channelId === channelId) {
+        try {
+          await this.queue.enqueue("chat.update", {
+            channel: msg.channelId,
+            ts: msg.messageTs,
+            text: "⏹ Session ended — permission request cancelled",
+            blocks: [],
+          });
+        } catch {
+          // Best effort — channel may already be archived
+        }
+        this.pendingMessages.delete(requestId);
+      }
+    }
+  }
+
+  register(app: App): void {
+    app.action<BlockAction<ButtonAction>>(
+      /^perm_action_/,
+      async ({ ack, body, action }) => {
+        await ack();
+        const value: string = action.value ?? "";
+        const colonIdx = value.indexOf(":");
+        if (colonIdx === -1) return;
+        const requestId = value.slice(0, colonIdx);
+        const optionId  = value.slice(colonIdx + 1);
+
+        this.onResponse(requestId, optionId);
+        this.pendingMessages.delete(requestId); // Clean up tracking
+
+        const message = body.message;
+        if (message) {
+          await this.queue.enqueue("chat.update", {
+            channel: body.channel?.id ?? "",
+            ts: message.ts,
+            text: `✅ Permission response: *${optionId}*`,
+            blocks: [],
+          });
+        }
+      }
+    );
+  }
+}
+```
+
+- [ ] **Step 4: Wire cleanup into adapter.ts**
+
+In `adapter.ts:sendPermissionRequest`, capture message `ts` and track it:
+
+```typescript
+async sendPermissionRequest(sessionId: string, request: PermissionRequest): Promise<void> {
+  const meta = this.sessions.get(sessionId);
+  if (!meta) return;
+
+  log.info({ sessionId, requestId: request.id }, "Sending Slack permission request");
+  const blocks = this.formatter.formatPermissionRequest(request);
+
+  try {
+    const result = await this.queue.enqueue("chat.postMessage", {
+      channel: meta.channelId,
+      text: `Permission request: ${request.description}`,
+      blocks,
+    });
+    // Track for cleanup on session end
+    const ts = (result as { ts?: string })?.ts;
+    if (ts) {
+      this.permissionHandler.trackPendingMessage(request.id, meta.channelId, ts);
+    }
+  } catch (err) {
+    log.error({ err, sessionId }, "Failed to post Slack permission request");
+  }
+}
+```
+
+In `adapter.ts:deleteSessionThread`, add cleanup before archive:
+
+```typescript
+async deleteSessionThread(sessionId: string): Promise<void> {
+  const meta = this.sessions.get(sessionId);
+  if (!meta) return;
+
+  // Clean up stale permission buttons before archiving
+  try {
+    await this.permissionHandler.cleanupSession(meta.channelId);
+  } catch (err) {
+    log.warn({ err, sessionId }, "Failed to clean up permission buttons");
+  }
+
+  try {
+    await this.channelManager.archiveChannel(meta.channelId);
+    // ... rest unchanged
+```
+
+- [ ] **Step 5: Run tests**
+
+```bash
+pnpm test -- src/adapters/slack/permission-handler.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: PASS
+
+**Note:** Also update the `ISlackPermissionHandler` interface to include `trackPendingMessage` and `cleanupSession` methods:
+
+```typescript
+export interface ISlackPermissionHandler {
+  register(app: App): void;
+  trackPendingMessage(requestId: string, channelId: string, messageTs: string): void;
+  cleanupSession(channelId: string): Promise<void>;
+}
+```
+
+---
+
+### R3-5: Replace `(message as any)` with typed interface in `event-router.ts`
+
+**Files:**
+- Modify: `src/adapters/slack/event-router.ts`
+
+- [ ] **Step 1: Define local interface and replace casts**
+
+Add interface at top of `event-router.ts`:
+
+```typescript
+/** Subset of Bolt's message event fields used by the router */
+interface SlackMessageEvent {
+  bot_id?: string;
+  subtype?: string;
+  channel: string;
+  text?: string;
+  user?: string;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    size: number;
+    url_private: string;
+  }>;
+}
+```
+
+Replace the body of `register()`:
+
+```typescript
+register(app: App): void {
+  app.message(async ({ message }) => {
+    log.debug({ message }, "Slack raw message event");
+
+    const msg = message as unknown as SlackMessageEvent;
+
+    if (msg.bot_id) return;
+    const subtype = msg.subtype;
+    if (subtype && subtype !== "file_share") return;
+
+    const channelId = msg.channel;
+    const text: string = msg.text ?? "";
+    const userId: string = msg.user ?? "";
+
+    const files: SlackFileInfo[] | undefined = msg.files?.map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimetype: f.mimetype,
+      size: f.size,
+      url_private: f.url_private,
+    }));
+
+    // ... rest unchanged (log, bot check, allowed check, routing)
+```
+
+- [ ] **Step 2: Build + test**
+
+```bash
+pnpm build 2>&1 | tail -5 && pnpm test 2>&1 | tail -10
+```
+
+Expected: Zero errors, all tests pass.
+
+---
+
+### R3-6: Startup channel reuse (Telegram pattern)
+
+**Files:**
+- Modify: `src/adapters/slack/types.ts`
+- Modify: `src/core/config.ts`
+- Modify: `src/adapters/slack/send-queue.ts`
+- Modify: `src/adapters/slack/adapter.ts`
+
+- [ ] **Step 1: Add `startupChannelId` to config schema**
+
+In `types.ts`, add to the `SlackChannelConfig` interface:
+
+```typescript
+startupChannelId?: string;
+```
+
+In `config.ts`, add to the Slack Zod schema:
+
+```typescript
+startupChannelId: z.string().optional(),
+```
+
+- [ ] **Step 2: Add `conversations.info` to SlackMethod union and METHOD_RPM**
+
+In `send-queue.ts`, `conversations.unarchive` is already in the union. Add `conversations.info`:
+
+```typescript
+// Add to SlackMethod union:
+export type SlackMethod =
+  | "chat.postMessage"
+  | "chat.update"
+  | "conversations.create"
+  | "conversations.rename"
+  | "conversations.archive"
+  | "conversations.invite"
+  | "conversations.join"
+  | "conversations.unarchive"
+  | "conversations.info";       // <-- ADD THIS
+
+// Add to METHOD_RPM:
+const METHOD_RPM: Record<SlackMethod, number> = {
+  // ... existing entries ...
+  "conversations.info":      50,   // Tier 3
+};
+```
+
+- [ ] **Step 3: Rewrite `_createStartupSession` with reuse logic**
+
+In `adapter.ts`, replace `_createStartupSession`. Use `this.core.configManager.save()` (deep merge) to persist the startup channel ID:
+
+```typescript
+private async _createStartupSession(): Promise<void> {
+  try {
+    let reuseChannelId = this.slackConfig.startupChannelId;
+
+    // Try to reuse existing startup channel (Telegram ensureTopics pattern)
+    if (reuseChannelId) {
+      try {
+        const info = await this.queue.enqueue<{ channel: { is_archived: boolean } }>(
+          "conversations.info", { channel: reuseChannelId },
+        );
+        if (info.channel.is_archived) {
+          await this.queue.enqueue("conversations.unarchive", { channel: reuseChannelId });
+          log.info({ channelId: reuseChannelId }, "Unarchived startup channel for reuse");
+        }
+      } catch {
+        // Channel deleted or inaccessible — will create new
+        reuseChannelId = undefined;
+      }
+    }
+
+    if (reuseChannelId) {
+      // Reuse existing channel — create session pointing to it
+      let hasSession = false;
+      for (const m of this.sessions.values()) {
+        if (m.channelId === reuseChannelId) { hasSession = true; break; }
+      }
+      if (!hasSession) {
+        const session = await this.core.handleNewSession("slack", undefined, undefined, { createThread: false });
+        const slug = `startup-${session.id.slice(0, 8)}`;
+        this.sessions.set(session.id, { channelId: reuseChannelId, channelSlug: slug });
+        session.threadId = slug;
+        log.info({ sessionId: session.id, channelId: reuseChannelId }, "Reused startup channel");
+      }
+    } else {
+      // Create new channel + session
+      const session = await this.core.handleNewSession("slack", undefined, undefined, { createThread: true });
+      if (!session.threadId) {
+        log.error({ sessionId: session.id }, "Startup session created without threadId");
+        return;
+      }
+
+      // Persist channel ID to config for reuse on next restart
+      const meta = this.sessions.get(session.id);
+      if (meta) {
+        await this.core.configManager.save(
+          { channels: { slack: { startupChannelId: meta.channelId } } },
+        );
+        log.info({ sessionId: session.id, channelId: meta.channelId }, "Saved startup channel to config");
+      }
+    }
+
+    // Notify
+    if (this.slackConfig.notificationChannelId) {
+      const startupMeta = [...this.sessions.values()].find(m =>
+        m.channelId === (reuseChannelId ?? this.slackConfig.startupChannelId)
+      );
+      if (startupMeta) {
+        await this.queue.enqueue("chat.postMessage", {
+          channel: this.slackConfig.notificationChannelId,
+          text: `✅ OpenACP ready — chat with the agent in <#${startupMeta.channelId}>`,
+        });
+      }
+    }
+  } catch (err) {
+    log.error({ err }, "Failed to create/reuse Slack startup session");
+  }
+}
+```
+
+- [ ] **Step 4: Build + test**
+
+```bash
+pnpm build 2>&1 | tail -5 && pnpm test 2>&1 | tail -10
+```
+
+Expected: Zero errors, all tests pass.
+
+---
+
+### R3-7: Export `isAudioClip` to utils.ts
+
+**Files:**
+- Modify: `src/adapters/slack/utils.ts`
+- Modify: `src/adapters/slack/adapter.ts`
+- Modify: `src/adapters/slack/slack-voice.test.ts`
+
+- [ ] **Step 1: Move `isAudioClip` to utils.ts**
+
+Add to `utils.ts`:
+
+```typescript
+import type { SlackFileInfo } from "./types.js";
+
+/** Detect Slack audio clips — MIME type or filename pattern */
+export function isAudioClip(file: SlackFileInfo): boolean {
+  return (file.mimetype === "video/mp4" && file.name?.startsWith("audio_message")) ||
+         file.mimetype?.startsWith("audio/");
+}
+```
+
+- [ ] **Step 2: Update adapter.ts to import from utils**
+
+Remove the private `isAudioClip` method from `SlackAdapter`. Import from utils:
+
+```typescript
+import { isAudioClip } from "./utils.js";
+```
+
+Update call site in the incoming message callback from `this.isAudioClip(f)` to `isAudioClip(f)`.
+
+- [ ] **Step 3: Update slack-voice.test.ts to import from utils**
+
+Replace any duplicated logic with:
+
+```typescript
+import { isAudioClip } from "./utils.js";
+```
+
+Use `isAudioClip()` directly in tests instead of reimplementing.
+
+- [ ] **Step 4: Build + test**
+
+```bash
+pnpm build 2>&1 | tail -5 && pnpm test 2>&1 | tail -10
+```
+
+Expected: Zero errors, all tests pass.
+
+---
+
+### R3-8: Add rate-limiting tests to `send-queue.test.ts`
+
+**Files:**
+- Modify: `src/adapters/slack/send-queue.test.ts`
+
+- [ ] **Step 1: Add rate-limiting and queue independence tests**
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SlackSendQueue } from "../send-queue.js";
+
+// Add these tests to the existing describe block:
+
+it("different methods have independent queues", async () => {
+  const callOrder: string[] = [];
+  const mockClient = {
+    apiCall: vi.fn().mockImplementation(async (method: string) => {
+      callOrder.push(method);
+      // Simulate some async work
+      await new Promise(r => setTimeout(r, 10));
+      return { ok: true };
+    }),
+  };
+
+  const queue = new SlackSendQueue(mockClient as any);
+
+  // Fire two different methods concurrently
+  const p1 = queue.enqueue("chat.postMessage", { channel: "C1", text: "a" });
+  const p2 = queue.enqueue("conversations.create", { name: "test" });
+
+  await Promise.all([p1, p2]);
+
+  // Both should have been called (not blocked by each other)
+  expect(mockClient.apiCall).toHaveBeenCalledTimes(2);
+});
+
+it("same method calls are serialized (FIFO order)", async () => {
+  const callOrder: number[] = [];
+  const mockClient = {
+    apiCall: vi.fn().mockImplementation(async (_method: string, params: any) => {
+      callOrder.push(params.order);
+      return { ok: true };
+    }),
+  };
+
+  const queue = new SlackSendQueue(mockClient as any);
+
+  // Fire 3 calls to the same method
+  const promises = [
+    queue.enqueue("chat.postMessage", { channel: "C1", text: "1", order: 1 }),
+    queue.enqueue("chat.postMessage", { channel: "C1", text: "2", order: 2 }),
+    queue.enqueue("chat.postMessage", { channel: "C1", text: "3", order: 3 }),
+  ];
+
+  await Promise.all(promises);
+
+  expect(callOrder).toEqual([1, 2, 3]);
+});
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+pnpm test -- src/adapters/slack/send-queue.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: All tests pass.
+
+---
+
+### R3-9: `name_taken` retry loop (max 3 attempts)
+
+**Files:**
+- Modify: `src/adapters/slack/channel-manager.ts`
+- Modify: `src/adapters/slack/channel-manager.test.ts`
+
+- [ ] **Step 1: Write failing test for triple collision**
+
+Add to `channel-manager.test.ts`:
+
+```typescript
+it("retries up to 3 times on name_taken, then throws", async () => {
+  const mockQueue: ISlackSendQueue = {
+    enqueue: vi.fn()
+      .mockRejectedValueOnce({ data: { error: "name_taken" } })
+      .mockRejectedValueOnce({ data: { error: "name_taken" } })
+      .mockRejectedValueOnce({ data: { error: "name_taken" } }),
+  };
+
+  const manager = new SlackChannelManager(mockQueue, { channelPrefix: "test" } as any);
+
+  await expect(manager.createChannel("s1", "test")).rejects.toThrow();
+  expect(mockQueue.enqueue).toHaveBeenCalledTimes(3);
+});
+
+it("succeeds on second attempt after name_taken", async () => {
+  const mockQueue: ISlackSendQueue = {
+    enqueue: vi.fn()
+      .mockRejectedValueOnce({ data: { error: "name_taken" } })
+      .mockResolvedValueOnce({ channel: { id: "C456" } })
+      .mockResolvedValue(undefined), // for invite
+  };
+
+  const manager = new SlackChannelManager(mockQueue, {
+    channelPrefix: "test",
+    allowedUserIds: [],
+  } as any);
+
+  const result = await manager.createChannel("s1", "test");
+  expect(result.channelId).toBe("C456");
+  // conversations.create called twice (first failed, second succeeded)
+  expect(mockQueue.enqueue).toHaveBeenCalledTimes(2);
+});
+```
+
+- [ ] **Step 2: Run test to verify current behavior**
+
+```bash
+pnpm test -- src/adapters/slack/channel-manager.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: Triple-collision test may fail (current code only retries once).
+
+- [ ] **Step 3: Implement retry loop**
+
+Replace `createChannel` in `channel-manager.ts`:
+
+```typescript
+async createChannel(sessionId: string, sessionName: string): Promise<SlackSessionMeta> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const finalSlug = toSlug(sessionName, this.config.channelPrefix ?? "openacp");
+
+    try {
+      const res = await this.queue.enqueue<{ channel: { id: string } }>(
+        "conversations.create",
+        { name: finalSlug, is_private: true },
+      );
+      const channelId = res.channel.id;
+
+      const userIds = this.config.allowedUserIds ?? [];
+      if (userIds.length > 0) {
+        await this.queue.enqueue("conversations.invite", {
+          channel: channelId,
+          users: userIds.join(","),
+        });
+      }
+
+      return { channelId, channelSlug: finalSlug };
+    } catch (err: any) {
+      if (err?.data?.error === "name_taken" && attempt < 2) {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+pnpm test -- src/adapters/slack/channel-manager.test.ts --reporter=verbose 2>&1 | tail -20
+```
+
+Expected: All tests pass.
+
+---
+
+### Final verification for Task 15
+
+- [ ] **Step 1: Full build**
+
+```bash
+pnpm build
+```
+
+Expected: Zero errors.
+
+- [ ] **Step 2: Full test suite**
+
+```bash
+pnpm test
+```
+
+Expected: All tests pass (new + existing).
+
+- [ ] **Step 3: Verify no regressions in existing adapter tests**
+
+```bash
+pnpm test -- src/adapters/slack/ --reporter=verbose 2>&1 | tail -30
+```
+
+Expected: All Slack adapter tests pass.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/adapters/slack/ src/main.ts src/core/config.ts
+git commit -m "fix(slack): address review round 3 — flush race, lazy import, permission cleanup, type safety, channel reuse"
+```

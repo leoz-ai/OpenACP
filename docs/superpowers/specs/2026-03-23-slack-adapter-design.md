@@ -936,7 +936,7 @@ Slack API does not allow channel deletion via API (only through UI). `deleteSess
 
 `toSlug` appends a 4-char nanoid suffix to all generated names. Probability of collision for 1M channels is ~0.002% — acceptable without a uniqueness check loop.
 
-**Fallback:** If `conversations.create` fails with `name_taken`, regenerate suffix and retry once.
+**Fallback:** If `conversations.create` fails with `name_taken`, regenerate suffix and retry (up to 3 attempts).
 
 ### No channel deletion means `sessionStore` diverges
 
@@ -1031,3 +1031,172 @@ And these app-level token scopes (for Socket Mode):
   - `send-queue.test.ts` — verify per-method throttling, queue isolation
 - **Integration test** — mock `@slack/bolt` App, assert `core.handleMessage` called correctly
 - **No tests needed in core** — no core changes
+
+---
+
+### Post-Implementation Issues — Review Round 3 (2026-03-24)
+
+Issues identified by @0xmrpeter after round 1 and round 2 fixes were applied. PR #42 review ID: 3998413467.
+
+#### Issue R3-1 (Must Fix): `TextBuffer.flush()` race — data loss on `session_end`
+
+**Location:** `text-buffer.ts:41-69`
+**Problem:** When `flush()` is called while another flush is in progress, it returns immediately (`if (this.flushing) return`). The `session_end` handler in `adapter.ts:299-305` does `await buf.flush()` → returns immediately → calls `destroy()` → buffer cleared. The timer-triggered flush's `finally` block tries to re-flush but the buffer is already gone. Data arriving during an active flush can be lost.
+**Fix:** Replace the boolean `flushing` flag with a promise-based lock. When a flush is in progress, return the ongoing promise so callers properly await completion.
+
+```typescript
+private flushPromise: Promise<void> | undefined;
+
+async flush(): Promise<void> {
+  if (this.flushPromise) return this.flushPromise;
+  this.flushPromise = this._doFlush();
+  return this.flushPromise;
+}
+
+private async _doFlush(): Promise<void> {
+  const text = this.buffer.trim();
+  if (!text) { this.flushPromise = undefined; return; }
+  this.buffer = "";
+  if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+  try {
+    // ... post to Slack (existing logic)
+  } finally {
+    this.flushPromise = undefined;
+    if (this.buffer.trim()) await this.flush();
+  }
+}
+```
+
+#### Issue R3-2 (Must Fix): Eager import of Slack adapter in `main.ts`
+
+**Location:** `main.ts:9`
+**Problem:** `import { SlackAdapter } from './adapters/slack/adapter.js'` is a static top-level import. This loads `@slack/bolt` and all dependencies on startup even when Slack is disabled. Discord adapter uses lazy `await import()` at `main.ts:100`.
+**Fix:** Change to dynamic import matching Discord pattern:
+
+```typescript
+// Remove static import at top
+// In the registration block:
+} else if (channelName === 'slack') {
+  const { SlackAdapter } = await import('./adapters/slack/adapter.js')
+  const slackConfig = channelConfig as import('./adapters/slack/types.js').SlackChannelConfig
+  core.registerAdapter('slack', new SlackAdapter(core, slackConfig))
+}
+```
+
+Keep static `import type { SlackChannelConfig }` if needed (types are erased at runtime).
+
+#### Issue R3-3 (Must Fix): `notifyChannel(channelId, text)` ignores the `channelId` parameter
+
+**Location:** `channel-manager.ts:59-66`
+**Problem:** The `channelId` parameter is completely ignored — always posts to `this.config.notificationChannelId`. Misleading API signature.
+**Fix:** Remove the unused `channelId` parameter from both the interface and implementation. Update all call sites.
+
+```typescript
+// Interface
+notifyChannel(text: string): Promise<void>;
+
+// Implementation
+async notifyChannel(text: string): Promise<void> {
+  if (this.config.notificationChannelId) {
+    await this.queue.enqueue("chat.postMessage", {
+      channel: this.config.notificationChannelId,
+      text,
+    });
+  }
+}
+```
+
+#### Issue R3-4 (Should Fix): Permission buttons have no cleanup on session end
+
+**Location:** `permission-handler.ts`, `adapter.ts:deleteSessionThread`
+**Problem:** If a user never clicks Allow/Deny and the session is destroyed, stale buttons remain in Slack with no handler.
+**Fix:** Track posted permission message timestamps in `SlackPermissionHandler`. Add `cleanupSession(channelId)` that edits pending messages to replace buttons with "Session ended" text. Call from `deleteSessionThread` before archiving.
+
+```typescript
+// permission-handler.ts — new tracking
+private pendingMessages = new Map<string, { channelId: string; messageTs: string }>();
+
+// In register(), capture ts from sendPermissionRequest result
+// New method:
+async cleanupSession(channelId: string): Promise<void> {
+  for (const [requestId, msg] of this.pendingMessages) {
+    if (msg.channelId === channelId) {
+      await this.queue.enqueue("chat.update", {
+        channel: msg.channelId, ts: msg.messageTs,
+        text: "⏹ Session ended — permission request cancelled", blocks: [],
+      });
+      this.pendingMessages.delete(requestId);
+    }
+  }
+}
+```
+
+#### Issue R3-5 (Should Fix): `(message as any)` casts in `event-router.ts`
+
+**Location:** `event-router.ts:42-56`
+**Problem:** Every field access uses `(message as any)`. Slack Bolt provides typed event payloads.
+**Fix:** Define a local interface and cast once:
+
+```typescript
+interface SlackMessageEvent {
+  bot_id?: string;
+  subtype?: string;
+  channel: string;
+  text?: string;
+  user?: string;
+  files?: Array<{ id: string; name: string; mimetype: string; size: number; url_private: string }>;
+}
+
+// In register():
+const msg = message as unknown as SlackMessageEvent;
+```
+
+#### Issue R3-6 (Should Fix): `_createStartupSession` accumulates orphan channels
+
+**Location:** `adapter.ts:195-217`
+**Problem:** Every restart creates a new private channel. No reuse logic. Channels accumulate over time.
+**Fix:** Follow Telegram's `ensureTopics()` pattern — save `startupChannelId` to config, reuse on restart:
+
+1. Add `startupChannelId?: string` to `SlackChannelConfig` schema (optional, persisted)
+2. On startup (`autoCreateSession !== false`):
+   - If `startupChannelId` in config → check channel alive via `conversations.info`
+   - If alive → reuse (create session pointing to existing channel)
+   - If archived → unarchive via `conversations.unarchive`
+   - If missing/deleted → create new, save to config via `configManager.save()`
+
+#### Issue R3-7 (Minor): `slack-voice.test.ts` duplicates `isAudioClip` logic
+
+**Location:** `slack-voice.test.ts`, `adapter.ts:159-162`
+**Problem:** Test reimplements detection logic — fragile if real implementation changes.
+**Fix:** Move `isAudioClip` to `utils.ts` as an exported function. Test imports directly from there.
+
+#### Issue R3-8 (Minor): `send-queue.test.ts` only has 2 tests
+
+**Location:** `send-queue.test.ts`
+**Problem:** No verification of rate-limiting behavior or queue independence.
+**Fix:** Add tests for: (a) multiple rapid calls to same method are rate-limited, (b) different methods have independent queues, (c) FIFO ordering preserved.
+
+#### Issue R3-9 (Minor): `name_taken` retry only attempts once
+
+**Location:** `channel-manager.ts:29-39`
+**Problem:** Current code retries once on `name_taken`. A second collision throws.
+**Fix:** Wrap in retry loop (max 3 attempts). Each iteration calls `toSlug()` which generates a new nanoid suffix.
+
+```typescript
+async createChannel(sessionId: string, sessionName: string): Promise<SlackSessionMeta> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const slug = toSlug(sessionName, this.config.channelPrefix ?? "openacp");
+    try {
+      const res = await this.queue.enqueue<{ channel: { id: string } }>(
+        "conversations.create", { name: slug, is_private: true },
+      );
+      // ... invite users ...
+      return { channelId: res.channel.id, channelSlug: slug };
+    } catch (err: any) {
+      if (err?.data?.error === "name_taken" && attempt < 2) continue;
+      throw err;
+    }
+  }
+  throw new Error("Failed to create channel after 3 attempts");
+}
+```
