@@ -6,8 +6,6 @@ import { loadAdapterFactory } from './core/plugin-manager.js'
 import { initLogger, shutdownLogger, cleanupOldSessionLogs, log } from './core/log.js'
 import { TelegramAdapter } from './adapters/telegram/index.js'
 import type { TelegramChannelConfig } from './adapters/telegram/index.js'
-import { SlackAdapter } from './adapters/slack/adapter.js'
-import type { SlackChannelConfig } from './adapters/slack/types.js'
 import { ApiServer } from './core/api-server.js'
 import { TopicManager } from './core/topic-manager.js'
 
@@ -94,7 +92,9 @@ export async function startServer() {
       core.registerAdapter('telegram', new TelegramAdapter(core, channelConfig as TelegramChannelConfig))
       log.info({ adapter: 'telegram' }, 'Adapter registered')
     } else if (channelName === 'slack') {
-      core.registerAdapter('slack', new SlackAdapter(core, channelConfig as SlackChannelConfig))
+      const { SlackAdapter } = await import('./adapters/slack/adapter.js')
+      const slackConfig = channelConfig as import('./adapters/slack/types.js').SlackChannelConfig
+      core.registerAdapter('slack', new SlackAdapter(core, slackConfig))
       log.info({ adapter: 'slack' }, 'Adapter registered')
     } else if (channelName === 'discord') {
       const { DiscordAdapter } = await import('./adapters/discord/index.js')
