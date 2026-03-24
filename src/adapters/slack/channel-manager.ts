@@ -7,7 +7,7 @@ import type { SlackChannelConfig } from "./types.js";
 export interface ISlackChannelManager {
   createChannel(sessionId: string, sessionName: string): Promise<SlackSessionMeta>;
   archiveChannel(channelId: string): Promise<void>;
-  notifyChannel(channelId: string, text: string): Promise<void>;
+  notifyChannel(text: string): Promise<void>;
 }
 
 export class SlackChannelManager implements ISlackChannelManager {
@@ -56,7 +56,7 @@ export class SlackChannelManager implements ISlackChannelManager {
     await this.queue.enqueue("conversations.archive", { channel: channelId });
   }
 
-  async notifyChannel(channelId: string, text: string): Promise<void> {
+  async notifyChannel(text: string): Promise<void> {
     if (this.config.notificationChannelId) {
       await this.queue.enqueue("chat.postMessage", {
         channel: this.config.notificationChannelId,
