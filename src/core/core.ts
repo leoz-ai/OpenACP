@@ -20,7 +20,7 @@ import { getAgentCapabilities } from "./agent-registry.js";
 import { AgentCatalog } from "./agent-catalog.js";
 import { EventBus } from "./event-bus.js";
 import { createChildLogger } from "./log.js";
-import { SpeechService, GroqSTT } from "./speech/index.js";
+import { SpeechService, GroqSTT, EdgeTTS } from "./speech/index.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -90,6 +90,13 @@ export class OpenACPCore {
       );
     }
 
+    // Register built-in TTS providers
+    if (speechConfig.tts?.provider === "edge-tts") {
+      const edgeConfig = speechConfig.tts.providers?.["edge-tts"];
+      const voice = edgeConfig?.voice as string | undefined;
+      this.speechService.registerTTSProvider("edge-tts", new EdgeTTS(voice));
+    }
+
     this.sessionFactory = new SessionFactory(
       this.agentManager,
       this.sessionManager,
@@ -119,6 +126,13 @@ export class OpenACPCore {
               "groq",
               new GroqSTT(groqCfg.apiKey, groqCfg.model),
             );
+          }
+          // Re-register TTS providers on config change
+          const ttsCfg = newSpeechConfig.tts;
+          if (ttsCfg?.provider === "edge-tts") {
+            const edgeConfig = ttsCfg.providers?.["edge-tts"];
+            const voice = edgeConfig?.voice as string | undefined;
+            this.speechService.registerTTSProvider("edge-tts", new EdgeTTS(voice));
           }
           log.info("Speech service config updated at runtime");
         }
@@ -352,6 +366,7 @@ export class OpenACPCore {
     agentName: string,
     agentSessionId: string,
     cwd: string,
+    channelId?: string,
   ): Promise<
     | {
         ok: true;
@@ -400,44 +415,47 @@ export class OpenACPCore {
       };
     }
 
-    // 4. Check if session already exists
+    // 4. Check if session already exists on the same channel
     const existingRecord =
       this.sessionManager.getRecordByAgentSessionId(agentSessionId);
     if (existingRecord) {
-      const platform = existingRecord.platform as
-        | { topicId?: number }
-        | undefined;
-      if (platform?.topicId) {
-        const adapter = this.adapters.values().next().value;
+      const sameChannel = !channelId || existingRecord.channelId === channelId;
+      const platform = existingRecord.platform as { topicId?: number; threadId?: string } | undefined;
+      const existingThreadId = platform?.topicId ? String(platform.topicId) : platform?.threadId;
+      if (existingThreadId && sameChannel) {
+        const adapter = this.adapters.get(existingRecord.channelId) ?? this.adapters.values().next().value;
         if (adapter) {
           try {
             await adapter.sendMessage(existingRecord.sessionId, {
               type: "text",
               text: "Session resumed from CLI.",
             });
-          } catch {
-            /* Topic may be deleted */
-          }
+          } catch { /* Topic/thread may be deleted */ }
         }
         return {
           ok: true,
           sessionId: existingRecord.sessionId,
-          threadId: String(platform.topicId),
+          threadId: existingThreadId,
           status: "existing",
         };
       }
     }
 
-    // 5. Find default adapter
-    const firstEntry = this.adapters.entries().next().value;
-    if (!firstEntry) {
-      return {
-        ok: false,
-        error: "no_adapter",
-        message: "No channel adapter registered",
-      };
+    // 5. Find adapter (explicit channel or default first)
+    let adapterChannelId: string;
+    if (channelId) {
+      if (!this.adapters.has(channelId)) {
+        const available = Array.from(this.adapters.keys()).join(", ") || "none";
+        return { ok: false, error: "adapter_not_found", message: `Adapter '${channelId}' is not connected. Available: ${available}` };
+      }
+      adapterChannelId = channelId;
+    } else {
+      const firstEntry = this.adapters.entries().next().value;
+      if (!firstEntry) {
+        return { ok: false, error: "no_adapter", message: "No channel adapter registered" };
+      }
+      adapterChannelId = firstEntry[0];
     }
-    const [adapterChannelId] = firstEntry;
 
     // 6. Create session via unified pipeline
     let session: Session;
@@ -459,9 +477,15 @@ export class OpenACPCore {
     }
 
     // 7. Update store with adopt-specific fields
+    const adoptPlatform: Record<string, unknown> = {};
+    if (adapterChannelId === 'telegram') {
+      adoptPlatform.topicId = Number(session.threadId);
+    } else {
+      adoptPlatform.threadId = session.threadId;
+    }
     await this.sessionManager.patchRecord(session.id, {
       originalAgentSessionId: agentSessionId,
-      platform: { topicId: (() => { const n = Number(session.threadId); return Number.isNaN(n) ? session.threadId : n; })() },
+      platform: adoptPlatform,
     });
 
     return {
@@ -505,6 +529,16 @@ export class OpenACPCore {
   }
 
   // --- Lazy Resume ---
+
+  /**
+   * Get active session by thread, or attempt lazy resume from store.
+   * Used by adapter command handlers that need a session but don't go through handleMessage().
+   */
+  async getOrResumeSession(channelId: string, threadId: string): Promise<Session | null> {
+    const session = this.sessionManager.getSessionByThread(channelId, threadId);
+    if (session) return session;
+    return this.lazyResume({ channelId, threadId, userId: "", text: "" });
+  }
 
   private async lazyResume(message: IncomingMessage): Promise<Session | null> {
     const store = this.sessionStore;
