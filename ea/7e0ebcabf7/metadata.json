@@ -3,9 +3,11 @@
   "checkpoint_id": "ea7e0ebcabf7",
   "strategy": "manual-commit",
   "branch": "feat/message-formatting",
-  "checkpoints_count": 9,
+  "checkpoints_count": 10,
   "files_touched": [
     "src/adapters/discord/formatting.ts",
+    "src/adapters/shared/message-formatter.test.ts",
+    "src/adapters/shared/message-formatter.ts",
     "src/adapters/telegram/formatting.ts"
   ],
   "sessions": [
@@ -15,13 +17,20 @@
       "context": "/ea/7e0ebcabf7/0/context.md",
       "content_hash": "/ea/7e0ebcabf7/0/content_hash.txt",
       "prompt": "/ea/7e0ebcabf7/0/prompt.txt"
+    },
+    {
+      "metadata": "/ea/7e0ebcabf7/1/metadata.json",
+      "transcript": "/ea/7e0ebcabf7/1/full.jsonl",
+      "context": "/ea/7e0ebcabf7/1/context.md",
+      "content_hash": "/ea/7e0ebcabf7/1/content_hash.txt",
+      "prompt": "/ea/7e0ebcabf7/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 3573,
-    "cache_creation_tokens": 1420060,
-    "cache_read_tokens": 46598529,
-    "output_tokens": 130505,
-    "api_call_count": 342
+    "input_tokens": 3636,
+    "cache_creation_tokens": 1519185,
+    "cache_read_tokens": 48413626,
+    "output_tokens": 139388,
+    "api_call_count": 364
   }
 }
