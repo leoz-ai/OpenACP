@@ -1,0 +1,13 @@
+/Users/kienduong/works/ai-agents/OpenACP/docs/superpowers/specs/2026-03-24-message-formatting-design.md reivew spec này và review code cho https://github.com/Open-ACP/OpenACP/pull/51 xem có bị lỗi nào không?
+
+---
+
+ok fix đi
+
+---
+
+push code và reivew lai PR nhé
+
+---
+
+tiếp tục fix và đưa ra suggestion cho anh
