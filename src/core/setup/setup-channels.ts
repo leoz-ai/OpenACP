@@ -49,7 +49,7 @@ async function promptConfiguredAction(label: string): Promise<ConfiguredChannelA
       message: `${label} already configured. What do you want to do?`,
       options: [
         { value: "modify" as const, label: "Modify settings" },
-        { value: "disable" as const, label: "Disable (keeps config)" },
+        { value: "disable" as const, label: "Disable bot" },
         { value: "delete" as const, label: "Delete config" },
         { value: "skip" as const, label: "Skip (leave as-is)" },
       ],

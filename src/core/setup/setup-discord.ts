@@ -38,8 +38,15 @@ export async function setupDiscord(opts?: {
         },
       }),
     ) as string;
+    const keptExisting = existingToken && !tokenInput.trim();
     botToken = tokenInput.trim() || existingToken || '';
     if (!botToken) continue;
+
+    // Skip validation if keeping existing token
+    if (keptExisting) {
+      console.log(ok("Keeping current bot token"));
+      break;
+    }
 
     const s = clack.spinner();
     s.start("Validating token...");
