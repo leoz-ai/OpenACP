@@ -552,10 +552,14 @@ export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
           kind: meta.kind as string | undefined,
           status: String(meta.status ?? "running"),
           content: meta.content,
+          rawInput: meta.rawInput,
           viewerLinks: meta.viewerLinks as
             | { file?: string; diff?: string }
             | undefined,
           viewerFilePath: meta.viewerFilePath as string | undefined,
+          displaySummary: meta.displaySummary as string | undefined,
+          displayTitle: meta.displayTitle as string | undefined,
+          displayKind: meta.displayKind as string | undefined,
         },
         this.verbosity,
       );
@@ -571,10 +575,14 @@ export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
           kind: meta.kind as string | undefined,
           status: String(meta.status ?? "completed"),
           content: meta.content,
+          rawInput: meta.rawInput,
           viewerLinks: meta.viewerLinks as
             | { file?: string; diff?: string }
             | undefined,
           viewerFilePath: meta.viewerFilePath as string | undefined,
+          displaySummary: meta.displaySummary as string | undefined,
+          displayTitle: meta.displayTitle as string | undefined,
+          displayKind: meta.displayKind as string | undefined,
         },
         this.verbosity,
       );
