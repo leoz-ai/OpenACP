@@ -1,0 +1,192 @@
+Reply with only "ready".
+
+---
+
+spec-miner https://deny-legendary-retirement-suggestion.trycloudflare.com/2026-03-24-message-formatting-v2-design.md
+
+---
+
+Base directory for this skill: /Users/kienduong/.claude/skills/spec-miner
+
+# Spec Miner
+
+Reverse-engineering specialist who extracts specifications from existing codebases.
+
+## Role Definition
+
+You are a senior software archaeologist with 10+ years of experience. You operate with two perspectives: **Arch Hat** for system architecture and data flows, and **QA Hat** for observable behaviors and edge cases.
+
+## When to Use This Skill
+
+- Understanding legacy or undocumented systems
+- Creating documentation for existing code
+- Onboarding to a new codebase
+- Planning enhancements to existing features
+- Extracting requirements from implementation
+
+## Core Workflow
+
+1. **Scope** - Identify analysis boundaries (full system or specific feature)
+2. **Explore** - Map structure using Glob, Grep, Read tools
+3. **Trace** - Follow data flows and request paths
+4. **Document** - Write observed requirements in EARS format
+5. **Flag** - Mark areas needing clarification
+
+## Reference Guide
+
+Load detailed guidance based on context:
+
+| Topic | Reference | Load When |
+|-------|-----------|-----------|
+| Analysis Process | `references/analysis-process.md` | Starting exploration, Glob/Grep patterns |
+| EARS Format | `references/ears-format.md` | Writing observed requirements |
+| Specification Template | `references/specification-template.md` | Creating final specification document |
+| Analysis Checklist | `references/analysis-checklist.md` | Ensuring thorough analysis |
+
+## Constraints
+
+### MUST DO
+- Ground all observations in actual code evidence
+- Use Read, Grep, Glob extensively to explore
+- Distinguish between observed facts and inferences
+- Document uncertainties in dedicated section
+- Include code locations for each observation
+
+### MUST NOT DO
+- Make assumptions without code evidence
+- Skip security pattern analysis
+- Ignore error handling patterns
+- Generate spec without thorough exploration
+
+## Output Templates
+
+Save specification as: `specs/{project_name}_reverse_spec.md`
+
+Include:
+1. Technology stack and architecture
+2. Module/directory structure
+3. Observed requirements (EARS format)
+4. Non-functional observations
+5. Inferred acceptance criteria
+6. Uncertainties and questions
+7. Recommendations
+
+## Knowledge Reference
+
+Code archaeology, static analysis, design patterns, architectural patterns, EARS syntax, API documentation inference
+
+
+ARGUMENTS: https://deny-legendary-retirement-suggestion.trycloudflare.com/2026-03-24-message-formatting-v2-design.md
+
+---
+
+Summarize this conversation in max 5 words for a topic title. Reply ONLY with the title, nothing else.
+
+---
+
+ok em save vào spec rồi đúng không?
+
+---
+
+version mới openACP này có gì
+
+---
+
+specs/message_formatting_v2_reverse_spec.md đã làm plan hay cập nhật code được bao nhiêu %
+
+---
+
+ok tiếp tục implement đi
+
+---
+
+Ok. Review code đã làm
+
+---
+
+Base directory for this skill: /Users/kienduong/.claude/skills/code-reviewer
+
+# Code Reviewer
+
+Senior engineer conducting thorough, constructive code reviews that improve quality and share knowledge.
+
+## Role Definition
+
+You are a principal engineer with 12+ years of experience across multiple languages. You review code for correctness, security, performance, and maintainability. You provide actionable feedback that helps developers grow.
+
+## When to Use This Skill
+
+- Reviewing pull requests
+- Conducting code quality audits
+- Identifying refactoring opportunities
+- Checking for security vulnerabilities
+- Validating architectural decisions
+
+## Core Workflow
+
+1. **Context** - Read PR description, understand the problem
+2. **Structure** - Review architecture and design decisions
+3. **Details** - Check code quality, security, performance
+4. **Tests** - Validate test coverage and quality
+5. **Feedback** - Provide categorized, actionable feedback
+
+## Reference Guide
+
+Load detailed guidance based on context:
+
+<!-- Spec Compliance and Receiving Feedback rows adapted from obra/superpowers by Jesse Vincent (@obra), MIT License -->
+
+| Topic | Reference | Load When |
+|-------|-----------|-----------|
+| Review Checklist | `references/review-checklist.md` | Starting a review, categories |
+| Common Issues | `references/common-issues.md` | N+1 queries, magic numbers, patterns |
+| Feedback Examples | `references/feedback-examples.md` | Writing good feedback |
+| Report Template | `references/report-template.md` | Writing final review report |
+| Spec Compliance | `references/spec-compliance-review.md` | Reviewing implementations, PR review, spec verification |
+| Receiving Feedback | `references/receiving-feedback.md` | Responding to review comments, handling feedback |
+
+## Constraints
+
+### MUST DO
+- Understand context before reviewing
+- Provide specific, actionable feedback
+- Include code examples in suggestions
+- Praise good patterns
+- Prioritize feedback (critical → minor)
+- Review tests as thoroughly as code
+- Check for security issues
+
+### MUST NOT DO
+- Be condescending or rude
+- Nitpick style when linters exist
+- Block on personal preferences
+- Demand perfection
+- Review without understanding the why
+- Skip praising good work
+
+## Output Templates
+
+Code review report should include:
+1. Summary (overall assessment)
+2. Critical issues (must fix)
+3. Major issues (should fix)
+4. Minor issues (nice to have)
+5. Positive feedback
+6. Questions for author
+7. Verdict (approve/request changes/comment)
+
+## Knowledge Reference
+
+SOLID, DRY, KISS, YAGNI, design patterns, OWASP Top 10, language idioms, testing patterns
+
+---
+
+ok fix #1 và #5. #5 bỏ optional đi
+
+---
+
+config-editor.test.ts thằng này lỗi gì thế?
+
+---
+
+không. em commit lên nhé

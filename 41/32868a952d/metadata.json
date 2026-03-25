@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "4132868a952d",
+  "strategy": "manual-commit",
+  "branch": "feat/message-formatting",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "src/adapters/discord/adapter.ts",
+    "src/adapters/shared/message-dispatcher.test.ts",
+    "src/adapters/shared/message-formatter.test.ts",
+    "src/adapters/telegram/adapter.ts",
+    "src/core/__tests__/message-transformer-extended.test.ts",
+    "src/core/config.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/41/32868a952d/0/metadata.json",
+      "transcript": "/41/32868a952d/0/full.jsonl",
+      "context": "/41/32868a952d/0/context.md",
+      "content_hash": "/41/32868a952d/0/content_hash.txt",
+      "prompt": "/41/32868a952d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3536,
+    "cache_creation_tokens": 369630,
+    "cache_read_tokens": 5997737,
+    "output_tokens": 21410,
+    "api_call_count": 60
+  }
+}
