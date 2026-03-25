@@ -5,7 +5,7 @@ import { AgentManager } from "./agent-manager.js";
 import { SessionManager } from "./session-manager.js";
 import { SessionBridge } from "./session-bridge.js";
 import { NotificationManager } from "./notification.js";
-import { ChannelAdapter } from "./channel.js";
+import type { IChannelAdapter } from "./channel.js";
 import { Session } from "./session.js";
 import { MessageTransformer } from "./message-transformer.js";
 import { FileService } from "./file-service.js";
@@ -36,7 +36,7 @@ export class OpenACPCore {
   fileService: FileService;
   readonly speechService: SpeechService;
   securityGuard: SecurityGuard;
-  adapters: Map<string, ChannelAdapter> = new Map();
+  adapters: Map<string, IChannelAdapter> = new Map();
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
@@ -158,7 +158,7 @@ export class OpenACPCore {
     this.messageTransformer = new MessageTransformer(service);
   }
 
-  registerAdapter(name: string, adapter: ChannelAdapter): void {
+  registerAdapter(name: string, adapter: IChannelAdapter): void {
     this.adapters.set(name, adapter);
   }
 
@@ -270,9 +270,9 @@ export class OpenACPCore {
       // 1. Delete topic — if session is in memory use archiveSessionTopic (cleans up trackers),
       //    otherwise use deleteSessionThread (looks up topicId from record)
       if (session) {
-        await adapter.archiveSessionTopic(session.id);
+        await adapter.archiveSessionTopic?.(session.id);
       } else {
-        await adapter.deleteSessionThread(sessionId);
+        await adapter.deleteSessionThread?.(sessionId);
       }
 
       // 2. Cancel the session if in memory (stop agent)
@@ -748,7 +748,7 @@ export class OpenACPCore {
   // --- Event Wiring ---
 
   /** Create a SessionBridge for the given session and adapter */
-  createBridge(session: Session, adapter: ChannelAdapter): SessionBridge {
+  createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
     return new SessionBridge(session, adapter, {
       messageTransformer: this.messageTransformer,
       notificationManager: this.notificationManager,

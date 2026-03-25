@@ -1,5 +1,5 @@
 import type { Session } from "./session.js";
-import type { ChannelAdapter } from "./channel.js";
+import type { IChannelAdapter } from "./channel.js";
 import type { MessageTransformer } from "./message-transformer.js";
 import type { NotificationManager } from "./notification.js";
 import type { SessionManager } from "./session-manager.js";
@@ -30,7 +30,7 @@ export class SessionBridge {
 
   constructor(
     private session: Session,
-    private adapter: ChannelAdapter,
+    private adapter: IChannelAdapter,
     private deps: BridgeDeps,
   ) {}
 
@@ -99,7 +99,7 @@ export class SessionBridge {
 
         case "session_end":
           this.session.finish(event.reason);
-          this.adapter.cleanupSkillCommands(this.session.id);
+          this.adapter.cleanupSkillCommands?.(this.session.id);
           this.adapter.sendMessage(
             this.session.id,
             this.deps.messageTransformer.transform(event),
@@ -114,7 +114,7 @@ export class SessionBridge {
 
         case "error":
           this.session.fail(event.message);
-          this.adapter.cleanupSkillCommands(this.session.id);
+          this.adapter.cleanupSkillCommands?.(this.session.id);
           this.adapter.sendMessage(
             this.session.id,
             this.deps.messageTransformer.transform(event),
@@ -168,7 +168,7 @@ export class SessionBridge {
 
         case "commands_update":
           log.debug({ commands: event.commands }, "Commands available");
-          this.adapter.sendSkillCommands(this.session.id, event.commands);
+          this.adapter.sendSkillCommands?.(this.session.id, event.commands);
           break;
 
         case "system_message":

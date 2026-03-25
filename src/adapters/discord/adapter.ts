@@ -60,6 +60,7 @@ interface DiscordMessageCtx {
 }
 
 export class DiscordAdapter extends ChannelAdapter<OpenACPCore> {
+  readonly name = 'discord';
   private client: Client;
   private discordConfig: DiscordChannelConfig;
   private sendQueue: DiscordSendQueue;

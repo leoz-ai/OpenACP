@@ -96,6 +96,7 @@ function patchedFetch(
 }
 
 export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
+  readonly name = 'telegram';
   private bot!: Bot;
   private telegramConfig: TelegramChannelConfig;
   private permissionHandler!: PermissionHandler;

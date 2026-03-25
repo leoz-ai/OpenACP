@@ -77,7 +77,7 @@ export class TopicManager {
     const topicId = (record.platform as Record<string, unknown>)?.topicId as number ?? null
     if (this.adapter && topicId) {
       try {
-        await this.adapter.deleteSessionThread(sessionId)
+        await this.adapter.deleteSessionThread?.(sessionId)
       } catch (err) {
         log.warn({ err, sessionId, topicId }, 'Failed to delete platform thread, removing record anyway')
       }
@@ -108,7 +108,7 @@ export class TopicManager {
         const topicId = (record.platform as Record<string, unknown>)?.topicId as number | undefined
         if (this.adapter && topicId) {
           try {
-            await this.adapter.deleteSessionThread(record.sessionId)
+            await this.adapter.deleteSessionThread?.(record.sessionId)
           } catch (err) {
             log.warn({ err, sessionId: record.sessionId }, 'Failed to delete platform thread during cleanup')
           }

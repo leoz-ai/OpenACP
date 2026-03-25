@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OpenACPCore } from "../core.js";
-import type { ChannelAdapter } from "../channel.js";
+import type { IChannelAdapter } from "../channel.js";
 import type { IncomingMessage } from "../types.js";
 
 // Mock heavy dependencies
@@ -99,8 +99,10 @@ function mockConfigManager(config?: any) {
   } as any;
 }
 
-function mockAdapter(): ChannelAdapter {
+function mockAdapter(): IChannelAdapter {
   return {
+    name: 'test',
+    capabilities: { streaming: false, richFormatting: false, threads: false, reactions: false, fileUpload: false, voice: false },
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -111,12 +113,12 @@ function mockAdapter(): ChannelAdapter {
     deleteSessionThread: vi.fn(),
     sendSkillCommands: vi.fn(),
     cleanupSkillCommands: vi.fn(),
-  } as unknown as ChannelAdapter;
+  } as unknown as IChannelAdapter;
 }
 
 describe("OpenACPCore", () => {
   let core: OpenACPCore;
-  let adapter: ChannelAdapter;
+  let adapter: IChannelAdapter;
 
   beforeEach(() => {
     core = new OpenACPCore(mockConfigManager());

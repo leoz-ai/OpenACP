@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { NotificationManager } from '../notification.js'
-import type { ChannelAdapter } from '../channel.js'
+import type { IChannelAdapter } from '../channel.js'
 import type { NotificationMessage } from '../types.js'
 
-function mockAdapter(): ChannelAdapter {
+function mockAdapter(): IChannelAdapter {
   return {
+    name: 'test',
+    capabilities: { streaming: false, richFormatting: false, threads: false, reactions: false, fileUpload: false, voice: false },
     start: vi.fn(),
     stop: vi.fn(),
     sendMessage: vi.fn(),
@@ -15,7 +17,7 @@ function mockAdapter(): ChannelAdapter {
     deleteSessionThread: vi.fn(),
     sendSkillCommands: vi.fn(),
     cleanupSkillCommands: vi.fn(),
-  } as unknown as ChannelAdapter
+  } as unknown as IChannelAdapter
 }
 
 describe('NotificationManager', () => {
@@ -37,7 +39,7 @@ describe('NotificationManager', () => {
     })
 
     it('does nothing when adapter not found', async () => {
-      const adapters = new Map<string, ChannelAdapter>()
+      const adapters = new Map<string, IChannelAdapter>()
       const manager = new NotificationManager(adapters)
 
       // Should not throw
@@ -77,7 +79,7 @@ describe('NotificationManager', () => {
     })
 
     it('handles empty adapter map', async () => {
-      const adapters = new Map<string, ChannelAdapter>()
+      const adapters = new Map<string, IChannelAdapter>()
       const manager = new NotificationManager(adapters)
 
       // Should not throw

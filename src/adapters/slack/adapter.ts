@@ -27,6 +27,7 @@ import { toSlug } from "./slug.js";
 import { isAudioClip } from "./utils.js";
 
 export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
+  readonly name = 'slack';
   private app!: App;
   private webClient!: WebClient;
   private queue!: SlackSendQueue;

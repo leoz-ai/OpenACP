@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionBridge } from "../session-bridge.js";
 import { Session } from "../session.js";
 import type { AgentInstance } from "../agent-instance.js";
-import type { ChannelAdapter } from "../channel.js";
+import type { IChannelAdapter } from "../channel.js";
 import type { MessageTransformer } from "../message-transformer.js";
 import type { NotificationManager } from "../notification.js";
 import type { SessionManager } from "../session-manager.js";
@@ -21,8 +21,10 @@ function createMockAgentInstance(): AgentInstance {
   }) as unknown as AgentInstance;
 }
 
-function createMockAdapter(): ChannelAdapter {
+function createMockAdapter(): IChannelAdapter {
   return {
+    name: 'test',
+    capabilities: { streaming: false, richFormatting: false, threads: false, reactions: false, fileUpload: false, voice: false },
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendPermissionRequest: vi.fn().mockResolvedValue(undefined),
     sendNotification: vi.fn().mockResolvedValue(undefined),
@@ -33,7 +35,7 @@ function createMockAdapter(): ChannelAdapter {
     deleteSessionThread: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
-  } as unknown as ChannelAdapter;
+  } as unknown as IChannelAdapter;
 }
 
 function createMockDeps() {
@@ -75,7 +77,7 @@ function makePermissionRequest(description: string): PermissionRequest {
 describe("SessionBridge auto-approve", () => {
   let agent: AgentInstance;
   let session: Session;
-  let adapter: ChannelAdapter;
+  let adapter: IChannelAdapter;
   let deps: ReturnType<typeof createMockDeps>;
   let bridge: SessionBridge;
 

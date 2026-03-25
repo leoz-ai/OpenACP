@@ -5,12 +5,12 @@ import { createRequire } from 'node:module'
 import { PLUGINS_DIR } from './config.js'
 import { createChildLogger } from './log.js'
 const log = createChildLogger({ module: 'plugin-manager' })
-import type { ChannelAdapter, ChannelConfig } from './channel.js'
+import type { IChannelAdapter, ChannelConfig } from './channel.js'
 import type { OpenACPCore } from './core.js'
 
 export interface AdapterFactory {
   name: string
-  createAdapter(core: OpenACPCore, config: ChannelConfig): ChannelAdapter
+  createAdapter(core: OpenACPCore, config: ChannelConfig): IChannelAdapter
 }
 
 function ensurePluginsDir(): void {

@@ -12,6 +12,7 @@ export {
 export {
   ChannelAdapter,
   type IChannelAdapter,
+  type AdapterCapabilities,
   type ChannelConfig,
 } from "./channel.js";
 export { NotificationManager } from "./notification.js";

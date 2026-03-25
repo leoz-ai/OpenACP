@@ -1,8 +1,8 @@
-import type { ChannelAdapter } from './channel.js'
+import type { IChannelAdapter } from './channel.js'
 import type { NotificationMessage } from './types.js'
 
 export class NotificationManager {
-  constructor(private adapters: Map<string, ChannelAdapter>) {}
+  constructor(private adapters: Map<string, IChannelAdapter>) {}
 
   async notify(channelId: string, notification: NotificationMessage): Promise<void> {
     const adapter = this.adapters.get(channelId)

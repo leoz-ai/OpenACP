@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Session } from "../session.js";
 import { EventBus } from "../event-bus.js";
 import type { AgentInstance } from "../agent-instance.js";
-import type { ChannelAdapter } from "../channel.js";
+import type { IChannelAdapter } from "../channel.js";
 import { TypedEmitter } from "../typed-emitter.js";
 import type { AgentEvent } from "../types.js";
 
@@ -18,8 +18,10 @@ function createMockAgentInstance(sessionId = "agent-session-1"): AgentInstance {
   }) as unknown as AgentInstance;
 }
 
-function createMockAdapter(): ChannelAdapter {
+function createMockAdapter(): IChannelAdapter {
   return {
+    name: 'test',
+    capabilities: { streaming: false, richFormatting: false, threads: false, reactions: false, fileUpload: false, voice: false },
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendPermissionRequest: vi.fn().mockResolvedValue(undefined),
     sendNotification: vi.fn().mockResolvedValue(undefined),
@@ -30,7 +32,7 @@ function createMockAdapter(): ChannelAdapter {
     deleteSessionThread: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
-  } as unknown as ChannelAdapter;
+  } as unknown as IChannelAdapter;
 }
 
 // Test createSession by constructing a minimal OpenACPCore with mocked dependencies
@@ -79,7 +81,7 @@ function createMockCore(): OpenACPCore {
 
 describe("OpenACPCore.createSession", () => {
   let core: OpenACPCore;
-  let adapter: ChannelAdapter;
+  let adapter: IChannelAdapter;
 
   beforeEach(() => {
     vi.clearAllMocks();
