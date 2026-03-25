@@ -8,7 +8,7 @@ export async function setupDiscord(opts?: {
 }): Promise<DiscordChannelConfig> {
   const { existing } = opts ?? {};
 
-  console.log('\n Discord Setup\n');
+  console.log('\nDiscord Setup\n');
 
   console.log(`  ${c.bold}Quick setup:${c.reset}`);
   console.log(dim('  1. Create app at https://discord.com/developers/applications'));
@@ -86,7 +86,6 @@ export async function setupDiscord(opts?: {
     }),
   ) as string;
   const guildId = (guildIdInput.trim() || existing?.guildId || '');
-
 
   return {
     enabled: true,

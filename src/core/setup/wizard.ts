@@ -55,7 +55,7 @@ export async function runSetup(
     const { defaultAgent } = await setupAgents();
 
     // Offer Claude CLI integration
-    await setupIntegrations({} as Config);
+    await setupIntegrations();
 
     currentStep++;
     const workspace = await setupWorkspace({ stepNum: currentStep, totalSteps });
@@ -188,12 +188,14 @@ export async function runReconfigure(configManager: ConfigManager): Promise<void
       ranSection = true;
 
       if (choice === "channels") {
-        const updated = await configureChannels(config);
-        // IMPORTANT: Use writeNew() instead of save() because save() uses deepMerge
-        // which cannot delete keys. Channel deletion (delete next.channels.telegram)
-        // would be silently ignored by deepMerge. writeNew() overwrites the full config.
-        config = { ...config, channels: updated.channels };
-        await configManager.writeNew(config);
+        const result = await configureChannels(config);
+        if (result.changed) {
+          // IMPORTANT: Use writeNew() instead of save() because save() uses deepMerge
+          // which cannot delete keys. Channel deletion (delete next.channels.telegram)
+          // would be silently ignored by deepMerge. writeNew() overwrites the full config.
+          config = { ...config, channels: result.config.channels };
+          await configManager.writeNew(config);
+        }
       }
 
       if (choice === "agents") {

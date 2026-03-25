@@ -58,8 +58,9 @@ async function promptConfiguredAction(label: string): Promise<ConfiguredChannelA
   );
 }
 
-export async function configureChannels(config: Config): Promise<Config> {
+export async function configureChannels(config: Config): Promise<{ config: Config; changed: boolean }> {
   const next = structuredClone(config);
+  let changed = false;
 
   noteChannelStatus(next);
 
@@ -97,6 +98,7 @@ export async function configureChannels(config: Config): Promise<Config> {
       if (action === "skip") continue;
       if (action === "disable") {
         (next.channels[channelId] as Record<string, unknown>).enabled = false;
+        changed = true;
         console.log(ok(`${meta.label} disabled`));
         continue;
       }
@@ -109,6 +111,7 @@ export async function configureChannels(config: Config): Promise<Config> {
         );
         if (confirmed) {
           delete next.channels[channelId];
+          changed = true;
           console.log(ok(`${meta.label} config deleted`));
         }
         continue;
@@ -122,13 +125,15 @@ export async function configureChannels(config: Config): Promise<Config> {
         existing: isConfigured ? (existing as Config["channels"][string]) : undefined,
       });
       next.channels.telegram = result;
+      changed = true;
     } else if (channelId === "discord") {
       const result = await setupDiscord({
         existing: isConfigured ? (existing as unknown as DiscordChannelConfig) : undefined,
       });
       next.channels.discord = result as Config["channels"][string];
+      changed = true;
     }
   }
 
-  return next;
+  return { config: next, changed };
 }

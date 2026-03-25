@@ -1,6 +1,6 @@
 import * as clack from "@clack/prompts";
 import type { Config } from "../config.js";
-import { guardCancel, ok, fail, dim, c, step } from "./helpers.js";
+import { guardCancel, ok, fail, warn, dim, c, step } from "./helpers.js";
 import { validateBotToken, validateChatId, validateBotAdmin } from "./validation.js";
 
 async function promptManualChatId(): Promise<number> {
@@ -141,7 +141,7 @@ async function detectChatId(token: string): Promise<number> {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
     }
 
-    console.log(fail("Timed out waiting for messages."));
+    console.log(warn("Timed out waiting for messages."));
     cleanup();
     return promptManualChatId();
   } catch (err) {
