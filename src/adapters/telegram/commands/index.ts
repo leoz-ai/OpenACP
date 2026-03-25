@@ -4,7 +4,7 @@ import type { CommandsAssistantContext } from "../types.js";
 
 // Domain modules
 import { handleNew, handleNewChat, setupNewSessionCallbacks, createSessionDirect } from "./new-session.js";
-import { handleCancel, handleStatus, handleTopics, handleUsage, handleArchive, handleArchiveConfirm, setupSessionCallbacks } from "./session.js";
+import { handleCancel, handleStatus, handleTopics, handleUsage, handleArchive, handleArchiveConfirm, handleSummary, handleSummaryCallback, setupSessionCallbacks } from "./session.js";
 import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart, handleTTS } from "./admin.js";
 import { handleMenu, handleHelp, handleClear, buildMenuKeyboard } from "./menu.js";
 import { handleAgents, handleInstall, handleAgentCallback } from "./agents.js";
@@ -40,6 +40,7 @@ export function setupCommands(
   bot.command("tunnel", (ctx) => handleTunnel(ctx, core));
   bot.command("tunnels", (ctx) => handleTunnels(ctx, core));
   bot.command("archive", (ctx) => handleArchive(ctx, core));
+  bot.command("summary", (ctx) => handleSummary(ctx, core));
   bot.command("text_to_speech", (ctx) => handleTTS(ctx, core));
   bot.command("resume", (ctx) => handleResume(ctx, core, chatId, assistant));
 }
@@ -77,6 +78,9 @@ export function setupAllCallbacks(
 
   // Archive confirmation callbacks
   bot.callbackQuery(/^ar:/, (ctx) => handleArchiveConfirm(ctx, core, chatId));
+
+  // Summary button callbacks
+  bot.callbackQuery(/^sm:/, (ctx) => handleSummaryCallback(ctx, core, chatId));
 
   // Broad m: handler for remaining menu dispatch — LAST
   bot.callbackQuery(/^m:/, async (ctx) => {
@@ -154,6 +158,7 @@ export const STATIC_COMMANDS = [
   { command: "tunnel", description: "Create/stop tunnel for a local port" },
   { command: "tunnels", description: "List active tunnels" },
   { command: "archive", description: "Archive session topic (recreate with clean history)" },
+  { command: "summary", description: "Get AI summary of current session" },
   { command: "text_to_speech", description: "Toggle Text to Speech (/text_to_speech on, /text_to_speech off)" },
   { command: "resume", description: "Resume with conversation history from Entire checkpoints" },
 ];
