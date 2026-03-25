@@ -61,23 +61,35 @@ describe("splitMessage", () => {
 });
 
 describe("formatUsage", () => {
-  it("shows progress bar with tokens and contextSize", () => {
-    const result = formatUsage({ tokensUsed: 28000, contextSize: 200000 });
+  it("shows progress bar with tokens and contextSize (high)", () => {
+    const result = formatUsage(
+      { tokensUsed: 28000, contextSize: 200000 },
+      "high",
+    );
     expect(result).toBe("📊 28k / 200k tokens\n▓░░░░░░░░░ 14%");
   });
 
-  it("shows warning emoji when usage >= 85%", () => {
-    const result = formatUsage({ tokensUsed: 85000, contextSize: 100000 });
+  it("shows warning emoji when usage >= 85% (high)", () => {
+    const result = formatUsage(
+      { tokensUsed: 85000, contextSize: 100000 },
+      "high",
+    );
     expect(result).toBe("⚠️ 85k / 100k tokens\n▓▓▓▓▓▓▓▓▓░ 85%");
   });
 
-  it("shows warning emoji at exactly 85%", () => {
-    const result = formatUsage({ tokensUsed: 8500, contextSize: 10000 });
+  it("shows warning emoji at exactly 85% (high)", () => {
+    const result = formatUsage(
+      { tokensUsed: 8500, contextSize: 10000 },
+      "high",
+    );
     expect(result).toContain("⚠️");
   });
 
-  it("shows 100% with full bar", () => {
-    const result = formatUsage({ tokensUsed: 100000, contextSize: 100000 });
+  it("shows 100% with full bar (high)", () => {
+    const result = formatUsage(
+      { tokensUsed: 100000, contextSize: 100000 },
+      "high",
+    );
     expect(result).toBe("⚠️ 100k / 100k tokens\n▓▓▓▓▓▓▓▓▓▓ 100%");
   });
 
@@ -91,8 +103,8 @@ describe("formatUsage", () => {
     expect(result).toBe("📊 Usage data unavailable");
   });
 
-  it("displays small numbers without k suffix", () => {
-    const result = formatUsage({ tokensUsed: 500, contextSize: 1000 });
+  it("displays small numbers without k suffix (high)", () => {
+    const result = formatUsage({ tokensUsed: 500, contextSize: 1000 }, "high");
     expect(result).toBe("📊 500 / 1k tokens\n▓▓▓▓▓░░░░░ 50%");
   });
 });
@@ -214,34 +226,34 @@ describe("formatToolCall", () => {
 });
 
 describe("formatPlan", () => {
-  it("formats plan entries with status icons", () => {
+  it("formats plan entries with status icons (high)", () => {
     const entries: PlanEntry[] = [
       { content: "First step", status: "completed", priority: "high" },
       { content: "Second step", status: "in_progress", priority: "medium" },
       { content: "Third step", status: "pending", priority: "low" },
     ];
-    const result = formatPlan(entries);
+    const result = formatPlan(entries, "high");
     expect(result).toContain("**Plan:**");
     expect(result).toContain("✅ 1. First step");
     expect(result).toContain("🔄 2. Second step");
     expect(result).toContain("⏳ 3. Third step");
   });
 
-  it("uses Discord bold markdown", () => {
+  it("uses Discord bold markdown (high)", () => {
     const entries: PlanEntry[] = [
       { content: "Do something", status: "pending", priority: "high" },
     ];
-    const result = formatPlan(entries);
+    const result = formatPlan(entries, "high");
     expect(result).toContain("**Plan:**");
     expect(result).not.toContain("<b>");
   });
 
-  it("handles empty plan", () => {
-    const result = formatPlan([]);
+  it("handles empty plan (high)", () => {
+    const result = formatPlan([], "high");
     expect(result).toBe("**Plan:**\n");
   });
 
-  it("uses fallback icon for unknown status", () => {
+  it("uses fallback icon for unknown status (high)", () => {
     const entries = [
       {
         content: "Unknown",
@@ -249,7 +261,91 @@ describe("formatPlan", () => {
         priority: "low" as PlanEntry["priority"],
       },
     ];
-    const result = formatPlan(entries);
+    const result = formatPlan(entries, "high");
     expect(result).toContain("⬜ 1. Unknown");
+  });
+});
+
+describe("displayKind icon resolution", () => {
+  it("uses displayKind icon when no status icon", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "custom",
+      status: "",
+      displayKind: "read",
+    });
+    expect(result).toContain("📖");
+  });
+
+  it("status icon takes precedence", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "tool",
+      status: "completed",
+      displayKind: "read",
+    });
+    expect(result).toContain("✅");
+  });
+});
+
+describe("high verbosity rawInput", () => {
+  it("shows rawInput + content on high", () => {
+    const result = formatToolCall(
+      {
+        id: "1",
+        name: "Read",
+        status: "completed",
+        rawInput: { file_path: "src/main.ts" },
+        content: "const x = 1;",
+      },
+      "high",
+    );
+    expect(result).toContain("**Input:**");
+    expect(result).toContain("**Output:**");
+  });
+
+  it("medium does NOT show content", () => {
+    const result = formatToolCall(
+      { id: "1", name: "Read", status: "completed", content: "file content" },
+      "medium",
+    );
+    expect(result).not.toContain("```");
+  });
+});
+
+describe("formatPlan verbosity", () => {
+  const entries: PlanEntry[] = [
+    { content: "Step 1", status: "completed", priority: "high" },
+    { content: "Step 2", status: "pending", priority: "low" },
+  ];
+
+  it("medium shows summary", () => {
+    const result = formatPlan(entries, "medium");
+    expect(result).toContain("1/2 steps completed");
+    expect(result).not.toContain("Step 1");
+  });
+
+  it("high shows full entries", () => {
+    const result = formatPlan(entries, "high");
+    expect(result).toContain("Step 1");
+  });
+});
+
+describe("formatUsage verbosity", () => {
+  it("medium shows compact", () => {
+    const result = formatUsage(
+      { tokensUsed: 5000, contextSize: 200000 },
+      "medium",
+    );
+    expect(result).toBe("📊 5k tokens");
+  });
+
+  it("high shows progress bar + cost", () => {
+    const result = formatUsage(
+      { tokensUsed: 28000, contextSize: 200000, cost: 0.25 },
+      "high",
+    );
+    expect(result).toContain("▓");
+    expect(result).toContain("💰 $0.25");
   });
 });

@@ -5,6 +5,7 @@ import {
   formatToolCall,
   formatToolUpdate,
   formatPlan,
+  formatUsage,
   splitMessage,
 } from "./formatting.js";
 
@@ -304,37 +305,46 @@ describe("formatToolUpdate", () => {
 });
 
 describe("formatPlan", () => {
-  it("formats plan entries with status icons", () => {
-    const result = formatPlan({
-      entries: [
-        { content: "Step 1", status: "completed" },
-        { content: "Step 2", status: "in_progress" },
-        { content: "Step 3", status: "pending" },
-      ],
-    });
+  it("formats plan entries with status icons (high)", () => {
+    const result = formatPlan(
+      {
+        entries: [
+          { content: "Step 1", status: "completed" },
+          { content: "Step 2", status: "in_progress" },
+          { content: "Step 3", status: "pending" },
+        ],
+      },
+      "high",
+    );
     expect(result).toContain("<b>Plan:</b>");
     expect(result).toContain("✅ 1. Step 1");
     expect(result).toContain("🔄 2. Step 2");
     expect(result).toContain("⬜ 3. Step 3");
   });
 
-  it("handles empty entries", () => {
-    const result = formatPlan({ entries: [] });
+  it("handles empty entries (high)", () => {
+    const result = formatPlan({ entries: [] }, "high");
     expect(result).toContain("<b>Plan:</b>");
   });
 
-  it("escapes HTML in entry content", () => {
-    const result = formatPlan({
-      entries: [{ content: "<script>alert(1)</script>", status: "pending" }],
-    });
+  it("escapes HTML in entry content (high)", () => {
+    const result = formatPlan(
+      {
+        entries: [{ content: "<script>alert(1)</script>", status: "pending" }],
+      },
+      "high",
+    );
     expect(result).toContain("&lt;script&gt;");
     expect(result).not.toContain("<script>");
   });
 
-  it("uses default icon for unknown status", () => {
-    const result = formatPlan({
-      entries: [{ content: "Step", status: "unknown" }],
-    });
+  it("uses default icon for unknown status (high)", () => {
+    const result = formatPlan(
+      {
+        entries: [{ content: "Step", status: "unknown" }],
+      },
+      "high",
+    );
     expect(result).toContain("⬜");
   });
 });
@@ -418,5 +428,146 @@ describe("splitMessage", () => {
     const text = "hello world this is a test";
     const result = splitMessage(text, 10);
     expect(result.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("displayKind icon resolution", () => {
+  it("uses displayKind icon when status has no icon", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "custom_read",
+      status: "",
+      displayKind: "read",
+    });
+    expect(result).toContain("📖");
+  });
+
+  it("prefers displayKind over kind", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "tool",
+      status: "",
+      kind: "execute",
+      displayKind: "search",
+    });
+    expect(result).toContain("🔍");
+  });
+
+  it("status icon takes precedence over displayKind", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "tool",
+      status: "completed",
+      displayKind: "read",
+    });
+    expect(result).toContain("✅");
+    expect(result).not.toContain("📖");
+  });
+});
+
+describe("high verbosity rawInput", () => {
+  it("shows rawInput and content on high", () => {
+    const result = formatToolCall(
+      {
+        id: "1",
+        name: "Read",
+        status: "completed",
+        rawInput: { file_path: "src/main.ts" },
+        content: "const x = 1;",
+      },
+      "high",
+    );
+    expect(result).toContain("<b>Input:</b>");
+    expect(result).toContain("file_path");
+    expect(result).toContain("<b>Output:</b>");
+    expect(result).toContain("const x = 1;");
+  });
+
+  it("hides rawInput when empty object", () => {
+    const result = formatToolCall(
+      {
+        id: "1",
+        name: "Tool",
+        status: "completed",
+        rawInput: {},
+        content: "output",
+      },
+      "high",
+    );
+    expect(result).not.toContain("<b>Input:</b>");
+    expect(result).toContain("<b>Output:</b>");
+  });
+
+  it("medium does NOT show content or rawInput", () => {
+    const result = formatToolCall(
+      {
+        id: "1",
+        name: "Read",
+        status: "completed",
+        rawInput: { file_path: "test.ts" },
+        content: "file content",
+      },
+      "medium",
+    );
+    expect(result).not.toContain("<b>Input:</b>");
+    expect(result).not.toContain("<b>Output:</b>");
+  });
+
+  it("viewer links always shown on medium", () => {
+    const result = formatToolCall({
+      id: "1",
+      name: "Edit",
+      status: "completed",
+      viewerLinks: { file: "https://view/1" },
+      viewerFilePath: "test.ts",
+    });
+    expect(result).toContain("View test.ts");
+  });
+});
+
+describe("formatPlan verbosity", () => {
+  const entries = [
+    { content: "Step 1", status: "completed" },
+    { content: "Step 2", status: "in_progress" },
+    { content: "Step 3", status: "pending" },
+  ];
+
+  it("medium shows summary count", () => {
+    const result = formatPlan({ entries }, "medium");
+    expect(result).toContain("1/3 steps completed");
+    expect(result).not.toContain("Step 1");
+  });
+
+  it("high shows full entries", () => {
+    const result = formatPlan({ entries }, "high");
+    expect(result).toContain("Step 1");
+    expect(result).toContain("Step 2");
+  });
+});
+
+describe("formatUsage verbosity", () => {
+  it("medium shows compact one-line", () => {
+    const result = formatUsage(
+      { tokensUsed: 5000, contextSize: 200000 },
+      "medium",
+    );
+    expect(result).toBe("📊 5k tokens");
+  });
+
+  it("medium includes cost", () => {
+    const result = formatUsage(
+      { tokensUsed: 5000, contextSize: 200000, cost: 0.15 },
+      "medium",
+    );
+    expect(result).toContain("$0.15");
+  });
+
+  it("high shows progress bar + cost", () => {
+    const result = formatUsage(
+      { tokensUsed: 28000, contextSize: 200000, cost: 0.25 },
+      "high",
+    );
+    expect(result).toContain("▓");
+    expect(result).toContain("💰 $0.25");
   });
 });

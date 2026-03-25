@@ -4,7 +4,7 @@ import type {
   ToolUpdateMeta,
   ViewerLinks,
 } from "../shared/format-types.js";
-import { STATUS_ICONS } from "../shared/format-types.js";
+import { STATUS_ICONS, KIND_ICONS } from "../shared/format-types.js";
 import {
   progressBar,
   formatTokens,
@@ -16,6 +16,7 @@ import {
   extractContentText,
   formatToolSummary,
   formatToolTitle,
+  resolveToolIcon,
 } from "../shared/message-formatter.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
 
@@ -83,20 +84,18 @@ export function formatToolCall(
   tool: ToolCallMeta,
   verbosity: DisplayVerbosity = "medium",
 ): string {
-  const si = STATUS_ICONS[tool.status || ""] || "🔧";
+  const si = resolveToolIcon(tool);
   const name = tool.name || "Tool";
   const label =
     verbosity === "low"
-      ? formatToolTitle(name, tool.rawInput)
-      : formatToolSummary(name, tool.rawInput);
+      ? formatToolTitle(name, tool.rawInput, tool.displayTitle)
+      : formatToolSummary(name, tool.rawInput, tool.displaySummary);
   let text = `${si} <b>${escapeHtml(label)}</b>`;
+  // viewer links always shown regardless of verbosity
   text += formatViewerLinks(tool.viewerLinks, tool.viewerFilePath);
-  // high: always show content; medium: show when no viewer links; low: never
-  if (verbosity === "high" || (verbosity === "medium" && !tool.viewerLinks)) {
-    const details = stripCodeFences(extractContentText(tool.content));
-    if (details) {
-      text += `\n<pre>${escapeHtml(truncateContent(details, 3800))}</pre>`;
-    }
+  // high only: rawInput + content
+  if (verbosity === "high") {
+    text += formatHighDetails(tool.rawInput, tool.content, 3800);
   }
   return text;
 }
@@ -105,19 +104,38 @@ export function formatToolUpdate(
   update: ToolUpdateMeta,
   verbosity: DisplayVerbosity = "medium",
 ): string {
-  const si = STATUS_ICONS[update.status] || "🔧";
+  const si = resolveToolIcon(update);
   const name = update.name || "Tool";
   const label =
     verbosity === "low"
-      ? formatToolTitle(name, update.rawInput)
-      : formatToolSummary(name, update.rawInput);
+      ? formatToolTitle(name, update.rawInput, update.displayTitle)
+      : formatToolSummary(name, update.rawInput, update.displaySummary);
   let text = `${si} <b>${escapeHtml(label)}</b>`;
   text += formatViewerLinks(update.viewerLinks, update.viewerFilePath);
-  if (verbosity === "high" || (verbosity === "medium" && !update.viewerLinks)) {
-    const details = stripCodeFences(extractContentText(update.content));
-    if (details) {
-      text += `\n<pre>${escapeHtml(truncateContent(details, 3800))}</pre>`;
+  if (verbosity === "high") {
+    text += formatHighDetails(update.rawInput, update.content, 3800);
+  }
+  return text;
+}
+
+function formatHighDetails(
+  rawInput: unknown,
+  content: unknown,
+  maxLen: number,
+): string {
+  let text = "";
+  if (rawInput) {
+    const inputStr =
+      typeof rawInput === "string"
+        ? rawInput
+        : JSON.stringify(rawInput, null, 2);
+    if (inputStr && inputStr !== "{}") {
+      text += `\n<b>Input:</b>\n<pre>${escapeHtml(truncateContent(inputStr, maxLen))}</pre>`;
     }
+  }
+  const details = stripCodeFences(extractContentText(content));
+  if (details) {
+    text += `\n<b>Output:</b>\n<pre>${escapeHtml(truncateContent(details, maxLen))}</pre>`;
   }
   return text;
 }
@@ -133,34 +151,51 @@ function formatViewerLinks(links?: ViewerLinks, filePath?: string): string {
   return text;
 }
 
-export function formatPlan(plan: {
-  entries: Array<{ content: string; status: string }>;
-}): string {
+export function formatPlan(
+  plan: { entries: Array<{ content: string; status: string }> },
+  verbosity: DisplayVerbosity = "medium",
+): string {
+  const { entries } = plan;
+  // medium: summary count only
+  if (verbosity === "medium") {
+    const done = entries.filter((e) => e.status === "completed").length;
+    return `📋 <b>Plan:</b> ${done}/${entries.length} steps completed`;
+  }
+  // high: full entries
   const statusIcon: Record<string, string> = {
     pending: "⬜",
     in_progress: "🔄",
     completed: "✅",
   };
-  const lines = plan.entries.map(
+  const lines = entries.map(
     (e, i) =>
       `${statusIcon[e.status] || "⬜"} ${i + 1}. ${escapeHtml(e.content)}`,
   );
   return `<b>Plan:</b>\n${lines.join("\n")}`;
 }
 
-export function formatUsage(usage: {
-  tokensUsed?: number;
-  contextSize?: number;
-}): string {
-  const { tokensUsed, contextSize } = usage;
+export function formatUsage(
+  usage: { tokensUsed?: number; contextSize?: number; cost?: number },
+  verbosity: DisplayVerbosity = "medium",
+): string {
+  const { tokensUsed, contextSize, cost } = usage;
   if (tokensUsed == null) return "📊 Usage data unavailable";
-  if (contextSize == null) return `📊 ${formatTokens(tokensUsed)} tokens`;
 
+  // medium: compact one-line
+  if (verbosity === "medium") {
+    const costStr = cost != null ? ` · $${cost.toFixed(2)}` : "";
+    return `📊 ${formatTokens(tokensUsed)} tokens${costStr}`;
+  }
+
+  // high: full progress bar + cost
+  if (contextSize == null) return `📊 ${formatTokens(tokensUsed)} tokens`;
   const ratio = tokensUsed / contextSize;
   const pct = Math.round(ratio * 100);
   const bar = progressBar(ratio);
   const emoji = pct >= 85 ? "⚠️" : "📊";
-  return `${emoji} ${formatTokens(tokensUsed)} / ${formatTokens(contextSize)} tokens\n${bar} ${pct}%`;
+  let text = `${emoji} ${formatTokens(tokensUsed)} / ${formatTokens(contextSize)} tokens\n${bar} ${pct}%`;
+  if (cost != null) text += `\n💰 $${cost.toFixed(2)}`;
+  return text;
 }
 
 const PERIOD_LABEL: Record<string, string> = {
@@ -212,8 +247,8 @@ export function formatUsageReport(
 export function formatSummary(summary: string, sessionName?: string): string {
   const header = sessionName
     ? `📋 <b>Summary — ${escapeHtml(sessionName)}</b>`
-    : '📋 <b>Session Summary</b>'
-  return `${header}\n\n${escapeHtml(summary)}`
+    : "📋 <b>Session Summary</b>";
+  return `${header}\n\n${escapeHtml(summary)}`;
 }
 
 export function splitMessage(text: string, maxLength = 3800): string[] {

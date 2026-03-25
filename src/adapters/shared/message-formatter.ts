@@ -152,7 +152,21 @@ export function formatToolTitle(
   return name;
 }
 
-// --- Step 7: Noise filtering ---
+// --- Step 7: resolveToolIcon ---
+
+export function resolveToolIcon(tool: {
+  status?: string;
+  displayKind?: string;
+  kind?: string;
+}): string {
+  const statusIcon = STATUS_ICONS[tool.status || ""];
+  if (statusIcon) return statusIcon;
+  const kind = tool.displayKind ?? tool.kind;
+  if (kind && KIND_ICONS[kind]) return KIND_ICONS[kind];
+  return "🔧";
+}
+
+// --- Step 8: Noise filtering ---
 
 const NOISE_RULES: NoiseRule[] = [
   {
