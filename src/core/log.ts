@@ -2,7 +2,7 @@ import pino from 'pino'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { LoggingConfig } from './config.js'
+import type { LoggingConfig } from './config/config.js'
 
 export type Logger = pino.Logger
 

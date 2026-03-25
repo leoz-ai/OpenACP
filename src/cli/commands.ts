@@ -768,7 +768,7 @@ Requires an existing config — run 'openacp' first to set up.
   }
   await checkAndPromptUpdate()
   const { startDaemon, getPidPath } = await import('../core/daemon.js')
-  const { ConfigManager } = await import('../core/config.js')
+  const { ConfigManager } = await import('../core/config/config.js')
   const cm = new ConfigManager()
   if (await cm.exists()) {
     await cm.load()
@@ -844,7 +844,7 @@ Log file location is configured in config (default: ~/.openacp/logs/).
     return
   }
   const { spawn } = await import('node:child_process')
-  const { ConfigManager, expandHome } = await import('../core/config.js')
+  const { ConfigManager, expandHome } = await import('../core/config/config.js')
   const pathMod = await import('node:path')
   const cm = new ConfigManager()
   let logDir = '~/.openacp/logs'
@@ -921,7 +921,7 @@ the API for live updates. When stopped, edits config file directly.
     }
 
     // Validate top-level config key
-    const { ConfigSchema } = await import('../core/config.js')
+    const { ConfigSchema } = await import('../core/config/config.js')
     const topLevelKey = configPath.split('.')[0]
     const validConfigKeys = Object.keys(ConfigSchema.shape)
     if (!validConfigKeys.includes(topLevelKey)) {
@@ -954,7 +954,7 @@ the API for live updates. When stopped, edits config file directly.
       }
     } else {
       // Server not running — update file directly
-      const { ConfigManager } = await import('../core/config.js')
+      const { ConfigManager } = await import('../core/config/config.js')
       const cm = new ConfigManager()
       if (!(await cm.exists())) {
         console.error('No config found. Run "openacp" first to set up.')
@@ -969,8 +969,8 @@ the API for live updates. When stopped, edits config file directly.
   }
 
   // Interactive editor
-  const { runConfigEditor } = await import('../core/config-editor.js')
-  const { ConfigManager } = await import('../core/config.js')
+  const { runConfigEditor } = await import('../core/config/config-editor.js')
+  const { ConfigManager } = await import('../core/config/config.js')
   const cm = new ConfigManager()
   if (!(await cm.exists())) {
     console.error('No config found. Run "openacp" first to set up.')
@@ -1811,7 +1811,7 @@ ACP-specific flags are automatically stripped.
 }
 
 export async function cmdOnboard(): Promise<void> {
-  const { ConfigManager } = await import('../core/config.js')
+  const { ConfigManager } = await import('../core/config/config.js')
   const cm = new ConfigManager()
 
   if (await cm.exists()) {
@@ -1842,7 +1842,7 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
 
   await checkAndPromptUpdate()
 
-  const { ConfigManager } = await import('../core/config.js')
+  const { ConfigManager } = await import('../core/config/config.js')
   const cm = new ConfigManager()
 
   // If no config, run setup first

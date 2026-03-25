@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { ConfigManager } from './core/config.js'
+import { ConfigManager } from './core/config/config.js'
 import { OpenACPCore } from './core/core.js'
 import { loadAdapterFactory } from './core/plugin-manager.js'
 import { initLogger, shutdownLogger, cleanupOldSessionLogs, log, muteLogger, unmuteLogger } from './core/log.js'
@@ -161,7 +161,7 @@ export async function startServer() {
       if (isDaemon) {
         // Daemon mode: spawn detached child writing to log file
         const { spawn: spawnChild } = await import('node:child_process')
-        const { expandHome } = await import('./core/config.js')
+        const { expandHome } = await import('./core/config/config.js')
         const fs = await import('node:fs')
         const pathMod = await import('node:path')
 

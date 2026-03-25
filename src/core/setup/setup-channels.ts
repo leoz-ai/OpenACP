@@ -1,5 +1,5 @@
 import * as clack from "@clack/prompts";
-import type { Config } from "../config.js";
+import type { Config } from "../config/config.js";
 import type { ConfiguredChannelAction, ChannelId, ChannelStatus } from "./types.js";
 import { CHANNEL_META } from "./types.js";
 import { guardCancel, ok, c } from "./helpers.js";

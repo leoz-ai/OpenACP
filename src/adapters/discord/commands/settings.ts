@@ -5,7 +5,7 @@ import {
 } from 'discord.js'
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js'
 import { log } from '../../../core/log.js'
-import { getSafeFields, resolveOptions, getConfigValue, isHotReloadable, type ConfigFieldDef } from '../../../core/config-registry.js'
+import { getSafeFields, resolveOptions, getConfigValue, isHotReloadable, type ConfigFieldDef } from '../../../core/config/config-registry.js'
 import type { DiscordAdapter } from '../adapter.js'
 
 function formatFieldLabel(field: ConfigFieldDef, value: unknown): string {

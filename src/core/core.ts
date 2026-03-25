@@ -1,6 +1,6 @@
 import path from "node:path";
 import os from "node:os";
-import { ConfigManager } from "./config.js";
+import { ConfigManager } from "./config/config.js";
 import { AgentManager } from "./agents/agent-manager.js";
 import { SessionManager } from "./session-manager.js";
 import { SessionBridge } from "./session-bridge.js";

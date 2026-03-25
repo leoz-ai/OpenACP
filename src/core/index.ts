@@ -25,7 +25,7 @@ export {
   type LoggingConfig,
   type UsageConfig,
   PLUGINS_DIR,
-} from "./config.js";
+} from "./config/config.js";
 export { AgentInstance } from "./agents/agent-instance.js";
 export { AgentManager } from "./agents/agent-manager.js";
 export { Session, type SessionEvents } from "./session.js";
@@ -59,7 +59,7 @@ export {
   isAutoStartInstalled,
   isAutoStartSupported,
 } from "./autostart.js";
-export { runConfigEditor } from "./config-editor.js";
+export { runConfigEditor } from "./config/config-editor.js";
 export { ApiServer, type ApiConfig } from "./api-server.js";
 export { SSEManager } from "./sse-manager.js";
 export { StaticServer } from "./static-server.js";
@@ -78,7 +78,7 @@ export {
   resolveOptions,
   getConfigValue,
   type ConfigFieldDef,
-} from "./config-registry.js";
+} from "./config/config-registry.js";
 export { SpeechService, GroqSTT } from "./speech/index.js";
 export type {
   STTProvider,

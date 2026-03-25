@@ -1,5 +1,5 @@
 import * as clack from "@clack/prompts";
-import type { Config, ConfigManager } from "../config.js";
+import type { Config, ConfigManager } from "../config/config.js";
 import type { OnboardSection } from "./types.js";
 import { ONBOARD_SECTION_OPTIONS } from "./types.js";
 import { guardCancel, ok, fail, printStartBanner, summarizeConfig } from "./helpers.js";

@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { UsageStore } from "../core/usage-store.js";
 import { UsageBudget } from "../core/usage-budget.js";
-import type { UsageConfig } from "../core/config.js";
+import type { UsageConfig } from "../core/config/config.js";
 import type { UsageRecord } from "../core/types.js";
 
 function makeRecord(overrides: Partial<UsageRecord> = {}): UsageRecord {

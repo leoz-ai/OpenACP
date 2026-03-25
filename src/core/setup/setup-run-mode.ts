@@ -1,5 +1,5 @@
 import * as clack from "@clack/prompts";
-import { expandHome } from "../config.js";
+import { expandHome } from "../config/config.js";
 import { guardCancel, ok, warn, dim, step } from "./helpers.js";
 
 export async function setupRunMode(opts?: {

@@ -1,5 +1,5 @@
 import * as clack from "@clack/prompts";
-import type { Config } from "../config.js";
+import type { Config } from "../config/config.js";
 import { guardCancel, ok, fail, warn, dim, c, step } from "./helpers.js";
 import { validateBotToken, validateChatId, validateBotAdmin } from "./validation.js";
 

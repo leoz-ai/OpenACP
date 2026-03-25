@@ -1,4 +1,4 @@
-import type { ConfigManager } from "./config.js";
+import type { ConfigManager } from "./config/config.js";
 import type { SessionManager } from "./session-manager.js";
 import type { IncomingMessage } from "./types.js";
 

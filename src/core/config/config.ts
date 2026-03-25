@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { EventEmitter } from "node:events";
 import { applyMigrations } from "./config-migrations.js";
-import { createChildLogger } from "./log.js";
+import { createChildLogger } from "../log.js";
 const log = createChildLogger({ module: "config" });
 
 const BaseChannelSchema = z

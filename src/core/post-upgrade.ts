@@ -1,6 +1,6 @@
 import { createChildLogger } from "./log.js";
 import { commandExists } from "./agents/agent-dependencies.js";
-import type { Config } from "./config.js";
+import type { Config } from "./config/config.js";
 
 const log = createChildLogger({ module: "post-upgrade" });
 

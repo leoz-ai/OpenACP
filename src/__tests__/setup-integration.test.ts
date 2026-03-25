@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { ConfigManager } from '../core/config.js'
+import { ConfigManager } from '../core/config/config.js'
 
 // Mock @clack/prompts before importing setup
 vi.mock('@clack/prompts', () => ({

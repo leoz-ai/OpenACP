@@ -1,5 +1,5 @@
 // src/adapters/slack/types.ts
-export type { SlackChannelConfig } from "../../core/config.js";
+export type { SlackChannelConfig } from "../../core/config/config.js";
 
 // Per-session metadata stored in SessionRecord.platform
 export interface SlackSessionMeta {
