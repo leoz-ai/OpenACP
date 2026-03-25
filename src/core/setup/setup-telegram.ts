@@ -201,15 +201,21 @@ export async function setupTelegram(opts?: {
   const existingToken = (existing as { botToken?: string } | undefined)?.botToken;
 
   while (true) {
-    botToken = guardCancel(
+    const tokenInput = guardCancel(
       await clack.text({
-        message: "Bot token (from @BotFather):",
-        ...(existingToken ? { initialValue: existingToken } : {}),
-        validate: (val) =>
-          (val ?? "").toString().trim().length > 0 ? undefined : "Token cannot be empty",
+        message: existingToken
+          ? "Bot token (from @BotFather) — leave blank to keep current:"
+          : "Bot token (from @BotFather):",
+        ...(existingToken ? { placeholder: "Leave blank to keep current" } : {}),
+        validate: (val) => {
+          if (existingToken && (val ?? "").toString().trim().length === 0) return undefined;
+          if ((val ?? "").toString().trim().length > 0) return undefined;
+          return "Token cannot be empty";
+        },
       }),
     ) as string;
-    botToken = botToken.trim();
+    botToken = tokenInput.trim() || existingToken || "";
+    if (!botToken) continue;
 
     const s = clack.spinner();
     s.start("Validating token...");

@@ -25,15 +25,21 @@ export async function setupDiscord(opts?: {
   const existingToken = existing?.botToken;
 
   while (true) {
-    botToken = guardCancel(
+    const tokenInput = guardCancel(
       await clack.text({
-        message: 'Bot token (from Discord Developer Portal):',
-        ...(existingToken ? { initialValue: existingToken } : {}),
-        validate: (val) =>
-          (val ?? "").toString().trim().length > 0 ? undefined : 'Token cannot be empty',
+        message: existingToken
+          ? 'Bot token (from Discord Developer Portal) — leave blank to keep current:'
+          : 'Bot token (from Discord Developer Portal):',
+        ...(existingToken ? { placeholder: 'Leave blank to keep current' } : {}),
+        validate: (val) => {
+          if (existingToken && (val ?? "").toString().trim().length === 0) return undefined;
+          if ((val ?? "").toString().trim().length > 0) return undefined;
+          return 'Token cannot be empty';
+        },
       }),
     ) as string;
-    botToken = botToken.trim();
+    botToken = tokenInput.trim() || existingToken || '';
+    if (!botToken) continue;
 
     const s = clack.spinner();
     s.start("Validating token...");
@@ -57,18 +63,23 @@ export async function setupDiscord(opts?: {
     if (action === 'skip') break;
   }
 
-  const guildId = guardCancel(
+  const guildIdInput = guardCancel(
     await clack.text({
-      message: 'Guild (server) ID:',
-      ...(existing?.guildId ? { initialValue: existing.guildId } : {}),
+      message: existing?.guildId
+        ? 'Guild (server) ID — leave blank to keep current:'
+        : 'Guild (server) ID:',
+      ...(existing?.guildId ? { placeholder: `Current: ${existing.guildId}` } : {}),
       validate: (val) => {
         const trimmed = (val ?? "").toString().trim();
+        if (existing?.guildId && !trimmed) return undefined;
         if (!trimmed) return 'Guild ID cannot be empty';
         if (!/^\d{17,20}$/.test(trimmed)) return 'Guild ID must be a numeric Discord snowflake (17-20 digits)';
         return undefined;
       },
     }),
   ) as string;
+  const guildId = (guildIdInput.trim() || existing?.guildId || '');
+
 
   return {
     enabled: true,
