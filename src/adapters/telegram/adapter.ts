@@ -1,14 +1,13 @@
 import { Bot, InputFile } from "grammy";
 import path from "node:path";
-import {
-  ChannelAdapter,
-  type OpenACPCore,
-  type OutgoingMessage,
-  type PermissionRequest,
-  type NotificationMessage,
-  type Session,
-  type AgentCommand,
-  type FileService,
+import type {
+  OpenACPCore,
+  OutgoingMessage,
+  PermissionRequest,
+  NotificationMessage,
+  Session,
+  AgentCommand,
+  FileService,
 } from "../../core/index.js";
 import { createChildLogger } from "../../core/log.js";
 const log = createChildLogger({ module: "telegram" });
@@ -46,19 +45,12 @@ import { setupActionCallbacks } from "./action-detect.js";
 import { ToolCallTracker } from "./tool-call-tracker.js";
 import { DraftManager } from "./draft-manager.js";
 import { SkillCommandManager } from "./skill-command-manager.js";
-import {
-  dispatchMessage,
-  type MessageHandlers,
-} from "../shared/message-dispatcher.js";
-import type { DisplayVerbosity } from "../shared/format-types.js";
-import { evaluateNoise } from "../shared/message-formatter.js";
-
-interface TelegramMessageCtx {
-  sessionId: string;
-  threadId: number;
-}
-
-import type { ToolCallMeta, ToolUpdateMeta } from "../shared/format-types.js";
+import { MessagingAdapter, type MessagingAdapterConfig } from "../shared/messaging-adapter.js";
+import type { IRenderer } from "../shared/rendering/renderer.js";
+import { BaseRenderer } from "../shared/rendering/renderer.js";
+import type { AdapterCapabilities } from "../../core/channel.js";
+import type { DisplayVerbosity, ToolCallMeta, ToolUpdateMeta } from "../shared/format-types.js";
+// evaluateNoise is handled by MessagingAdapter.shouldDisplay()
 
 interface PlanMetadata {
   entries: Array<{ content: string; status: string; priority: string }>;
@@ -95,8 +87,15 @@ function patchedFetch(
   return fetch(input, init);
 }
 
-export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
+export class TelegramAdapter extends MessagingAdapter {
   readonly name = 'telegram';
+  readonly renderer: IRenderer = new BaseRenderer();
+  readonly capabilities: AdapterCapabilities = {
+    streaming: true, richFormatting: true, threads: true,
+    reactions: true, fileUpload: true, voice: true,
+  };
+
+  private core: OpenACPCore;
   private bot!: Bot;
   private telegramConfig: TelegramChannelConfig;
   private permissionHandler!: PermissionHandler;
@@ -105,6 +104,7 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
   private notificationTopicId!: number;
   private assistantTopicId!: number;
   private sendQueue = new TelegramSendQueue(3000);
+  private _currentThreadId = 0;
 
   // Extracted managers
   private toolTracker!: ToolCallTracker;
@@ -112,17 +112,6 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
   private skillManager!: SkillCommandManager;
   private fileService!: FileService;
   private sessionTrackers: Map<string, ActivityTracker> = new Map();
-
-  private get verbosity(): DisplayVerbosity {
-    const live = this.core.configManager.get().channels?.telegram as
-      | Record<string, unknown>
-      | undefined;
-    const v =
-      live?.displayVerbosity ??
-      (this.telegramConfig as Record<string, unknown>).displayVerbosity;
-    if (v === "low" || v === "high") return v;
-    return "medium";
-  }
 
   private getOrCreateTracker(
     sessionId: string,
@@ -142,7 +131,11 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
   }
 
   constructor(core: OpenACPCore, config: TelegramChannelConfig) {
-    super(core, config);
+    super(
+      { configManager: core.configManager },
+      { ...config as Record<string, unknown>, maxMessageLength: 4096, enabled: config.enabled ?? true } as MessagingAdapterConfig,
+    );
+    this.core = core;
     this.telegramConfig = config;
   }
 
@@ -617,259 +610,7 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
     });
   }
 
-  // --- MessageHandlers for dispatchMessage ---
-
-  private messageHandlers: MessageHandlers<TelegramMessageCtx> = {
-    onThought: async (ctx, _content) => {
-      const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-      await tracker.onThought();
-    },
-
-    onText: async (ctx, content) => {
-      // CRITICAL: This handler must be fully synchronous to preserve text ordering.
-      // sendMessage() is not awaited in wireSessionEvents, so multiple text events
-      // run concurrently. Any await here creates a gap where subsequent text events
-      // process first, causing out-of-order buffer accumulation.
-      if (!this.draftManager.hasDraft(ctx.sessionId)) {
-        const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-        tracker.onTextStart().catch(() => {}); // Fire-and-forget, no await
-      }
-      const draft = this.draftManager.getOrCreate(ctx.sessionId, ctx.threadId);
-      draft.append(content.text);
-      this.draftManager.appendText(ctx.sessionId, content.text);
-    },
-
-    onToolCall: async (ctx, content) => {
-      const meta = (content.metadata ?? {}) as Partial<ToolCallMeta>;
-      const toolName = meta.name ?? content.text ?? "Tool";
-      const toolKind = String(meta.kind ?? "other");
-      const noiseAction = evaluateNoise(toolName, toolKind, meta.rawInput);
-      if (noiseAction === "hide" && this.verbosity !== "high") return;
-      if (noiseAction === "collapse" && this.verbosity === "low") return;
-
-      const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-      await tracker.onToolCall();
-      await this.draftManager.finalize(
-        ctx.sessionId,
-        this.assistantSession?.id,
-      );
-      await this.toolTracker.trackNewCall(
-        ctx.sessionId,
-        ctx.threadId,
-        {
-          id: meta.id ?? "",
-          name: meta.name ?? content.text ?? "Tool",
-          kind: meta.kind,
-          status: meta.status,
-          content: meta.content,
-          rawInput: meta.rawInput,
-          viewerLinks: meta.viewerLinks,
-          viewerFilePath: meta.viewerFilePath,
-          displaySummary: meta.displaySummary as string | undefined,
-          displayTitle: meta.displayTitle as string | undefined,
-          displayKind: meta.displayKind as string | undefined,
-        },
-        this.verbosity,
-      );
-    },
-
-    onToolUpdate: async (ctx, content) => {
-      const meta = (content.metadata ?? {}) as Partial<ToolUpdateMeta>;
-      await this.toolTracker.updateCall(
-        ctx.sessionId,
-        {
-          id: meta.id ?? "",
-          name: meta.name ?? content.text ?? "",
-          kind: meta.kind,
-          status: meta.status ?? "completed",
-          content: meta.content,
-          rawInput: meta.rawInput,
-          viewerLinks: meta.viewerLinks,
-          viewerFilePath: meta.viewerFilePath,
-          displaySummary: meta.displaySummary as string | undefined,
-          displayTitle: meta.displayTitle as string | undefined,
-          displayKind: meta.displayKind as string | undefined,
-        },
-        this.verbosity,
-      );
-    },
-
-    onPlan: async (ctx, content) => {
-      const meta = (content.metadata ?? {}) as Partial<PlanMetadata>;
-      const entries = meta.entries ?? [];
-      const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-      await tracker.onPlan(
-        entries.map((e) => ({
-          content: e.content,
-          status: e.status as "pending" | "in_progress" | "completed",
-          priority: (e.priority ?? "medium") as "high" | "medium" | "low",
-        })),
-        this.verbosity,
-      );
-    },
-
-    onUsage: async (ctx, content) => {
-      const meta = content.metadata as UsageMetadata | undefined;
-      await this.draftManager.finalize(
-        ctx.sessionId,
-        this.assistantSession?.id,
-      );
-      const tracker = this.getOrCreateTracker(ctx.sessionId, ctx.threadId);
-      await tracker.sendUsage(meta ?? {}, this.verbosity);
-
-      // Notify the Notifications topic that a prompt has completed
-      if (
-        this.notificationTopicId &&
-        ctx.sessionId !== this.assistantSession?.id
-      ) {
-        const sess = this.core.sessionManager.getSession(ctx.sessionId);
-        const sessionName = sess?.name || "Session";
-        const chatIdStr = String(this.telegramConfig.chatId);
-        const numericId = chatIdStr.startsWith("-100")
-          ? chatIdStr.slice(4)
-          : chatIdStr.replace("-", "");
-        const usageMsgId = tracker.getUsageMsgId();
-        const deepLink = usageMsgId
-          ? `https://t.me/c/${numericId}/${ctx.threadId}/${usageMsgId}`
-          : `https://t.me/c/${numericId}/${ctx.threadId}`;
-        const text = `✅ <b>${escapeHtml(sessionName)}</b>\nTask completed.\n\n<a href="${deepLink}">→ Go to topic</a>`;
-        this.sendQueue
-          .enqueue(() =>
-            this.bot.api.sendMessage(this.telegramConfig.chatId, text, {
-              message_thread_id: this.notificationTopicId,
-              parse_mode: "HTML",
-              disable_notification: false,
-            }),
-          )
-          .catch(() => {});
-      }
-    },
-
-    onAttachment: async (ctx, content) => {
-      if (!content.attachment) return;
-      const { attachment } = content;
-
-      // Telegram bot API upload limit: 50MB
-      if (attachment.size > 50 * 1024 * 1024) {
-        log.warn(
-          {
-            sessionId: ctx.sessionId,
-            fileName: attachment.fileName,
-            size: attachment.size,
-          },
-          "File too large for Telegram (>50MB)",
-        );
-        await this.sendQueue.enqueue(() =>
-          this.bot.api.sendMessage(
-            this.telegramConfig.chatId,
-            `⚠️ File too large to send (${Math.round(attachment.size / 1024 / 1024)}MB): ${escapeHtml(attachment.fileName)}`,
-            { message_thread_id: ctx.threadId, parse_mode: "HTML" },
-          ),
-        );
-        return;
-      }
-
-      try {
-        const inputFile = new InputFile(attachment.filePath);
-        if (attachment.type === "image") {
-          await this.sendQueue.enqueue(() =>
-            this.bot.api.sendPhoto(this.telegramConfig.chatId, inputFile, {
-              message_thread_id: ctx.threadId,
-            }),
-          );
-        } else if (attachment.type === "audio") {
-          await this.sendQueue.enqueue(() =>
-            this.bot.api.sendVoice(this.telegramConfig.chatId, inputFile, {
-              message_thread_id: ctx.threadId,
-            }),
-          );
-          // Strip [TTS]...[/TTS] block from the text message after voice is sent
-          const draft = this.draftManager.getDraft(ctx.sessionId);
-          if (draft) {
-            draft.stripPattern(/\[TTS\][\s\S]*?\[\/TTS\]/g).catch(() => {});
-          }
-        } else {
-          await this.sendQueue.enqueue(() =>
-            this.bot.api.sendDocument(this.telegramConfig.chatId, inputFile, {
-              message_thread_id: ctx.threadId,
-            }),
-          );
-        }
-      } catch (err) {
-        log.error(
-          { err, sessionId: ctx.sessionId, fileName: attachment.fileName },
-          "Failed to send attachment",
-        );
-      }
-    },
-
-    onSessionEnd: async (ctx, _content) => {
-      await this.draftManager.finalize(
-        ctx.sessionId,
-        this.assistantSession?.id,
-      );
-      this.draftManager.cleanup(ctx.sessionId);
-      this.toolTracker.cleanup(ctx.sessionId);
-      await this.skillManager.cleanup(ctx.sessionId);
-      const tracker = this.sessionTrackers.get(ctx.sessionId);
-      if (tracker) {
-        await tracker.onComplete();
-        tracker.destroy();
-        this.sessionTrackers.delete(ctx.sessionId);
-      } else {
-        await this.sendQueue.enqueue(() =>
-          this.bot.api.sendMessage(
-            this.telegramConfig.chatId,
-            `✅ <b>Done</b>`,
-            {
-              message_thread_id: ctx.threadId,
-              parse_mode: "HTML",
-              disable_notification: true,
-            },
-          ),
-        );
-      }
-    },
-
-    onError: async (ctx, content) => {
-      await this.draftManager.finalize(
-        ctx.sessionId,
-        this.assistantSession?.id,
-      );
-      const tracker = this.sessionTrackers.get(ctx.sessionId);
-      if (tracker) {
-        tracker.destroy();
-        this.sessionTrackers.delete(ctx.sessionId);
-      }
-      await this.sendQueue.enqueue(() =>
-        this.bot.api.sendMessage(
-          this.telegramConfig.chatId,
-          `❌ <b>Error:</b> ${escapeHtml(content.text)}`,
-          {
-            message_thread_id: ctx.threadId,
-            parse_mode: "HTML",
-            disable_notification: true,
-          },
-        ),
-      );
-    },
-
-    onSystemMessage: async (ctx, content) => {
-      await this.sendQueue.enqueue(() =>
-        this.bot.api.sendMessage(
-          this.telegramConfig.chatId,
-          escapeHtml(content.text),
-          {
-            message_thread_id: ctx.threadId,
-            parse_mode: "HTML",
-            disable_notification: true,
-          },
-        ),
-      );
-    },
-  };
-
-  // --- ChannelAdapter implementations ---
+  // --- MessagingAdapter overrides ---
 
   async sendMessage(
     sessionId: string,
@@ -893,8 +634,261 @@ export class TelegramAdapter extends ChannelAdapter<OpenACPCore> {
       return;
     }
 
-    const ctx: TelegramMessageCtx = { sessionId, threadId };
-    await dispatchMessage(this.messageHandlers, ctx, content, this.verbosity);
+    // Store threadId for handlers to use
+    this._currentThreadId = threadId;
+    await super.sendMessage(sessionId, content);
+  }
+
+  protected async handleThought(sessionId: string, _content: OutgoingMessage, _verbosity: DisplayVerbosity): Promise<void> {
+    const threadId = this._currentThreadId;
+    const tracker = this.getOrCreateTracker(sessionId, threadId);
+    await tracker.onThought();
+  }
+
+  protected async handleText(sessionId: string, content: OutgoingMessage): Promise<void> {
+    const threadId = this._currentThreadId;
+    // CRITICAL: This handler must be fully synchronous to preserve text ordering.
+    // sendMessage() is not awaited in wireSessionEvents, so multiple text events
+    // run concurrently. Any await here creates a gap where subsequent text events
+    // process first, causing out-of-order buffer accumulation.
+    if (!this.draftManager.hasDraft(sessionId)) {
+      const tracker = this.getOrCreateTracker(sessionId, threadId);
+      tracker.onTextStart().catch(() => {}); // Fire-and-forget, no await
+    }
+    const draft = this.draftManager.getOrCreate(sessionId, threadId);
+    draft.append(content.text);
+    this.draftManager.appendText(sessionId, content.text);
+  }
+
+  protected async handleToolCall(sessionId: string, content: OutgoingMessage, verbosity: DisplayVerbosity): Promise<void> {
+    const threadId = this._currentThreadId;
+    const meta = (content.metadata ?? {}) as Partial<ToolCallMeta>;
+
+    const tracker = this.getOrCreateTracker(sessionId, threadId);
+    await tracker.onToolCall();
+    await this.draftManager.finalize(
+      sessionId,
+      this.assistantSession?.id,
+    );
+    await this.toolTracker.trackNewCall(
+      sessionId,
+      threadId,
+      {
+        id: meta.id ?? "",
+        name: meta.name ?? content.text ?? "Tool",
+        kind: meta.kind,
+        status: meta.status,
+        content: meta.content,
+        rawInput: meta.rawInput,
+        viewerLinks: meta.viewerLinks,
+        viewerFilePath: meta.viewerFilePath,
+        displaySummary: meta.displaySummary as string | undefined,
+        displayTitle: meta.displayTitle as string | undefined,
+        displayKind: meta.displayKind as string | undefined,
+      },
+      verbosity,
+    );
+  }
+
+  protected async handleToolUpdate(sessionId: string, content: OutgoingMessage, verbosity: DisplayVerbosity): Promise<void> {
+    const meta = (content.metadata ?? {}) as Partial<ToolUpdateMeta>;
+    await this.toolTracker.updateCall(
+      sessionId,
+      {
+        id: meta.id ?? "",
+        name: meta.name ?? content.text ?? "",
+        kind: meta.kind,
+        status: meta.status ?? "completed",
+        content: meta.content,
+        rawInput: meta.rawInput,
+        viewerLinks: meta.viewerLinks,
+        viewerFilePath: meta.viewerFilePath,
+        displaySummary: meta.displaySummary as string | undefined,
+        displayTitle: meta.displayTitle as string | undefined,
+        displayKind: meta.displayKind as string | undefined,
+      },
+      verbosity,
+    );
+  }
+
+  protected async handlePlan(sessionId: string, content: OutgoingMessage, verbosity: DisplayVerbosity): Promise<void> {
+    const threadId = this._currentThreadId;
+    const meta = (content.metadata ?? {}) as Partial<PlanMetadata>;
+    const entries = meta.entries ?? [];
+    const tracker = this.getOrCreateTracker(sessionId, threadId);
+    await tracker.onPlan(
+      entries.map((e) => ({
+        content: e.content,
+        status: e.status as "pending" | "in_progress" | "completed",
+        priority: (e.priority ?? "medium") as "high" | "medium" | "low",
+      })),
+      verbosity,
+    );
+  }
+
+  protected async handleUsage(sessionId: string, content: OutgoingMessage, verbosity: DisplayVerbosity): Promise<void> {
+    const threadId = this._currentThreadId;
+    const meta = content.metadata as UsageMetadata | undefined;
+    await this.draftManager.finalize(
+      sessionId,
+      this.assistantSession?.id,
+    );
+    const tracker = this.getOrCreateTracker(sessionId, threadId);
+    await tracker.sendUsage(meta ?? {}, verbosity);
+
+    // Notify the Notifications topic that a prompt has completed
+    if (
+      this.notificationTopicId &&
+      sessionId !== this.assistantSession?.id
+    ) {
+      const sess = this.core.sessionManager.getSession(sessionId);
+      const sessionName = sess?.name || "Session";
+      const chatIdStr = String(this.telegramConfig.chatId);
+      const numericId = chatIdStr.startsWith("-100")
+        ? chatIdStr.slice(4)
+        : chatIdStr.replace("-", "");
+      const usageMsgId = tracker.getUsageMsgId();
+      const deepLink = usageMsgId
+        ? `https://t.me/c/${numericId}/${threadId}/${usageMsgId}`
+        : `https://t.me/c/${numericId}/${threadId}`;
+      const text = `✅ <b>${escapeHtml(sessionName)}</b>\nTask completed.\n\n<a href="${deepLink}">→ Go to topic</a>`;
+      this.sendQueue
+        .enqueue(() =>
+          this.bot.api.sendMessage(this.telegramConfig.chatId, text, {
+            message_thread_id: this.notificationTopicId,
+            parse_mode: "HTML",
+            disable_notification: false,
+          }),
+        )
+        .catch(() => {});
+    }
+  }
+
+  protected async handleAttachment(sessionId: string, content: OutgoingMessage): Promise<void> {
+    const threadId = this._currentThreadId;
+    if (!content.attachment) return;
+    const { attachment } = content;
+
+    // Telegram bot API upload limit: 50MB
+    if (attachment.size > 50 * 1024 * 1024) {
+      log.warn(
+        {
+          sessionId,
+          fileName: attachment.fileName,
+          size: attachment.size,
+        },
+        "File too large for Telegram (>50MB)",
+      );
+      await this.sendQueue.enqueue(() =>
+        this.bot.api.sendMessage(
+          this.telegramConfig.chatId,
+          `⚠️ File too large to send (${Math.round(attachment.size / 1024 / 1024)}MB): ${escapeHtml(attachment.fileName)}`,
+          { message_thread_id: threadId, parse_mode: "HTML" },
+        ),
+      );
+      return;
+    }
+
+    try {
+      const inputFile = new InputFile(attachment.filePath);
+      if (attachment.type === "image") {
+        await this.sendQueue.enqueue(() =>
+          this.bot.api.sendPhoto(this.telegramConfig.chatId, inputFile, {
+            message_thread_id: threadId,
+          }),
+        );
+      } else if (attachment.type === "audio") {
+        await this.sendQueue.enqueue(() =>
+          this.bot.api.sendVoice(this.telegramConfig.chatId, inputFile, {
+            message_thread_id: threadId,
+          }),
+        );
+        // Strip [TTS]...[/TTS] block from the text message after voice is sent
+        const draft = this.draftManager.getDraft(sessionId);
+        if (draft) {
+          draft.stripPattern(/\[TTS\][\s\S]*?\[\/TTS\]/g).catch(() => {});
+        }
+      } else {
+        await this.sendQueue.enqueue(() =>
+          this.bot.api.sendDocument(this.telegramConfig.chatId, inputFile, {
+            message_thread_id: threadId,
+          }),
+        );
+      }
+    } catch (err) {
+      log.error(
+        { err, sessionId, fileName: attachment.fileName },
+        "Failed to send attachment",
+      );
+    }
+  }
+
+  protected async handleSessionEnd(sessionId: string, _content: OutgoingMessage): Promise<void> {
+    const threadId = this._currentThreadId;
+    await this.draftManager.finalize(
+      sessionId,
+      this.assistantSession?.id,
+    );
+    this.draftManager.cleanup(sessionId);
+    this.toolTracker.cleanup(sessionId);
+    await this.skillManager.cleanup(sessionId);
+    const tracker = this.sessionTrackers.get(sessionId);
+    if (tracker) {
+      await tracker.onComplete();
+      tracker.destroy();
+      this.sessionTrackers.delete(sessionId);
+    } else {
+      await this.sendQueue.enqueue(() =>
+        this.bot.api.sendMessage(
+          this.telegramConfig.chatId,
+          `✅ <b>Done</b>`,
+          {
+            message_thread_id: threadId,
+            parse_mode: "HTML",
+            disable_notification: true,
+          },
+        ),
+      );
+    }
+  }
+
+  protected async handleError(sessionId: string, content: OutgoingMessage): Promise<void> {
+    const threadId = this._currentThreadId;
+    await this.draftManager.finalize(
+      sessionId,
+      this.assistantSession?.id,
+    );
+    const tracker = this.sessionTrackers.get(sessionId);
+    if (tracker) {
+      tracker.destroy();
+      this.sessionTrackers.delete(sessionId);
+    }
+    await this.sendQueue.enqueue(() =>
+      this.bot.api.sendMessage(
+        this.telegramConfig.chatId,
+        `❌ <b>Error:</b> ${escapeHtml(content.text)}`,
+        {
+          message_thread_id: threadId,
+          parse_mode: "HTML",
+          disable_notification: true,
+        },
+      ),
+    );
+  }
+
+  protected async handleSystem(sessionId: string, content: OutgoingMessage): Promise<void> {
+    const threadId = this._currentThreadId;
+    await this.sendQueue.enqueue(() =>
+      this.bot.api.sendMessage(
+        this.telegramConfig.chatId,
+        escapeHtml(content.text),
+        {
+          message_thread_id: threadId,
+          parse_mode: "HTML",
+          disable_notification: true,
+        },
+      ),
+    );
   }
 
   async sendPermissionRequest(

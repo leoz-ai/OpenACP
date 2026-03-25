@@ -1,4 +1,4 @@
-import type { OpenACPCore, ChannelAdapter, Config, Session } from "../../core/index.js";
+import type { OpenACPCore, IChannelAdapter, Config, Session } from "../../core/index.js";
 import { createChildLogger } from "../../core/log.js";
 import { PRODUCT_GUIDE } from "../../product-guide.js";
 const log = createChildLogger({ module: "telegram-assistant" });
@@ -11,7 +11,7 @@ export type SpawnAssistantResult = {
 
 export async function spawnAssistant(
   core: OpenACPCore,
-  adapter: ChannelAdapter,
+  adapter: IChannelAdapter,
   assistantTopicId: number,
 ): Promise<SpawnAssistantResult> {
   const config = core.configManager.get();
