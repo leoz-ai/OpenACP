@@ -2,7 +2,7 @@ import type { Bot, Context } from "grammy";
 import { InlineKeyboard } from "grammy";
 import { DoctorEngine } from "../../../core/doctor/index.js";
 import type { DoctorReport, PendingFix } from "../../../core/doctor/types.js";
-import { createChildLogger } from "../../../core/log.js";
+import { createChildLogger } from "../../../core/utils/log.js";
 
 const log = createChildLogger({ module: "telegram-cmd-doctor" });
 

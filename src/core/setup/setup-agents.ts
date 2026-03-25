@@ -43,7 +43,7 @@ export async function setupAgents(): Promise<{
   defaultAgent: string;
 }> {
   const { AgentCatalog } = await import("../agents/agent-catalog.js");
-  const { muteLogger, unmuteLogger } = await import("../log.js");
+  const { muteLogger, unmuteLogger } = await import("../utils/log.js");
 
   muteLogger();
   const catalog = new AgentCatalog();

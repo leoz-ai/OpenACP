@@ -8,7 +8,7 @@ import { NotificationManager } from "./notification.js";
 import type { IChannelAdapter } from "./channel.js";
 import { Session } from "./sessions/session.js";
 import { MessageTransformer } from "./message-transformer.js";
-import { FileService } from "./file-service.js";
+import { FileService } from "./utils/file-service.js";
 import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
 import { UsageStore } from "./sessions/usage-store.js";
 import { UsageBudget } from "./sessions/usage-budget.js";
@@ -19,7 +19,7 @@ import type { TunnelService } from "../tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentCatalog } from "./agents/agent-catalog.js";
 import { EventBus } from "./event-bus.js";
-import { createChildLogger } from "./log.js";
+import { createChildLogger } from "./utils/log.js";
 import { SpeechService, GroqSTT, EdgeTTS } from "./speech/index.js";
 import { ContextManager } from "./context/context-manager.js";
 import { EntireProvider } from "./context/entire/entire-provider.js";
@@ -119,7 +119,7 @@ export class OpenACPCore {
       "config:changed",
       async ({ path: configPath, value }: { path: string; value: unknown }) => {
         if (configPath === "logging.level" && typeof value === "string") {
-          const { setLogLevel } = await import("./log.js");
+          const { setLogLevel } = await import("./utils/log.js");
           setLogLevel(value);
           log.info({ level: value }, "Log level changed at runtime");
         }

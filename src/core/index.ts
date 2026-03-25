@@ -8,7 +8,7 @@ export {
   cleanupOldSessionLogs,
   setLogLevel,
   type Logger,
-} from "./log.js";
+} from "./utils/log.js";
 export {
   ChannelAdapter,
   type IChannelAdapter,
@@ -16,8 +16,8 @@ export {
   type ChannelConfig,
 } from "./channel.js";
 export { NotificationManager } from "./notification.js";
-export { nodeToWebWritable, nodeToWebReadable } from "./streams.js";
-export { StderrCapture } from "./stderr-capture.js";
+export { nodeToWebWritable, nodeToWebReadable } from "./utils/streams.js";
+export { StderrCapture } from "./utils/stderr-capture.js";
 export {
   ConfigManager,
   expandHome,
@@ -29,11 +29,11 @@ export {
 export { AgentInstance } from "./agents/agent-instance.js";
 export { AgentManager } from "./agents/agent-manager.js";
 export { Session, type SessionEvents } from "./sessions/session.js";
-export { TypedEmitter } from "./typed-emitter.js";
+export { TypedEmitter } from "./utils/typed-emitter.js";
 export { PromptQueue } from "./sessions/prompt-queue.js";
 export { PermissionGate } from "./sessions/permission-gate.js";
 export { MessageTransformer } from "./message-transformer.js";
-export { FileService } from "./file-service.js";
+export { FileService } from "./utils/file-service.js";
 export { SessionManager } from "./sessions/session-manager.js";
 export { SecurityGuard } from "./security-guard.js";
 export { SessionBridge, type BridgeDeps } from "./sessions/session-bridge.js";

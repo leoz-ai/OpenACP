@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { createRequire } from 'node:module'
 import { PLUGINS_DIR } from './config/config.js'
-import { createChildLogger } from './log.js'
+import { createChildLogger } from './utils/log.js'
 const log = createChildLogger({ module: 'plugin-manager' })
 import type { IChannelAdapter, ChannelConfig } from './channel.js'
 import type { OpenACPCore } from './core.js'

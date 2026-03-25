@@ -10,7 +10,7 @@ import { CheckpointReader } from "../../../core/context/entire/checkpoint-reader
 import { escapeHtml } from "../formatting.js";
 import { createSessionTopic, buildDeepLink } from "../topics.js";
 import { buildSessionControlKeyboard } from "./admin.js";
-import { createChildLogger } from "../../../core/log.js";
+import { createChildLogger } from "../../../core/utils/log.js";
 import type { CommandsAssistantContext } from "../types.js";
 
 const log = createChildLogger({ module: "telegram-cmd-resume" });

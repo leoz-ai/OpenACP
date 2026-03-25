@@ -4,7 +4,7 @@ import {
   ButtonStyle,
 } from 'discord.js'
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js'
-import { log } from '../../../core/log.js'
+import { log } from '../../../core/utils/log.js'
 import { buildSessionControlKeyboard } from './admin.js'
 import { createSessionThread, deleteSessionThread } from '../forums.js'
 import type { DiscordAdapter } from '../adapter.js'

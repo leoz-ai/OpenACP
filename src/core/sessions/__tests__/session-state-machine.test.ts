@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Session } from "../session.js";
 import type { AgentInstance } from "../../agents/agent-instance.js";
 import type { AgentEvent, SessionStatus } from "../../types.js";
-import { TypedEmitter } from "../../typed-emitter.js";
+import { TypedEmitter } from "../../utils/typed-emitter.js";
 
 function createMockAgentInstance(): AgentInstance {
   const emitter = new TypedEmitter<{ agent_event: (event: AgentEvent) => void }>();

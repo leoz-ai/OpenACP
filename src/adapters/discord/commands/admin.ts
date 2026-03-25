@@ -3,7 +3,7 @@ import type {
   ChatInputCommandInteraction,
   ButtonInteraction,
 } from "discord.js";
-import { log } from "../../../core/log.js";
+import { log } from "../../../core/utils/log.js";
 import type { DiscordAdapter } from "../adapter.js";
 
 export async function handleDangerous(

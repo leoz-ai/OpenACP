@@ -1,6 +1,6 @@
 import type { OpenACPCore } from '../../core/core.js'
 import type { Session } from '../../core/sessions/session.js'
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 import { PRODUCT_GUIDE } from '../../product-guide.js'
 
 export interface SpawnAssistantResult {

@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import type { TelegramSendQueue } from "./send-queue.js";
 import { formatToolCall, formatToolUpdate } from "./formatting.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 import type {
   ToolCallMeta,
   ViewerLinks,

@@ -1,5 +1,5 @@
 import type { TextChannel, ThreadChannel, Message } from "discord.js";
-import { log } from "../../core/log.js";
+import { log } from "../../core/utils/log.js";
 import { formatToolCall, formatToolUpdate } from "./formatting.js";
 import type { DiscordSendQueue } from "./send-queue.js";
 import type {

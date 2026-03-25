@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createChildLogger } from "../log.js";
+import { createChildLogger } from "../utils/log.js";
 import type { InstalledAgent, RegistryAgent, InstallProgress, InstallResult } from "../types.js";
 import { getAgentAlias, checkDependencies, checkRuntimeAvailable, getAgentSetup } from "./agent-dependencies.js";
 import { AgentStore } from "./agent-store.js";

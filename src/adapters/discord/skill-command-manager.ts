@@ -1,5 +1,5 @@
 import type { Message, TextChannel, ThreadChannel } from 'discord.js'
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 import type { AgentCommand } from '../../core/types.js'
 import type { SessionManager } from '../../core/sessions/session-manager.js'
 import type { DiscordPlatformData } from '../../core/types.js'

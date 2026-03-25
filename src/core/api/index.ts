@@ -6,7 +6,7 @@ import * as crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { OpenACPCore } from "../core.js";
 import type { TopicManager } from "../topic-manager.js";
-import { createChildLogger } from "../log.js";
+import { createChildLogger } from "../utils/log.js";
 import { SSEManager } from "../sse-manager.js";
 import { StaticServer } from "../static-server.js";
 import { Router } from "./router.js";

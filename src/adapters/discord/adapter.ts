@@ -16,7 +16,7 @@ import type {
 } from "../../core/types.js";
 import type { OpenACPCore } from "../../core/core.js";
 import type { Session } from "../../core/sessions/session.js";
-import { log } from "../../core/log.js";
+import { log } from "../../core/utils/log.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
 import { MessagingAdapter, type MessagingAdapterConfig } from "../shared/messaging-adapter.js";
 import type { IRenderer } from "../shared/rendering/renderer.js";
@@ -44,7 +44,7 @@ import {
 } from "./commands/index.js";
 import { spawnAssistant, buildWelcomeMessage } from "./assistant.js";
 import type { Attachment } from "../../core/types.js";
-import type { FileService } from "../../core/file-service.js";
+import type { FileService } from "../../core/utils/file-service.js";
 import {
   buildFallbackText,
   downloadDiscordAttachment,

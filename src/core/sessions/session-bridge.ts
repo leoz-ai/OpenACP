@@ -5,8 +5,8 @@ import type { NotificationManager } from "../notification.js";
 import type { SessionManager } from "./session-manager.js";
 import type { AgentEvent, PermissionRequest, SessionStatus } from "../types.js";
 import type { EventBus } from "../event-bus.js";
-import { FileService } from "../file-service.js";
-import { createChildLogger } from "../log.js";
+import { FileService } from "../utils/file-service.js";
+import { createChildLogger } from "../utils/log.js";
 
 const log = createChildLogger({ module: "session-bridge" });
 

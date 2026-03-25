@@ -6,7 +6,7 @@ import {
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js'
 import { DoctorEngine } from '../../../core/doctor/index.js'
 import type { DoctorReport, PendingFix } from '../../../core/doctor/types.js'
-import { log } from '../../../core/log.js'
+import { log } from '../../../core/utils/log.js'
 import type { DiscordAdapter } from '../adapter.js'
 
 // In-memory store of pending fixes keyed by "guildId:channelId:messageId"

@@ -9,7 +9,7 @@ import type {
   AgentCommand,
   FileService,
 } from "../../core/index.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 const log = createChildLogger({ module: "telegram" });
 import type { TelegramChannelConfig } from "./types.js";
 import {

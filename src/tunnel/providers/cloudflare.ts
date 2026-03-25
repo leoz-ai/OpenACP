@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { createChildLogger } from '../../core/log.js'
+import { createChildLogger } from '../../core/utils/log.js'
 import { commandExists } from '../../core/agents/agent-dependencies.js'
 import type { TunnelProvider } from '../provider.js'
 

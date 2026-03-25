@@ -1,6 +1,6 @@
 import { ChannelType } from 'discord.js'
 import type { ForumChannel, ThreadChannel, Guild, TextChannel } from 'discord.js'
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 
 // ─── ensureForums ─────────────────────────────────────────────────────────────
 

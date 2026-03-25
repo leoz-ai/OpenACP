@@ -1,5 +1,5 @@
 import type { Attachment } from '../../core/types.js'
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 
 const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024 // 100MB safety cap for downloads
 const DISCORD_UPLOAD_LIMIT = 25 * 1024 * 1024 // 25MB — Discord free tier

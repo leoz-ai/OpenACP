@@ -7,7 +7,7 @@ import type { MessageTransformer } from "../../message-transformer.js";
 import type { NotificationManager } from "../../notification.js";
 import type { SessionManager } from "../session-manager.js";
 import type { AgentEvent } from "../../types.js";
-import { TypedEmitter } from "../../typed-emitter.js";
+import { TypedEmitter } from "../../utils/typed-emitter.js";
 
 function createMockAgentInstance(): AgentInstance {
   const emitter = new TypedEmitter<{ agent_event: (event: AgentEvent) => void }>();

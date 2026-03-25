@@ -1,6 +1,6 @@
 import type { TextChannel, ThreadChannel, Message } from "discord.js";
 import { EmbedBuilder } from "discord.js";
-import { log } from "../../core/log.js";
+import { log } from "../../core/utils/log.js";
 import type { PlanEntry } from "../../core/types.js";
 import { formatUsage, formatPlan } from "./formatting.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";

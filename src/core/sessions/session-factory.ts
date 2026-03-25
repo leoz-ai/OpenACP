@@ -9,7 +9,7 @@ import type { NotificationManager } from "../notification.js";
 import type { TunnelService } from "../../tunnel/tunnel-service.js";
 import type { AgentEvent, UsageRecord } from "../types.js";
 import { Session } from "./session.js";
-import { createChildLogger } from "../log.js";
+import { createChildLogger } from "../utils/log.js";
 
 const log = createChildLogger({ module: "session-factory" });
 

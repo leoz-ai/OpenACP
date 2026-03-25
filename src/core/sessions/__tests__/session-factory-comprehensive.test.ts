@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionFactory } from "../session-factory.js";
 import { Session } from "../session.js";
-import { TypedEmitter } from "../../typed-emitter.js";
+import { TypedEmitter } from "../../utils/typed-emitter.js";
 import type { AgentEvent } from "../../types.js";
 
 function mockAgentInstance(sessionId = "agent-sess-1") {

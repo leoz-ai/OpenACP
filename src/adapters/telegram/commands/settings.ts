@@ -2,7 +2,7 @@ import type { Bot, Context } from "grammy";
 import { InlineKeyboard } from "grammy";
 import type { OpenACPCore } from "../../../core/index.js";
 import { getSafeFields, resolveOptions, getConfigValue, isHotReloadable, type ConfigFieldDef } from "../../../core/config/config-registry.js";
-import { createChildLogger } from "../../../core/log.js";
+import { createChildLogger } from "../../../core/utils/log.js";
 
 const log = createChildLogger({ module: "telegram-settings" });
 

@@ -3,7 +3,7 @@ import { InlineKeyboard } from "grammy";
 import type { OpenACPCore } from "../../../core/index.js";
 import type { Session } from "../../../core/sessions/session.js";
 import { escapeHtml, formatUsageReport, formatSummary } from "../formatting.js";
-import { createChildLogger } from "../../../core/log.js";
+import { createChildLogger } from "../../../core/utils/log.js";
 import type { CommandsAssistantContext } from "../types.js";
 const log = createChildLogger({ module: "telegram-cmd-session" });
 

@@ -4,7 +4,7 @@ import type { AgentCommand } from "../../core/types.js";
 import type { SessionManager } from "../../core/sessions/session-manager.js";
 import type { TelegramPlatformData } from "../../core/types.js";
 import { buildSkillMessages } from "./commands/index.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 
 const log = createChildLogger({ module: "skill-commands" });
 

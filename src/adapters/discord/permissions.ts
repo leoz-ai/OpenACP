@@ -3,7 +3,7 @@ import type { ButtonInteraction, TextChannel, ThreadChannel } from 'discord.js'
 import { nanoid } from 'nanoid'
 import type { PermissionRequest, NotificationMessage } from '../../core/types.js'
 import type { Session } from '../../core/sessions/session.js'
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 import { buildDeepLink } from './forums.js'
 
 interface PendingPermission {

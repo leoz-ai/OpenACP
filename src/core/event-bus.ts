@@ -1,4 +1,4 @@
-import { TypedEmitter } from "./typed-emitter.js";
+import { TypedEmitter } from "./utils/typed-emitter.js";
 import type { AgentEvent, PermissionRequest, SessionStatus } from "./types.js";
 
 export interface EventBusEvents {

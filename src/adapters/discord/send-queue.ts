@@ -1,4 +1,4 @@
-import { log } from '../../core/log.js'
+import { log } from '../../core/utils/log.js'
 
 export type QueueItemType = 'text' | 'other'
 

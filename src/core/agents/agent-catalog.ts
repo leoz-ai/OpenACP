@@ -13,7 +13,7 @@ import type {
   InstallResult,
   InstalledAgent,
 } from "../types.js";
-import { createChildLogger } from "../log.js";
+import { createChildLogger } from "../utils/log.js";
 
 const log = createChildLogger({ module: "agent-catalog" });
 

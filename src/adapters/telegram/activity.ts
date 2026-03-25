@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 import { formatUsage } from "./formatting.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
 import type { TelegramSendQueue } from "./send-queue.js";

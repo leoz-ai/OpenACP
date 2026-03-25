@@ -43,7 +43,7 @@ export async function setupRunMode(opts?: {
 
   if (mode === 'daemon') {
     const { installAutoStart, isAutoStartSupported } = await import('../autostart.js');
-    const { muteLogger, unmuteLogger } = await import('../log.js');
+    const { muteLogger, unmuteLogger } = await import('../utils/log.js');
     const autoStart = isAutoStartSupported();
     if (autoStart) {
       muteLogger();
@@ -60,7 +60,7 @@ export async function setupRunMode(opts?: {
 
   // Switching from daemon → foreground: stop daemon + uninstall autostart
   if (wasDaemon) {
-    const { muteLogger, unmuteLogger } = await import('../log.js');
+    const { muteLogger, unmuteLogger } = await import('../utils/log.js');
     muteLogger();
     try {
       const { stopDaemon } = await import('../daemon.js');

@@ -4,7 +4,7 @@ import type { OpenACPCore } from "../../../core/index.js";
 import type { Session } from "../../../core/sessions/session.js";
 import { escapeHtml } from "../formatting.js";
 import { createSessionTopic, renameSessionTopic, buildDeepLink } from "../topics.js";
-import { createChildLogger } from "../../../core/log.js";
+import { createChildLogger } from "../../../core/utils/log.js";
 import { buildSessionControlKeyboard } from "./admin.js";
 import type { CommandsAssistantContext } from "../types.js";
 const log = createChildLogger({ module: "telegram-cmd-new-session" });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TypedEmitter } from "../typed-emitter.js";
+import { TypedEmitter } from "../utils/typed-emitter.js";
 import type { AgentEvent, IncomingMessage, SessionStatus } from "../types.js";
 import type { IChannelAdapter } from "../channel.js";
 

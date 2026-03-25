@@ -1,6 +1,6 @@
 import type { Router } from "../router.js";
 import type { RouteDeps } from "../index.js";
-import { createChildLogger } from "../../log.js";
+import { createChildLogger } from "../../utils/log.js";
 
 const log = createChildLogger({ module: "api-server" });
 

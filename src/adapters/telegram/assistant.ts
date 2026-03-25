@@ -1,5 +1,5 @@
 import type { OpenACPCore, IChannelAdapter, Config, Session } from "../../core/index.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 import { PRODUCT_GUIDE } from "../../product-guide.js";
 const log = createChildLogger({ module: "telegram-assistant" });
 

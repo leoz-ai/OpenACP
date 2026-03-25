@@ -3,7 +3,7 @@
 import { ConfigManager } from './core/config/config.js'
 import { OpenACPCore } from './core/core.js'
 import { loadAdapterFactory } from './core/plugin-manager.js'
-import { initLogger, shutdownLogger, cleanupOldSessionLogs, log, muteLogger, unmuteLogger } from './core/log.js'
+import { initLogger, shutdownLogger, cleanupOldSessionLogs, log, muteLogger, unmuteLogger } from './core/utils/log.js'
 import { TelegramAdapter } from './adapters/telegram/index.js'
 import type { TelegramChannelConfig } from './adapters/telegram/index.js'
 import { ApiServer } from './core/api-server.js'

@@ -5,7 +5,7 @@
 import type { ISlackSendQueue } from "./send-queue.js";
 import { markdownToMrkdwn } from "./formatter.js";
 import { splitSafe } from "./utils.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 
 const log = createChildLogger({ module: "slack-text-buffer" });
 

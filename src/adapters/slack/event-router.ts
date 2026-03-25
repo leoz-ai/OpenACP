@@ -2,7 +2,7 @@
 import type { App } from "@slack/bolt";
 import type { SlackSessionMeta, SlackFileInfo } from "./types.js";
 import type { SlackChannelConfig } from "./types.js";
-import { createChildLogger } from "../../core/log.js";
+import { createChildLogger } from "../../core/utils/log.js";
 const log = createChildLogger({ module: "slack-event-router" });
 
 /** Subset of Bolt's message event fields used by the router */

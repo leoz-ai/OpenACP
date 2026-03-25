@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid'
 import type { PermissionRequest, NotificationMessage, Session } from '../../core/index.js'
 import { escapeHtml } from './formatting.js'
 import { buildDeepLink } from './topics.js'
-import { createChildLogger } from '../../core/log.js'
+import { createChildLogger } from '../../core/utils/log.js'
 const log = createChildLogger({ module: 'telegram-permissions' })
 
 // Stored pending permission callbacks: callbackKey → { sessionId, requestId, options }

@@ -4,7 +4,7 @@ import {
   ButtonStyle,
 } from 'discord.js'
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js'
-import { log } from '../../../core/log.js'
+import { log } from '../../../core/utils/log.js'
 import type { InstallProgress } from '../../../core/types.js'
 import type { DiscordAdapter } from '../adapter.js'
 

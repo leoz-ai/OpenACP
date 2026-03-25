@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionManager } from "../session-manager.js";
 import { Session } from "../session.js";
-import { TypedEmitter } from "../../typed-emitter.js";
+import { TypedEmitter } from "../../utils/typed-emitter.js";
 import type { AgentEvent, SessionRecord } from "../../types.js";
 import type { SessionStore } from "../session-store.js";
 

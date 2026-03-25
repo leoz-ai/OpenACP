@@ -1,4 +1,4 @@
-import { createChildLogger } from "./log.js";
+import { createChildLogger } from "./utils/log.js";
 import { commandExists } from "./agents/agent-dependencies.js";
 import type { Config } from "./config/config.js";
 
@@ -48,7 +48,7 @@ export async function runPostUpgradeChecks(config: Config): Promise<void> {
       const handoff = integration.items.find((i) => i.id === "handoff");
       if (handoff?.isInstalled() && !commandExists("jq")) {
         try {
-          const { ensureJq } = await import("./install-jq.js");
+          const { ensureJq } = await import("./utils/install-jq.js");
           await ensureJq();
         } catch (err) {
           log.warn(
