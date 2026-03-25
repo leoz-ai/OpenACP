@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "2e3b0c18145d",
+  "strategy": "manual-commit",
+  "branch": "feat/message-formatting",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "2026-03-24-message-formatting-review.md",
+    "docs/superpowers/plans/2026-03-24-message-formatting.md",
+    "docs/superpowers/specs/2026-03-24-message-formatting-design.md",
+    "docs/superpowers/specs/2026-03-24-message-formatting-v2-design.md",
+    "docs/superpowers/specs/2026-03-24-ui-chat-design.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2e/3b0c18145d/0/metadata.json",
+      "transcript": "/2e/3b0c18145d/0/full.jsonl",
+      "context": "/2e/3b0c18145d/0/context.md",
+      "content_hash": "/2e/3b0c18145d/0/content_hash.txt",
+      "prompt": "/2e/3b0c18145d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3664,
+    "cache_creation_tokens": 574094,
+    "cache_read_tokens": 21505949,
+    "output_tokens": 43479,
+    "api_call_count": 160
+  }
+}
