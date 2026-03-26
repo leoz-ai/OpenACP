@@ -40,7 +40,7 @@ import {
 } from "./assistant.js";
 import { escapeHtml } from "./formatting.js";
 import { ActivityTracker } from "./activity.js";
-import { TelegramSendQueue } from "./send-queue.js";
+import { SendQueue } from "../shared/primitives/send-queue.js";
 import { setupActionCallbacks } from "./action-detect.js";
 import { ToolCallTracker } from "./tool-call-tracker.js";
 import { DraftManager } from "./draft-manager.js";
@@ -103,7 +103,7 @@ export class TelegramAdapter extends MessagingAdapter {
   private assistantInitializing = false;
   private notificationTopicId!: number;
   private assistantTopicId!: number;
-  private sendQueue = new TelegramSendQueue(3000);
+  private sendQueue = new SendQueue({ minInterval: 3000 });
   private _sessionThreadIds = new Map<string, number>();
 
   // Extracted managers

@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { createChildLogger } from "../../core/utils/log.js";
 import { formatUsage } from "./formatting.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
-import type { TelegramSendQueue } from "./send-queue.js";
+import type { SendQueue } from "../shared/primitives/send-queue.js";
 import type { PlanEntry } from "../../core/types.js";
 
 const log = createChildLogger({ module: "telegram:activity" });
@@ -23,7 +23,7 @@ export class ThinkingIndicator {
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   async show(): Promise<void> {
@@ -113,7 +113,7 @@ export class UsageMessage {
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   async send(
@@ -203,7 +203,7 @@ export class PlanCard {
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   setVerbosity(v: DisplayVerbosity): void {
@@ -282,7 +282,7 @@ export class ActivityTracker {
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {
     this.thinking = new ThinkingIndicator(api, chatId, threadId, sendQueue);
     this.planCard = new PlanCard(api, chatId, threadId, sendQueue);

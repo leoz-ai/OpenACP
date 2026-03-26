@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { TelegramSendQueue } from "./send-queue.js";
+import type { SendQueue } from "../shared/primitives/send-queue.js";
 import { formatToolCall, formatToolUpdate } from "./formatting.js";
 import { createChildLogger } from "../../core/utils/log.js";
 import type {
@@ -26,7 +26,7 @@ export class ToolCallTracker {
   constructor(
     private bot: Bot,
     private chatId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   async trackNewCall(

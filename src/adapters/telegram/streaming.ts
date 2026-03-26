@@ -1,6 +1,6 @@
 import type { Bot } from 'grammy'
 import { markdownToTelegramHtml, splitMessage } from './formatting.js'
-import type { TelegramSendQueue } from './send-queue.js'
+import type { SendQueue } from '../shared/primitives/send-queue.js'
 
 const FLUSH_INTERVAL = 5000
 
@@ -17,7 +17,7 @@ export class MessageDraft {
     private bot: Bot,
     private chatId: number,
     private threadId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
     private sessionId: string,
   ) {}
 

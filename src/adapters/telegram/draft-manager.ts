@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
 import { MessageDraft } from "./streaming.js";
-import type { TelegramSendQueue } from "./send-queue.js";
+import type { SendQueue } from "../shared/primitives/send-queue.js";
 import {
   detectAction,
   storeAction,
@@ -14,7 +14,7 @@ export class DraftManager {
   constructor(
     private bot: Bot,
     private chatId: number,
-    private sendQueue: TelegramSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   getOrCreate(sessionId: string, threadId: number): MessageDraft {

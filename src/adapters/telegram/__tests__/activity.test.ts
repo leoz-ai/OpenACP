@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ThinkingIndicator, UsageMessage, PlanCard, ActivityTracker } from '../activity.js'
-import type { TelegramSendQueue } from '../send-queue.js'
+import type { SendQueue } from '../../shared/primitives/send-queue.js'
 
-// Minimal mock for TelegramSendQueue: runs the fn immediately, returns result
-function makeMockQueue(): TelegramSendQueue {
+// Minimal mock for SendQueue: runs the fn immediately, returns result
+function makeMockQueue(): SendQueue {
   return {
     enqueue: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     onRateLimited: vi.fn(),
-  } as unknown as TelegramSendQueue
+  } as unknown as SendQueue
 }
 
 // Minimal mock for bot.api
@@ -21,7 +21,7 @@ function makeMockApi() {
 
 describe('ThinkingIndicator', () => {
   let api: ReturnType<typeof makeMockApi>
-  let queue: TelegramSendQueue
+  let queue: SendQueue
   let indicator: ThinkingIndicator
 
   beforeEach(() => {
@@ -71,7 +71,7 @@ describe('ThinkingIndicator', () => {
 
 describe('UsageMessage', () => {
   let api: ReturnType<typeof makeMockApi>
-  let queue: TelegramSendQueue
+  let queue: SendQueue
   let usage: UsageMessage
 
   beforeEach(() => {
@@ -124,7 +124,7 @@ describe('UsageMessage', () => {
 
 describe('PlanCard', () => {
   let api: ReturnType<typeof makeMockApi>
-  let queue: TelegramSendQueue
+  let queue: SendQueue
   let card: PlanCard
 
   const entries: import('../../../core/types.js').PlanEntry[] = [
@@ -226,7 +226,7 @@ describe('PlanCard', () => {
 
 describe('ActivityTracker', () => {
   let api: ReturnType<typeof makeMockApi>
-  let queue: TelegramSendQueue
+  let queue: SendQueue
   let tracker: ActivityTracker
 
   beforeEach(() => {
