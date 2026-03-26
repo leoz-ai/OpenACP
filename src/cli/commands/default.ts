@@ -9,7 +9,7 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
     const { suggestMatch } = await import('../suggest.js')
     const topLevelCommands = [
       'start', 'stop', 'status', 'logs', 'config', 'reset', 'update',
-      'install', 'uninstall', 'plugins', 'api', 'adopt', 'integrate', 'doctor', 'agents', 'onboard',
+      'install', 'uninstall', 'plugins', 'plugin', 'api', 'adopt', 'integrate', 'doctor', 'agents', 'onboard',
     ]
     const suggestion = suggestMatch(command, topLevelCommands)
     console.error(`Unknown command: ${command}`)
