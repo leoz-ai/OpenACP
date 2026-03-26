@@ -4,7 +4,7 @@ import { Session } from "../session.js";
 import type { AgentInstance } from "../../agents/agent-instance.js";
 import type { IChannelAdapter } from "../../channel.js";
 import type { MessageTransformer } from "../../message-transformer.js";
-import type { NotificationManager } from "../../notification.js";
+import type { NotificationManager } from "../../../plugins/notifications/notification.js";
 import type { SessionManager } from "../session-manager.js";
 import type { AgentEvent, PermissionRequest } from "../../types.js";
 import { TypedEmitter } from "../../utils/typed-emitter.js";

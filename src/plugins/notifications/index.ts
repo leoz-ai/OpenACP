@@ -1,5 +1,5 @@
 import type { OpenACPPlugin } from '../../core/plugin/types.js'
-import { NotificationManager } from '../../core/notification.js'
+import { NotificationManager } from './notification.js'
 
 function createNotificationsPlugin(): OpenACPPlugin {
   return {

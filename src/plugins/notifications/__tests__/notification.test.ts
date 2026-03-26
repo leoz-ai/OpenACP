@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { NotificationManager } from '../notification.js'
-import type { IChannelAdapter } from '../channel.js'
-import type { NotificationMessage } from '../types.js'
+import type { IChannelAdapter } from '../../../core/channel.js'
+import type { NotificationMessage } from '../../../core/types.js'
 
 function mockAdapter(): IChannelAdapter {
   return {

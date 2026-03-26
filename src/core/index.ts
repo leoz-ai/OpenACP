@@ -15,7 +15,7 @@ export {
   type AdapterCapabilities,
   type ChannelConfig,
 } from "./channel.js";
-export { NotificationManager } from "./notification.js";
+export { NotificationManager } from "../plugins/notifications/notification.js";
 export { nodeToWebWritable, nodeToWebReadable } from "./utils/streams.js";
 export { StderrCapture } from "./utils/stderr-capture.js";
 export {

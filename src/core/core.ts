@@ -4,7 +4,7 @@ import { ConfigManager } from "./config/config.js";
 import { AgentManager } from "./agents/agent-manager.js";
 import { SessionManager } from "./sessions/session-manager.js";
 import { SessionBridge } from "./sessions/session-bridge.js";
-import type { NotificationManager } from "./notification.js";
+import type { NotificationManager } from "../plugins/notifications/notification.js";
 import type { IChannelAdapter } from "./channel.js";
 import { Session } from "./sessions/session.js";
 import { MessageTransformer } from "./message-transformer.js";

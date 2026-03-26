@@ -1,5 +1,5 @@
-import type { IChannelAdapter } from './channel.js'
-import type { NotificationMessage } from './types.js'
+import type { IChannelAdapter } from '../../core/channel.js'
+import type { NotificationMessage } from '../../core/types.js'
 
 export class NotificationManager {
   constructor(private adapters: Map<string, IChannelAdapter>) {}

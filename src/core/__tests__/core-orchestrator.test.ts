@@ -3,7 +3,7 @@ import { OpenACPCore } from "../core.js";
 import type { IChannelAdapter } from "../channel.js";
 import type { IncomingMessage } from "../types.js";
 import { SecurityGuard } from "../../plugins/security/security-guard.js";
-import { NotificationManager } from "../notification.js";
+import { NotificationManager } from "../../plugins/notifications/notification.js";
 
 // Mock heavy dependencies
 vi.mock("../agent-catalog.js", () => {
