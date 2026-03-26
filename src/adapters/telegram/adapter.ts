@@ -42,7 +42,7 @@ import { escapeHtml } from "./formatting.js";
 import { ActivityTracker } from "./activity.js";
 import { SendQueue } from "../shared/primitives/send-queue.js";
 import { setupActionCallbacks } from "./action-detect.js";
-import { ToolCallTracker } from "./tool-call-tracker.js";
+import { TelegramToolCallTracker } from "./tool-call-tracker.js";
 import { DraftManager } from "./draft-manager.js";
 import { SkillCommandManager } from "./skill-command-manager.js";
 import { MessagingAdapter, type MessagingAdapterConfig } from "../shared/messaging-adapter.js";
@@ -107,7 +107,7 @@ export class TelegramAdapter extends MessagingAdapter {
   private _sessionThreadIds = new Map<string, number>();
 
   // Extracted managers
-  private toolTracker!: ToolCallTracker;
+  private toolTracker!: TelegramToolCallTracker;
   private draftManager!: DraftManager;
   private skillManager!: SkillCommandManager;
   private fileService!: FileService;
@@ -157,7 +157,7 @@ export class TelegramAdapter extends MessagingAdapter {
     this.fileService = this.core.fileService;
 
     // Initialize extracted managers
-    this.toolTracker = new ToolCallTracker(
+    this.toolTracker = new TelegramToolCallTracker(
       this.bot,
       this.telegramConfig.chatId,
       this.sendQueue,

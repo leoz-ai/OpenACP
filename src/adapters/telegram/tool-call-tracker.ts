@@ -1,27 +1,28 @@
 import type { Bot } from "grammy";
 import type { SendQueue } from "../shared/primitives/send-queue.js";
+import { ToolCallTracker as SharedToolCallTracker } from "../shared/primitives/tool-call-tracker.js";
 import { formatToolCall, formatToolUpdate } from "./formatting.js";
 import { createChildLogger } from "../../core/utils/log.js";
 import type {
   ToolCallMeta,
-  ViewerLinks,
   DisplayVerbosity,
 } from "../shared/format-types.js";
 
 const log = createChildLogger({ module: "tool-call-tracker" });
 
-interface ToolCallState {
-  msgId: number;
-  name: string;
-  kind?: string;
-  rawInput?: unknown;
-  viewerLinks?: ViewerLinks;
-  viewerFilePath?: string;
+/** Telegram-specific state that augments the shared tracker's data. */
+interface TelegramToolState {
   ready: Promise<void>;
 }
 
-export class ToolCallTracker {
-  private sessions: Map<string, Map<string, ToolCallState>> = new Map();
+/**
+ * Telegram-specific tool call tracker that composes the shared ToolCallTracker
+ * for state management, adding Telegram send/edit via grammY API on top.
+ */
+export class TelegramToolCallTracker {
+  private tracker = new SharedToolCallTracker();
+  /** Platform-specific ready-promise per tool call, keyed by `${sessionId}:${toolId}`. */
+  private readyMap = new Map<string, TelegramToolState>();
 
   constructor(
     private bot: Bot,
@@ -35,24 +36,16 @@ export class ToolCallTracker {
     meta: ToolCallMeta,
     verbosity: DisplayVerbosity = "medium",
   ): Promise<void> {
-    if (!this.sessions.has(sessionId)) {
-      this.sessions.set(sessionId, new Map());
-    }
-
     let resolveReady!: () => void;
     const ready = new Promise<void>((r) => {
       resolveReady = r;
     });
 
-    this.sessions.get(sessionId)!.set(meta.id, {
-      msgId: 0,
-      name: meta.name,
-      kind: meta.kind,
-      rawInput: meta.rawInput,
-      viewerLinks: meta.viewerLinks,
-      viewerFilePath: meta.viewerFilePath,
-      ready,
-    });
+    const key = `${sessionId}:${meta.id}`;
+    this.readyMap.set(key, { ready });
+
+    // Track with placeholder messageId; we'll update after send
+    this.tracker.track(sessionId, meta, "0");
 
     try {
       const msg = await this.sendQueue.enqueue(() =>
@@ -63,8 +56,11 @@ export class ToolCallTracker {
         }),
       );
 
-      const toolEntry = this.sessions.get(sessionId)!.get(meta.id)!;
-      toolEntry.msgId = msg!.message_id;
+      // Update the tracked tool's messageId with the real one
+      const tracked = this.tracker.update(sessionId, meta.id, meta.status ?? "running");
+      if (tracked) {
+        tracked.messageId = String(msg!.message_id);
+      }
     } finally {
       resolveReady();
     }
@@ -75,46 +71,53 @@ export class ToolCallTracker {
     meta: ToolCallMeta & { status: string },
     verbosity: DisplayVerbosity = "medium",
   ): Promise<void> {
-    const toolState = this.sessions.get(sessionId)?.get(meta.id);
-    if (!toolState) return;
+    const key = `${sessionId}:${meta.id}`;
+    const readyState = this.readyMap.get(key);
 
-    // Accumulate state from intermediate updates
-    if (meta.viewerLinks) {
-      toolState.viewerLinks = meta.viewerLinks;
-      log.debug(
-        { toolId: meta.id, viewerLinks: meta.viewerLinks },
-        "Accumulated viewerLinks",
-      );
-    }
-    if (meta.viewerFilePath) toolState.viewerFilePath = meta.viewerFilePath;
-    if (meta.name) toolState.name = meta.name;
-    if (meta.kind) toolState.kind = meta.kind;
+    // Apply state update via shared tracker
+    const tracked = this.tracker.update(sessionId, meta.id, meta.status, {
+      viewerLinks: meta.viewerLinks,
+      viewerFilePath: meta.viewerFilePath,
+      name: meta.name,
+      kind: meta.kind,
+    });
+    if (!tracked) return;
 
     // Only edit on terminal status — minimizes API calls to avoid rate limits
     const isTerminal = meta.status === "completed" || meta.status === "failed";
     if (!isTerminal) return;
 
-    await toolState.ready;
+    // Wait for the initial send to complete before editing
+    if (readyState) {
+      await readyState.ready;
+    }
+
+    const msgId = Number(tracked.messageId);
 
     log.debug(
       {
         toolId: meta.id,
         status: meta.status,
-        hasViewerLinks: !!toolState.viewerLinks,
-        viewerLinks: toolState.viewerLinks,
-        name: toolState.name,
-        msgId: toolState.msgId,
+        hasViewerLinks: !!tracked.viewerLinks,
+        viewerLinks: tracked.viewerLinks,
+        name: tracked.name,
+        msgId,
       },
       "Tool completed, preparing edit",
     );
 
-    const merged = {
-      ...meta,
-      name: toolState.name,
-      kind: toolState.kind,
-      rawInput: toolState.rawInput,
-      viewerLinks: toolState.viewerLinks,
-      viewerFilePath: toolState.viewerFilePath,
+    const merged: ToolCallMeta & { status: string } = {
+      id: meta.id,
+      name: tracked.name,
+      kind: tracked.kind,
+      rawInput: tracked.rawInput,
+      viewerLinks: tracked.viewerLinks,
+      viewerFilePath: tracked.viewerFilePath,
+      displaySummary: tracked.displaySummary,
+      displayTitle: tracked.displayTitle,
+      displayKind: tracked.displayKind,
+      status: meta.status,
+      content: meta.content,
     };
     const formattedText = formatToolUpdate(merged, verbosity);
 
@@ -122,7 +125,7 @@ export class ToolCallTracker {
       await this.sendQueue.enqueue(() =>
         this.bot.api.editMessageText(
           this.chatId,
-          toolState.msgId,
+          msgId,
           formattedText,
           { parse_mode: "HTML" },
         ),
@@ -131,7 +134,7 @@ export class ToolCallTracker {
       log.warn(
         {
           err,
-          msgId: toolState.msgId,
+          msgId,
           textLen: formattedText.length,
           hasViewerLinks: !!merged.viewerLinks,
         },
@@ -141,6 +144,11 @@ export class ToolCallTracker {
   }
 
   cleanup(sessionId: string): void {
-    this.sessions.delete(sessionId);
+    // Clean up ready promises for this session
+    const active = this.tracker.getActive(sessionId);
+    for (const tool of active) {
+      this.readyMap.delete(`${sessionId}:${tool.id}`);
+    }
+    this.tracker.clear(sessionId);
   }
 }

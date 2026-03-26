@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ToolCallTracker } from '../adapters/telegram/tool-call-tracker.js'
+import { TelegramToolCallTracker } from '../adapters/telegram/tool-call-tracker.js'
 
 function mockBot() {
   return {
@@ -16,15 +16,15 @@ function mockSendQueue() {
   } as any
 }
 
-describe('ToolCallTracker', () => {
-  let tracker: ToolCallTracker
+describe('TelegramToolCallTracker', () => {
+  let tracker: TelegramToolCallTracker
   let bot: ReturnType<typeof mockBot>
   let sendQueue: ReturnType<typeof mockSendQueue>
 
   beforeEach(() => {
     bot = mockBot()
     sendQueue = mockSendQueue()
-    tracker = new ToolCallTracker(bot, 12345, sendQueue)
+    tracker = new TelegramToolCallTracker(bot, 12345, sendQueue)
   })
 
   describe('trackNewCall()', () => {
