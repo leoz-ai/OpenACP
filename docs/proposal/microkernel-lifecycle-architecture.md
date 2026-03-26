@@ -2,23 +2,30 @@
 
 ## Status
 
-**Proposal** — this document describes a long-term architectural vision. It is not a spec and not ready for implementation. Feedback and discussion are welcome.
+**Proposal** — this document describes a unified architectural vision that merges the Plugin API v2 (originally PR #63) with a microkernel lifecycle architecture. It is not a spec and not ready for implementation. Feedback and discussion are welcome.
 
 ## Context
 
 OpenACP currently has a monolithic architecture where all subsystems (Security, Speech, Usage, Notifications, FileService, Tunnel, etc.) are hard-wired into `OpenACPCore`. The plugin system only supports adding new channel adapters via `AdapterFactory`.
 
-PR #63 proposes Plugin API v2 — a unified plugin interface with events, commands, middleware, and storage. This is a significant step forward but still treats core subsystems as built-in and plugins as extensions on top.
+PR #63 proposed Plugin API v2 — a unified plugin interface with events, commands, middleware, and storage. That spec is now **superseded by this proposal**, which takes the same concepts further: instead of adding a plugin layer on top of the monolith, we redesign the foundation so that **everything is a plugin**.
 
-This proposal takes the next step: **what if everything is a plugin?**
+This proposal incorporates all of PR #63's design (PluginContext, permissions, error isolation, commands, middleware, storage, security model, backward compatibility) and extends it with a microkernel architecture.
 
 ### Ongoing work (not blocked by this proposal)
 
 - **Phase 1** — Adapter layer refactor (`refactor/adapter-layer-phase1`), currently in progress
 - **Phase 2** — ACP protocol completion, planned after Phase 1
-- **PR #63** — Plugin API v2 spec, under review
 
-This proposal builds on top of PR #63 and does not block or conflict with any of the above. PR #63 can be implemented as-is and serves as the foundation for this architecture.
+This proposal does not block or conflict with the above. Implementation begins after Phase 1 and Phase 2 are complete, or can be done in parallel on a separate branch.
+
+### Why merge PR #63 into this proposal?
+
+PR #63 designed the plugin system to sit **on top of the monolithic core**. If implemented as-is, the plugin loading code, startup sequence, and context wiring would need to be **rewritten** when migrating to microkernel. By merging the two designs upfront:
+
+- No throwaway code — implement once for the right architecture
+- Coherent design — no awkward transition state
+- Less total effort — one implementation cycle instead of two
 
 ---
 
@@ -157,7 +164,7 @@ src/
 
 ## Plugin Interface
 
-Building on PR #63's `OpenACPPlugin` interface, extended with dependency declaration and service registration:
+The unified plugin interface covers all plugin types — event listeners, command providers, middleware, service providers, and adapters:
 
 ```typescript
 interface OpenACPPlugin {
@@ -176,7 +183,7 @@ interface OpenACPPlugin {
   /** Optional plugin dependencies — used if available, skipped if not */
   optionalPluginDependencies?: Record<string, string>
 
-  /** Required permissions (from PR #63) */
+  /** Required permissions — determines what PluginContext exposes */
   permissions: PluginPermission[]
 
   /**
@@ -199,7 +206,7 @@ interface OpenACPPlugin {
 
 ### PluginContext
 
-PluginContext follows PR #63's tiered design, extended with service registration and lookup:
+PluginContext is the single entry point for all plugin capabilities, organized in tiers by stability and risk level:
 
 ```typescript
 interface PluginContext {
@@ -211,6 +218,7 @@ interface PluginContext {
   pluginConfig: Record<string, unknown>
 
   // === Tier 1 — Events (read-only, stable) ===
+  /** Subscribe to system events. All listeners auto-cleaned on teardown. */
   on(event: PluginEvent, handler: Function): void
   off(event: PluginEvent, handler: Function): void
 
@@ -243,6 +251,53 @@ interface PluginContext {
   sessions: SessionManager
   config: ConfigManager  // read-only
   eventBus: EventBus
+}
+```
+
+### Available Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `session:created` | `{ sessionId, agentName, userId, workingDir, channelId }` | New session started |
+| `session:ended` | `{ sessionId, reason }` | Session finished/cancelled/errored |
+| `session:named` | `{ sessionId, name }` | Session auto-named |
+| `agent:event` | `{ sessionId, event: AgentEvent }` | Any agent event (text, tool_call, thought, plan, usage, etc.) |
+| `agent:prompt` | `{ sessionId, text, attachments? }` | User sent prompt to agent |
+| `adapter:outgoing` | `{ sessionId, message: OutgoingMessage }` | Message about to be sent to user |
+| `permission:request` | `{ sessionId, request: PermissionRequest }` | Agent requests permission |
+| `permission:resolved` | `{ sessionId, requestId, decision }` | User responded to permission |
+| `system:ready` | `{}` | All plugins loaded, system accepting messages |
+| `system:shutdown` | `{}` | Shutdown initiated, plugins should prepare for teardown |
+| `system:commands-ready` | `{ commands: CommandDef[] }` | All plugin commands collected, adapters should register them |
+| `plugin:loaded` | `{ name, version }` | A plugin completed setup successfully |
+| `plugin:failed` | `{ name, error }` | A plugin failed during setup |
+| `plugin:disabled` | `{ name, reason }` | A plugin was auto-disabled (error budget exceeded) |
+
+### Command Definition
+
+```typescript
+interface CommandDef {
+  /** Command name without slash, e.g., "context" for /context */
+  name: string
+  /** Short description shown in command list */
+  description: string
+  /** Command usage pattern, e.g., "<session-number>" */
+  usage?: string
+  /** Command handler */
+  handler(args: CommandArgs): Promise<void>
+}
+
+interface CommandArgs {
+  /** Raw argument string after command name */
+  raw: string
+  /** Session ID where command was invoked (null if from notification topic) */
+  sessionId: string | null
+  /** Channel ID (telegram, discord, slack) */
+  channelId: string
+  /** User ID who invoked the command */
+  userId: string
+  /** Reply helper — shortcut for sending message to the invoking topic */
+  reply(content: string | OutgoingMessage): Promise<void>
 }
 ```
 
@@ -678,9 +733,9 @@ Installed via `openacp plugin add`, stored in `~/.openacp/plugins/`:
 
 **Properties:**
 - Must be installed explicitly
-- Permission consent required at install time (from PR #63's security model)
+- Permission consent required at install time (see Security Model section)
 - Checksum verified at startup
-- Error-isolated (from PR #63's error isolation)
+- Error-isolated (see Error Isolation section)
 - Can override built-in plugins (with explicit declaration)
 
 ### How built-in plugins are disabled
@@ -1047,7 +1102,7 @@ No plugin can block shutdown indefinitely.
 ```
 Scenario: Community plugin has bug, throws on every 'agent:event'.
 
-Kernel behavior (error budget from PR #63):
+Kernel behavior (error budget):
 1. First few errors: catch, log, continue
 2. After 10 errors in 60 seconds:
    "Plugin @community/plugin-buggy auto-disabled due to repeated errors"
@@ -1149,7 +1204,7 @@ Behavior:
 
 Prevention:
   - Don't install plugins with core:access unless you trust them
-  - PR #63's security model handles this with trust levels
+  - Permission consent + trust levels handle this at install time
   - Future: audit logging for Tier 3 calls
 ```
 
@@ -1228,59 +1283,557 @@ User fix:
 
 ---
 
-## Relationship to PR #63 and Current Work
+## Security Model
 
-### What we take from PR #63
+### Permission System
 
-| PR #63 concept | How it's used here |
-|----------------|-------------------|
-| `OpenACPPlugin` interface | Extended with `pluginDependencies`, `optionalPluginDependencies`, `overrides` |
-| `PluginContext` tiered API | Extended with `registerService()`, `getService()` |
-| Permission model (Tier 1/2/3) | Used as-is, with `services:register` and `services:use` added |
-| Error isolation | Used as-is (try/catch per handler, error budget) |
-| Plugin storage | Used as-is |
-| Command registration | Used as-is |
-| Middleware hooks | Used as-is |
-| Security model (consent, checksums, trust levels) | Used as-is for community plugins, skipped for built-in |
-| Backward compatibility (v1 AdapterFactory) | Used as-is |
+Every plugin declares the permissions it requires. PluginContext is constructed based on declared permissions — undeclared APIs are not available (not just warned, but absent from the context object).
 
-### What this proposal adds beyond PR #63
+```typescript
+type PluginPermission =
+  // Tier 1 — read-only, low risk
+  | 'events:read'           // Listen to system events
+  | 'sessions:list'         // List active sessions (metadata only)
 
-| New concept | Purpose |
-|-------------|---------|
-| **Kernel extraction** | Core split into minimal kernel + plugins |
-| **Built-in plugins** | Ship with OpenACP, same interface as community |
-| **Service registry** | Plugins register and lookup services by name |
-| **Plugin dependencies** | `pluginDependencies` with auto-install + topo-sort |
-| **Service override** | Community plugin can replace built-in via `overrides` |
-| **Dependency-based startup order** | Topo-sort replaces manual config ordering |
-| **Graceful shutdown with timeout** | Per-plugin teardown timeout, grace period for in-flight work |
+  // Tier 2 — side effects, medium risk
+  | 'commands:register'     // Add slash commands to adapters
+  | 'middleware:register'   // Intercept and modify prompts/responses
+  | 'storage:write'         // Read/write plugin-scoped storage
+  | 'messages:send'         // Send messages to session topics
+  | 'services:register'     // Register a service in the registry
+  | 'services:use'          // Lookup and call other plugin services
 
-### Migration path
-
-```
-Current state (monolith)
-  │
-  ▼
-Phase 1: Adapter layer refactor (in progress)
-  │
-  ▼
-Phase 2: ACP protocol completion (planned)
-  │
-  ▼
-PR #63: Plugin API v2 (adds plugin system on top of monolith)
-  │
-  ▼
-This proposal: Microkernel (extract kernel, migrate subsystems to plugins)
+  // Tier 3 — full access, high risk
+  | 'core:access'           // Direct access to Kernel, SessionManager, etc.
+  | 'config:read'           // Read OpenACP configuration (may contain tokens)
+  | 'adapter:create'        // Act as a channel adapter
 ```
 
-Each step is independently valuable. This proposal does not require starting from scratch — it builds on all previous work.
+### Permission enforcement
+
+```typescript
+function createPluginContext(plugin: OpenACPPlugin, services: KernelServices): PluginContext {
+  const permissions = new Set(plugin.permissions)
+  const ctx: PluginContext = {
+    pluginName: plugin.name,
+    log: createPluginLogger(plugin.name),
+    pluginConfig: getPluginConfig(plugin.name),
+  }
+
+  // Tier 1
+  if (permissions.has('events:read')) {
+    ctx.on = (event, handler) => eventBus.on(event, wrapHandler(plugin.name, handler))
+    ctx.off = (event, handler) => eventBus.off(event, handler)
+  }
+  if (permissions.has('sessions:list')) {
+    ctx.sessions = { getActiveSessions: () => sessionManager.getActiveSessions() }
+  }
+
+  // Tier 2
+  if (permissions.has('commands:register')) {
+    ctx.registerCommand = (def) => commandRegistry.register(plugin.name, def)
+  }
+  if (permissions.has('middleware:register')) {
+    ctx.registerMiddleware = (hook, fn) => middlewareRegistry.register(plugin.name, hook, fn)
+  }
+  if (permissions.has('storage:write')) {
+    ctx.storage = createPluginStorage(plugin.name)
+  }
+  if (permissions.has('messages:send')) {
+    ctx.sendMessage = (sessionId, content) => bridge.sendMessage(sessionId, content)
+  }
+  if (permissions.has('services:register')) {
+    ctx.registerService = (name, impl) => serviceRegistry.register(plugin.name, name, impl)
+  }
+  if (permissions.has('services:use')) {
+    ctx.getService = (name) => serviceRegistry.get(name)
+  }
+
+  // Tier 3
+  if (permissions.has('core:access')) {
+    ctx.kernel = services.kernel
+    ctx.eventBus = services.eventBus
+  }
+  if (permissions.has('config:read')) {
+    ctx.config = services.config  // read-only proxy
+  }
+
+  return ctx
+}
+```
+
+If a plugin accesses an API it didn't declare (e.g., `ctx.kernel` without `core:access`), the property is `undefined` — standard JavaScript behavior. Plugin authors will see the issue during development.
+
+**Built-in plugins** skip permission enforcement entirely — they are trusted and always receive a full PluginContext.
+
+### Installation consent & audit
+
+When installing a community plugin, `openacp plugin add` displays a permission audit:
+
+```
+$ openacp plugin add @community/plugin-auto-approve
+
+📦 @community/plugin-auto-approve v1.2.0
+   Auto-approve read operations for agents
+
+   Required dependencies:
+   ✅ @openacp/plugin-security (already installed)
+
+   Requested permissions:
+   ✅ events:read          — Listen to system events
+   ✅ commands:register    — Add /autoapprove command
+   ✅ services:use         — Call security service
+   ⚠️  core:access          — Full access to kernel services
+
+   ⚠️  WARNING: This plugin requests Tier 3 access (core:access).
+   It can read bot tokens, session data, and access all core services.
+   Only install plugins you trust.
+
+   Publisher: @community (unverified)
+
+   Install? [y/N]
+```
+
+For low-risk plugins:
+
+```
+$ openacp plugin add @openacp/plugin-conversation-log
+
+📦 @openacp/plugin-conversation-log v1.0.0
+   Record all conversation events per session
+
+   Requested permissions:
+   ✅ events:read          — Listen to system events
+   ✅ storage:write        — Store conversation logs
+   ✅ commands:register    — Add /history command
+
+   Publisher: @openacp (official ✓)
+
+   Install? [Y/n]
+```
+
+### Trusted publishers
+
+| Scope | Trust Level | Install Behavior |
+|-------|-------------|------------------|
+| `@openacp/*` | Official | Auto-trusted, default Y |
+| Verified community | Verified | Show permissions, default Y for Tier 1-2 |
+| Everything else | Unverified | Show permissions + warning, default N |
+
+### Checksum verification
+
+Protect against supply chain attacks:
+
+```
+~/.openacp/plugins/checksums.json
+{
+  "@community/plugin-auto-approve@1.2.0": {
+    "sha256": "a1b2c3d4...",
+    "verifiedAt": "2026-03-25T10:00:00Z",
+    "source": "npm"
+  }
+}
+```
+
+**On install:** Download package → compute SHA-256 → store in checksums.json.
+
+**On startup:** Recompute hash → compare with stored checksum → mismatch = refuse to load:
+```
+❌ Plugin @community/plugin-auto-approve checksum mismatch!
+   Expected: a1b2c3d4...
+   Got:      e5f6g7h8...
+   The plugin may have been tampered with. Reinstall with:
+   openacp plugin add @community/plugin-auto-approve --force
+```
+
+### Runtime guardrails
+
+**A) Storage isolation:**
+- Plugins can only write to `~/.openacp/plugins/data/<plugin-name>/`
+- PluginStorage enforces path prefix — no path traversal via `../../`
+- Storage size limit per plugin (default 50MB, configurable)
+
+**B) Command namespace isolation:**
+- Plugin commands are prefixed internally: `plugin:<name>:<command>`
+- If two plugins register the same command name → conflict detected at startup → error logged, first-registered wins
+- Built-in commands always take precedence over plugin commands
+
+**C) Middleware execution timeout:**
+```typescript
+// Middleware must complete within 5 seconds
+const result = await Promise.race([
+  middleware.handler(data),
+  new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Middleware timeout')), 5000)
+  )
+])
+```
+
+**D) Error budget:**
+- If a plugin's event handler throws more than 10 errors in 60 seconds → auto-disable plugin
+- Log: "Plugin X disabled due to repeated errors. Re-enable with: openacp plugin enable X"
+- Prevents a buggy plugin from flooding logs or degrading performance
+
+### Plugin audit command
+
+```bash
+$ openacp plugin audit
+
+Plugin Security Audit
+━━━━━━━━━━━━━━━━━━━━
+
+@openacp/plugin-security v1.0.0 (built-in)
+  Permissions: events:read, services:register
+  Tier: 2 (medium risk)
+  Errors (24h): 0
+
+@community/plugin-auto-approve v1.2.0
+  Publisher: @community (unverified)
+  Permissions: events:read, commands:register, core:access
+  Tier: 3 (HIGH RISK) ⚠️
+  Checksum: ✅ verified
+  Errors (24h): 2
+
+unknown-plugin v0.1.0
+  Publisher: unknown (unverified) ⚠️
+  Permissions: events:read, core:access, config:read
+  Tier: 3 (HIGH RISK) ⚠️
+  Checksum: ❌ MISMATCH — plugin may be tampered!
+  Errors (24h): 47 — AUTO-DISABLED
+```
+
+---
+
+## Error Isolation
+
+Plugins run in the same process (no sandboxing) but with error boundaries at every interaction point:
+
+```typescript
+// Plugin setup — wrapped in try/catch
+try {
+  await plugin.setup(ctx)
+} catch (err) {
+  log.error({ plugin: plugin.name, err }, 'Plugin setup failed, skipping')
+  disabledPlugins.add(plugin.name)
+}
+
+// Event handlers — wrapped individually
+function wrapHandler(pluginName: string, handler: Function) {
+  return async (...args: unknown[]) => {
+    try {
+      await handler(...args)
+    } catch (err) {
+      log.error({ plugin: pluginName, err }, 'Plugin event handler error')
+      errorBudget.record(pluginName)
+      if (errorBudget.exceeded(pluginName)) {
+        disablePlugin(pluginName)
+      }
+    }
+  }
+}
+
+// Service calls — wrapped
+function wrapServiceCall(pluginName: string, method: Function) {
+  return async (...args: unknown[]) => {
+    try {
+      return await method(...args)
+    } catch (err) {
+      log.error({ plugin: pluginName, err }, 'Service call error')
+      throw err  // re-throw — caller decides how to handle
+    }
+  }
+}
+
+// Commands — wrapped
+async function executeCommand(cmd: CommandDef, args: CommandArgs) {
+  try {
+    await cmd.handler(args)
+  } catch (err) {
+    await args.reply(`Plugin error: ${err.message}`)
+  }
+}
+
+// Middleware — wrapped with timeout
+async function runMiddleware(hook: string, data: unknown) {
+  for (const mw of middlewareRegistry.get(hook)) {
+    try {
+      const result = await Promise.race([
+        mw.handler(data),
+        timeout(5000, `Middleware ${mw.pluginName}:${hook} timed out`)
+      ])
+      if (result === null) return null  // suppress
+      data = result
+    } catch (err) {
+      log.error({ plugin: mw.pluginName, err }, 'Middleware error, skipping')
+      // Continue with unmodified data
+    }
+  }
+  return data
+}
+```
+
+---
+
+## Command Registration & Adapter Integration
+
+When a plugin registers a command via `ctx.registerCommand()`, it needs to appear in all active adapters:
+
+### How it works
+
+```typescript
+// Plugin registers during setup()
+ctx.registerCommand({
+  name: 'context',
+  description: 'Import context from another session',
+  usage: '<session-number>',
+  handler: async (args) => { /* ... */ }
+})
+
+// Kernel collects all registered commands from all plugins
+// After all plugins setup() completes, passes commands to each adapter
+// Each adapter maps CommandDef to platform-specific registration
+```
+
+### Platform-specific behavior
+
+| Platform | Registration | Invocation |
+|----------|-------------|------------|
+| **Telegram** | `bot.api.setMyCommands()` — appears in bot menu | User types `/context 5` |
+| **Discord** | Registered as slash commands via Discord API | User types `/context 5` |
+| **Slack** | Registered as slash commands via Slack API | User types `/context 5` |
+
+### Adapter integration
+
+Adapter plugins implement command registration:
+
+```typescript
+// In adapter plugin setup()
+ctx.on('system:commands-ready', async ({ commands }) => {
+  // Register commands with platform
+  await bot.api.setMyCommands(
+    commands.map(cmd => ({
+      command: cmd.name,
+      description: cmd.description
+    }))
+  )
+
+  // Set up handler routing
+  for (const cmd of commands) {
+    bot.command(cmd.name, async (botCtx) => {
+      await cmd.handler({
+        raw: botCtx.match,
+        sessionId: resolveSessionId(botCtx),
+        channelId: 'telegram',
+        userId: String(botCtx.from.id),
+        reply: (content) => sendToTopic(botCtx, content)
+      })
+    })
+  }
+})
+```
+
+---
+
+## Middleware Hooks
+
+Middleware allows plugins to intercept and modify data at specific points in the message flow:
+
+| Hook | Signature | Description |
+|------|-----------|-------------|
+| `before:prompt` | `(sessionId, text, attachments?) => { text, attachments? } \| null` | Modify prompt before sending to agent. Return null to suppress. |
+| `after:response` | `(sessionId, message: OutgoingMessage) => OutgoingMessage \| null` | Modify outgoing message before adapter sends. Return null to suppress. |
+| `before:session` | `(params: SessionCreateParams) => SessionCreateParams \| null` | Modify session creation params. Return null to reject session creation. |
+
+Middleware runs in registration order. Multiple plugins can register middleware for the same hook — they form a pipeline:
+
+```
+User prompt: "Hello"
+  → translate plugin (before:prompt): "Hello" → "Xin chào"
+  → logging plugin (before:prompt): logs "Xin chào", passes through
+  → agent receives: "Xin chào"
+
+Agent response: "Tôi có thể giúp gì?"
+  → translate plugin (after:response): "Tôi có thể giúp gì?" → "How can I help?"
+  → logging plugin (after:response): logs, passes through
+  → user receives: "How can I help?"
+```
+
+---
+
+## Plugin Storage
+
+Each plugin gets isolated persistent storage:
+
+```
+~/.openacp/plugins/
+  ├── package.json              # npm dependencies (community plugins)
+  ├── node_modules/             # installed packages
+  ├── checksums.json            # checksum verification
+  └── data/
+      ├── context-bridge/
+      │   └── storage.json      # plugin-scoped data
+      ├── conversation-log/
+      │   └── storage.json
+      └── auto-approve/
+          └── storage.json
+```
+
+Built-in plugins also use `~/.openacp/plugins/data/<plugin-name>/` for consistency.
+
+### Storage API
+
+```typescript
+interface PluginStorage {
+  get<T>(key: string): Promise<T | undefined>
+  set<T>(key: string, value: T): Promise<void>
+  delete(key: string): Promise<void>
+  keys(): Promise<string[]>
+  entries<T>(): Promise<[string, T][]>
+}
+```
+
+Implementation: JSON file with debounced writes (same pattern as existing SessionStore). Simple key-value for v1, can evolve to SQLite later if needed.
+
+---
+
+## CLI Commands
+
+### New commands
+
+```bash
+openacp plugin add <package>       # Install plugin from npm (with dependency resolution)
+openacp plugin remove <package>    # Uninstall plugin (check for dependents first)
+openacp plugin list                # Show all plugins with status, type, permissions
+openacp plugin enable <name>       # Enable a disabled plugin
+openacp plugin disable <name>      # Disable a plugin without uninstalling
+openacp plugin audit               # Security overview of all plugins
+openacp plugin update <name>       # Update plugin to latest version
+```
+
+### What `openacp plugin add` does
+
+1. Fetch package from npm
+2. Read `pluginDependencies` → auto-install missing dependencies recursively
+3. Show permission audit + install consent prompt
+4. `npm install <package>` in `~/.openacp/plugins/`
+5. Compute and store SHA-256 checksum
+6. Add entry to `~/.openacp/config.json` plugins array
+7. Log: "Plugin installed. Restart OpenACP to activate."
+
+### What `openacp plugin remove` does
+
+1. Check if other plugins depend on this one
+2. If dependents exist → warn: "Plugin X is required by Y, Z. Remove anyway? [y/N]"
+3. `npm uninstall <package>` from `~/.openacp/plugins/`
+4. Remove from config.json plugins array
+5. Remove plugin data from `~/.openacp/plugins/data/<name>/` (prompt: "Delete plugin data? [y/N]")
+6. Remove checksum entry
+
+---
+
+## Backward Compatibility
+
+### v1 plugins (AdapterFactory) continue to work
+
+```typescript
+// v1 plugin — still works
+export const adapterFactory = {
+  name: 'my-adapter',
+  createAdapter(core, config) {
+    return new MyAdapter(core, config)
+  }
+}
+```
+
+When detected:
+1. Wrapped into a minimal OpenACPPlugin shell automatically
+2. Deprecation warning logged: "Plugin 'my-adapter' uses legacy AdapterFactory format. Please migrate to OpenACPPlugin interface."
+3. `createAdapter()` called normally within the wrapper's setup()
+
+### v1 CLI commands still work
+
+| v1 Command | Behavior | Note |
+|------------|----------|------|
+| `openacp install <pkg>` | Works, delegates to `openacp plugin add` | Logs deprecation |
+| `openacp uninstall <pkg>` | Works, delegates to `openacp plugin remove` | Logs deprecation |
+| `openacp plugins` | Works, delegates to `openacp plugin list` | Logs deprecation |
+
+### Config backward compat
+
+Old config format (channels with `adapter` field):
+```json
+{
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "adapter": "@openacp/adapter-whatsapp"
+    }
+  }
+}
+```
+
+Still works. Kernel checks `channels.*.adapter` for v1 plugins and auto-migrates them to the `plugins[]` array format internally. No user action required.
+
+---
+
+## Implementation Roadmap
+
+This proposal supersedes PR #63. Implementation is split into focused PRs:
+
+```
+Phase 1: Adapter layer refactor (in progress, separate branch)
+  │
+  ▼
+Phase 2: ACP protocol completion (planned, separate branch)
+  │
+  ▼
+Phase 3: Microkernel + Plugin System (this proposal)
+  │
+  ├── PR 1: Kernel core
+  │   - Lifecycle manager, EventBus, Config, ServiceRegistry
+  │   - Plugin loader (built-in + community)
+  │   - PluginContext factory with permission enforcement
+  │   - Plugin types and interfaces
+  │   - Dependency graph resolver (topo-sort)
+  │
+  ├── PR 2: Built-in service plugins
+  │   - Migrate SecurityGuard → @openacp/plugin-security
+  │   - Migrate FileService → @openacp/plugin-file-service
+  │   - Migrate NotificationManager → @openacp/plugin-notifications
+  │   - Migrate UsageStore/Budget → @openacp/plugin-usage
+  │   - Migrate SpeechService → @openacp/plugin-speech
+  │   - Migrate ContextManager → @openacp/plugin-context
+  │   - Migrate Tunnel → @openacp/plugin-tunnel
+  │   - Migrate API server → @openacp/plugin-api-server
+  │
+  ├── PR 3: Adapter plugins
+  │   - Migrate TelegramAdapter → @openacp/plugin-telegram
+  │   - Migrate DiscordAdapter → @openacp/plugin-discord
+  │   - Migrate SlackAdapter → @openacp/plugin-slack
+  │   - Command registration + adapter integration
+  │   - Middleware pipeline integration
+  │
+  ├── PR 4: Community plugin support
+  │   - CLI commands (plugin add/remove/list/enable/disable/audit/update)
+  │   - Permission consent flow
+  │   - Checksum verification
+  │   - Plugin storage
+  │   - v1 backward compatibility wrapper
+  │   - Error budget + auto-disable
+  │
+  └── PR 5: Documentation + SDK
+      - Plugin development guide
+      - API reference (PluginContext, events, services)
+      - Example plugins (starter templates)
+      - openacp plugin create scaffolding
+      - Migration guide from v1 AdapterFactory
+```
 
 ---
 
 ## Open Questions
 
-1. **Should Session and Agent management stay in kernel forever, or eventually become plugins too?** Current decision: keep in kernel (Mức 3). May revisit if use cases emerge that need replacing them.
+1. **Should Session and Agent management stay in kernel forever, or eventually become plugins too?** Current decision: keep in kernel. May revisit if use cases emerge that need replacing them.
 
 2. **Plugin config schema validation** — should plugins be able to declare a Zod schema for their config section? This would give users better error messages at startup.
 
@@ -1290,14 +1843,29 @@ Each step is independently valuable. This proposal does not require starting fro
 
 5. **Monitoring/observability** — should the kernel provide a standard health check interface that plugins implement? e.g., `healthCheck(): Promise<{ status: 'ok' | 'degraded' | 'error', details: string }>`.
 
+6. **Plugin config hot-reload** — should plugin config changes trigger plugin re-setup without full restart? Or is restart-required acceptable for v1?
+
 ---
 
-## Next Steps
+## Out of Scope (v1)
 
-This is a proposal for discussion. Concrete next steps after alignment:
+- Hot-reload (plugins loaded at startup only, restart to add/remove)
+- Plugin marketplace / registry (install from npm directly)
+- Full process sandboxing (VM isolation, worker threads) — Node.js limitation
+- Plugin-to-plugin direct communication channel (use EventBus + Service lookup)
+- Plugin signing with cryptographic signatures (use checksum for now)
+- Web UI for plugin management (CLI only for v1)
 
-1. Write detailed implementation spec (from this proposal)
-2. Create implementation plan with concrete PRs
-3. Implement kernel extraction
-4. Migrate built-in subsystems to plugins one by one
-5. Update documentation and plugin SDK
+---
+
+## Future Improvements
+
+- **Plugin marketplace**: `openacp plugin search <keyword>` — browse community plugins
+- **Hot-reload**: Add/remove plugins without restart
+- **Plugin config UI**: Web UI or adapter command to configure plugin settings
+- **Plugin templates**: `openacp plugin create <name>` — scaffold a new plugin project
+- **Plugin SDK**: `@openacp/plugin-sdk` — utilities, testing helpers, type-safe context
+- **Process isolation**: Run untrusted plugins in worker threads or child processes
+- **Plugin signing**: Cryptographic signatures from verified publishers
+- **Audit logging**: Record all plugin API calls for forensics
+- **Plugin dependency graph visualization**: `openacp plugin graph` — show dependency tree
