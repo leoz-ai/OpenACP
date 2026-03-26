@@ -84,8 +84,8 @@ export interface CommandArgs {
   sessionId: string | null
   channelId: string
   userId: string
-  reply(content: string | CommandResponse): Promise<void>
-  coreAccess?: unknown  // OpenACPCore passed at runtime
+  reply(content: string | CommandResponse | OutgoingMessage): Promise<void>  // backward compat with OutgoingMessage
+  coreAccess?: CoreAccess  // typed interface from types.ts, not full OpenACPCore
 }
 ```
 
@@ -500,7 +500,7 @@ Create `src/core/commands/session.ts`:
 import type { CommandRegistry } from '../command-registry.js'
 import type { CommandResponse } from '../plugin/types.js'
 
-export function registerSessionCommands(registry: CommandRegistry, core: any): void {
+export function registerSessionCommands(registry: CommandRegistry, core: unknown): void {
   registry.register({
     name: 'new',
     description: 'Create new session',
@@ -627,7 +627,7 @@ Create `src/core/commands/agents.ts`:
 ```typescript
 import type { CommandRegistry } from '../command-registry.js'
 
-export function registerAgentCommands(registry: CommandRegistry, core: any): void {
+export function registerAgentCommands(registry: CommandRegistry, core: unknown): void {
   registry.register({
     name: 'agents',
     description: 'List available agents',
@@ -675,7 +675,7 @@ Create `src/core/commands/admin.ts`:
 ```typescript
 import type { CommandRegistry } from '../command-registry.js'
 
-export function registerAdminCommands(registry: CommandRegistry, _core: any): void {
+export function registerAdminCommands(registry: CommandRegistry, _core: unknown): void {
   registry.register({
     name: 'restart',
     description: 'Restart OpenACP',
@@ -983,11 +983,24 @@ registerCommand(def: CommandDef): void {
 }
 ```
 
-- [ ] **Step 3: Verify build + test**
+- [ ] **Step 3: Update `system:commands-ready` emission**
+
+In `src/main.ts`, find the existing `system:commands-ready` emission (around line 131-132). Replace it to use CommandRegistry:
+
+```typescript
+// BEFORE (old — uses registered-commands service)
+const registeredCommands = serviceRegistry.get('registered-commands') ?? []
+eventBus.emit('system:commands-ready', { commands: registeredCommands })
+
+// AFTER (new — uses CommandRegistry)
+eventBus.emit('system:commands-ready', { commands: commandRegistry.getAll() })
+```
+
+- [ ] **Step 4: Verify build + test**
 
 Run: `pnpm build && pnpm test`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/main.ts src/core/plugin/plugin-context.ts
@@ -1002,7 +1015,9 @@ git commit -m "feat(commands): wire CommandRegistry into boot flow and plugin co
 - Modify: `src/plugins/telegram/adapter.ts`
 - Modify: `src/plugins/telegram/commands/index.ts`
 
-This is the biggest task — integrating CommandRegistry dispatch into Telegram adapter. We add generic dispatch + response renderers WITHOUT removing existing hardcoded commands yet. Both systems coexist temporarily.
+This is the biggest task — integrating CommandRegistry dispatch into Telegram adapter.
+
+**Middleware ordering:** The generic dispatch handler MUST be placed BEFORE existing `bot.command()` handlers. When registry finds a matching command, it handles it and does NOT call `next()`. When registry has no match, it calls `next()` to let existing handlers run. This means: once a command is in the registry, the old hardcoded handler becomes dead code. After all commands are migrated, old handlers can be removed in a follow-up task.
 
 - [ ] **Step 1: Add response renderer infrastructure to Telegram adapter**
 
@@ -1055,9 +1070,27 @@ private async renderCommandResponse(
   }
 }
 
+private callbackCache = new Map<string, string>()
+private callbackCounter = 0
+
 private toCallbackData(command: string): string {
   const data = `c/${command}`
-  return data.length <= 64 ? data : `c/${command.split(' ')[0]}`
+  if (data.length <= 64) return data
+  // Cache long commands with short ID
+  const id = String(++this.callbackCounter)
+  this.callbackCache.set(id, command)
+  if (this.callbackCache.size > 1000) {
+    const first = this.callbackCache.keys().next().value
+    if (first) this.callbackCache.delete(first)
+  }
+  return `c/#${id}`
+}
+
+private fromCallbackData(data: string): string {
+  if (data.startsWith('c/#')) {
+    return this.callbackCache.get(data.slice(3)) ?? data.slice(2)
+  }
+  return data.slice(2)
 }
 ```
 
@@ -1071,7 +1104,7 @@ bot.on('message:text', async (ctx, next) => {
   const text = ctx.message.text
   if (!text?.startsWith('/')) return next()
 
-  const registry = this.core.serviceRegistry?.get?.('command-registry') as CommandRegistry | undefined
+  const registry = this.core.lifecycleManager?.serviceRegistry?.get?.('command-registry') as CommandRegistry | undefined
   if (!registry) return next()
 
   const commandName = text.split(' ')[0].slice(1).split('@')[0]  // remove / and @botname
@@ -1100,9 +1133,9 @@ bot.on('message:text', async (ctx, next) => {
 // Add callback handler for command buttons
 bot.callbackQuery(/^c\//, async (ctx) => {
   const data = ctx.callbackQuery.data
-  const command = data.slice(2)  // remove 'c/'
+  const command = this.fromCallbackData(data)  // handles both 'c/cmd' and 'c/#id'
 
-  const registry = this.core.serviceRegistry?.get?.('command-registry') as CommandRegistry | undefined
+  const registry = this.core.lifecycleManager?.serviceRegistry?.get?.('command-registry') as CommandRegistry | undefined
   if (!registry) return
 
   const chatId = ctx.chat!.id
