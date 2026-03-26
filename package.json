@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:ui": "cd ui && pnpm install --frozen-lockfile && pnpm build",
+    "build:dev": "pnpm build && npm link --force",
     "prepare": "husky"
   },
   "homepage": "https://github.com/Open-ACP/OpenACP",
