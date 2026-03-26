@@ -1,4 +1,4 @@
-import type { InstallContext, TerminalIO, SettingsAPI } from 'openacp'
+import type { InstallContext, TerminalIO, SettingsAPI } from '@openacp/cli'
 
 export interface TestInstallContextOpts {
   pluginName: string
@@ -49,19 +49,19 @@ export function createTestInstallContext(opts: TestInstallContextOpts): InstallC
   }
 
   const terminal: TerminalIO = {
-    async text(promptOpts) {
+    async text(promptOpts: any) {
       return getNextResponse('text', promptOpts) as string
     },
-    async select(promptOpts) {
+    async select(promptOpts: any) {
       return getNextResponse('select', promptOpts) as any
     },
-    async confirm(promptOpts) {
+    async confirm(promptOpts: any) {
       return getNextResponse('confirm', promptOpts) as boolean
     },
-    async password(promptOpts) {
+    async password(promptOpts: any) {
       return getNextResponse('password', promptOpts) as string
     },
-    async multiselect(promptOpts) {
+    async multiselect(promptOpts: any) {
       return getNextResponse('multiselect', promptOpts) as any[]
     },
     log: {

@@ -1,5 +1,5 @@
 {
-  "name": "openacp",
+  "name": "@openacp/cli",
   "version": "0.6.10",
   "private": true,
   "license": "MIT",
