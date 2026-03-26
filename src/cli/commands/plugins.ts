@@ -60,6 +60,7 @@ export async function cmdPlugin(args: string[] = []): Promise<void> {
   openacp plugin enable <name>           Enable a plugin
   openacp plugin disable <name>          Disable a plugin
   openacp plugin configure <name>        Run interactive configuration
+  openacp plugin create                  Scaffold a new plugin project
 
 \x1b[1mExamples:\x1b[0m
   openacp plugin list
@@ -125,6 +126,12 @@ export async function cmdPlugin(args: string[] = []): Promise<void> {
         process.exit(1)
       }
       await configurePlugin(name)
+      return
+    }
+
+    case 'create': {
+      const { cmdPluginCreate } = await import('./plugin-create.js')
+      await cmdPluginCreate()
       return
     }
 
