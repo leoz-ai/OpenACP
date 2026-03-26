@@ -214,6 +214,32 @@ export class LifecycleManager {
     }
   }
 
+  async unloadPlugin(name: string): Promise<void> {
+    if (!this._loaded.has(name)) return
+
+    const plugin = this.loadOrder.find(p => p.name === name)
+
+    if (plugin?.teardown) {
+      try {
+        await withTimeout(plugin.teardown(), TEARDOWN_TIMEOUT_MS, `${name}.teardown()`)
+      } catch {
+        // Swallow teardown errors
+      }
+    }
+
+    const ctx = this.contexts.get(name)
+    if (ctx) {
+      ctx.cleanup()
+      this.contexts.delete(name)
+    }
+
+    this._loaded.delete(name)
+    this._failed.delete(name)
+    this.loadOrder = this.loadOrder.filter(p => p.name !== name)
+
+    this.eventBus?.emit('plugin:unloaded', { name })
+  }
+
   async shutdown(): Promise<void> {
     // Teardown in reverse load order
     const reversed = [...this.loadOrder].reverse()
