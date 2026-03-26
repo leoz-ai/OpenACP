@@ -112,6 +112,7 @@ export class OpenACPCore {
       config: this.configManager,
       core: this,
       storagePath: path.join(os.homedir(), ".openacp", "plugins", "data"),
+      log: createChildLogger({ module: "plugin" }),
     });
 
     // Wire middleware chain to session factory and session manager

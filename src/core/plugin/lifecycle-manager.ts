@@ -116,6 +116,13 @@ export class LifecycleManager {
     this.pluginRegistry = opts?.pluginRegistry
   }
 
+  private getPluginLogger(pluginName: string): Logger {
+    if (this.log && typeof (this.log as any).child === 'function') {
+      return (this.log as any).child({ plugin: pluginName })
+    }
+    return this.log ?? { trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {}, child() { return this } } as Logger
+  }
+
   async boot(plugins: OpenACPPlugin[]): Promise<void> {
     // Resolve load order via topological sort.
     // resolveLoadOrder will skip plugins whose dependencies are missing entirely
@@ -132,7 +139,16 @@ export class LifecycleManager {
       return
     }
 
-    this.loadOrder = sorted
+    // Append to existing loadOrder (don't overwrite — hot-reload boots single plugins)
+    for (const p of sorted) {
+      if (!this.loadOrder.some(existing => existing.name === p.name)) {
+        this.loadOrder.push(p)
+      } else {
+        // Replace in-place (hot-reload case: plugin was unloaded then re-booted)
+        const idx = this.loadOrder.findIndex(existing => existing.name === p.name)
+        this.loadOrder[idx] = p
+      }
+    }
 
     for (const plugin of sorted) {
       // Check if any required dependency failed at runtime
@@ -157,10 +173,11 @@ export class LifecycleManager {
       if (registryEntry && plugin.migrate && registryEntry.version !== plugin.version && this.settingsManager) {
         try {
           const oldSettings = await this.settingsManager.loadSettings(plugin.name)
+          const pluginLog = this.getPluginLogger(plugin.name)
           const migrateCtx: MigrateContext = {
             pluginName: plugin.name,
             settings: this.settingsManager.createAPI(plugin.name),
-            log: ((this.log as any)?.child?.({ plugin: plugin.name }) ?? this.log ?? console) as any,
+            log: pluginLog,
           }
           const newSettings = await plugin.migrate(migrateCtx, oldSettings, registryEntry.version)
           if (newSettings && typeof newSettings === 'object') {
@@ -169,8 +186,7 @@ export class LifecycleManager {
           this.pluginRegistry!.updateVersion(plugin.name, plugin.version)
           await this.pluginRegistry!.save()
         } catch (err) {
-          const childLog = (this.log as any)?.child?.({ plugin: plugin.name })
-          ;(childLog ?? this.log ?? console as any).warn?.({ err }, 'Migration failed, continuing with old settings')
+          this.getPluginLogger(plugin.name).warn(`Migration failed, continuing with old settings: ${err}`)
         }
       }
 
@@ -209,6 +225,7 @@ export class LifecycleManager {
       } catch (err) {
         this._failed.add(plugin.name)
         ctx.cleanup()
+        this.getPluginLogger(plugin.name).error(`setup() failed: ${err}`)
         this.eventBus?.emit('plugin:failed', { name: plugin.name, error: String(err) })
       }
     }

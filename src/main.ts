@@ -387,12 +387,16 @@ async function autoRegisterBuiltinPlugins(
  */
 function createSilentTerminal(): import('./core/plugin/types.js').TerminalIO {
   const noop = () => {}
+  // Throw on interactive prompts — silent migration should only use log/spinner/note.
+  // If a plugin enters interactive mode (no legacy config to migrate), this aborts it
+  // so the try-catch in autoRegisterBuiltinPlugins skips it gracefully.
+  const abort = () => { throw new Error('Silent migration: no interactive input available') }
   return {
-    text: async () => '',
-    select: async () => '' as any,
-    confirm: async () => false,
-    password: async () => '',
-    multiselect: async () => [],
+    text: async () => abort() as never,
+    select: async () => abort() as never,
+    confirm: async () => abort() as never,
+    password: async () => abort() as never,
+    multiselect: async () => abort() as never,
     log: { info: noop, success: noop, warning: noop, error: noop, step: noop },
     spinner: () => ({ start: noop, stop: noop, fail: noop }),
     note: noop,

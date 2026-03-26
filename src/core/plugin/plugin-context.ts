@@ -58,15 +58,19 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
   const registeredListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = []
   const registeredCommands: CommandDef[] = []
 
-  const log: Logger = opts.log ?? {
+  const noopLog: Logger = {
     trace() {},
     debug() {},
     info() {},
     warn() {},
     error() {},
     fatal() {},
-    child() { return log },
+    child() { return noopLog },
   }
+  const baseLog: Logger = opts.log ?? noopLog
+  const log: Logger = typeof baseLog.child === 'function'
+    ? baseLog.child({ plugin: pluginName })
+    : baseLog
 
   const storageImpl = new PluginStorageImpl(storagePath)
 
@@ -139,6 +143,7 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
       const registry = serviceRegistry.get<{ register(def: CommandDef, pluginName: string): void }>('command-registry')
       if (registry && typeof registry.register === 'function') {
         registry.register(def, pluginName)
+        log.debug(`Command '/${def.name}' registered`)
       }
     },
 
