@@ -20,7 +20,7 @@ import { log } from "../../core/utils/log.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
 import { MessagingAdapter, type MessagingAdapterConfig } from "../shared/messaging-adapter.js";
 import type { IRenderer } from "../shared/rendering/renderer.js";
-import { BaseRenderer } from "../shared/rendering/renderer.js";
+import { DiscordRenderer } from "./renderer.js";
 import type { AdapterCapabilities } from "../../core/channel.js";
 import type { DiscordChannelConfig } from "./types.js";
 import { SendQueue } from "../shared/primitives/send-queue.js";
@@ -53,7 +53,7 @@ import {
 
 export class DiscordAdapter extends MessagingAdapter {
   readonly name = 'discord';
-  readonly renderer: IRenderer = new BaseRenderer();
+  readonly renderer: IRenderer = new DiscordRenderer();
   readonly capabilities: AdapterCapabilities = {
     streaming: true, richFormatting: true, threads: true,
     reactions: true, fileUpload: true, voice: false,
