@@ -15,7 +15,7 @@ import { createChildLogger } from "../../core/utils/log.js";
 import { MessagingAdapter, type MessagingAdapterConfig } from "../shared/messaging-adapter.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
 import type { IRenderer } from "../shared/rendering/renderer.js";
-import { BaseRenderer } from "../shared/rendering/renderer.js";
+import { SlackRenderer } from "./renderer.js";
 const log = createChildLogger({ module: "slack" });
 
 import type { SlackChannelConfig } from "./types.js";
@@ -31,7 +31,7 @@ import { isAudioClip } from "./utils.js";
 
 export class SlackAdapter extends MessagingAdapter {
   readonly name = 'slack';
-  readonly renderer: IRenderer = new BaseRenderer();
+  readonly renderer!: IRenderer;
   readonly capabilities: AdapterCapabilities = {
     streaming: true, richFormatting: true, threads: true,
     reactions: false, fileUpload: true, voice: true,
@@ -59,6 +59,7 @@ export class SlackAdapter extends MessagingAdapter {
     this.core = core;
     this.slackConfig = config;
     this.formatter = new SlackFormatter();
+    (this as { renderer: IRenderer }).renderer = new SlackRenderer(this.formatter);
   }
 
   async start(): Promise<void> {
