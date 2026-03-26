@@ -181,6 +181,15 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
       // Remove all middleware registered by this plugin
       middlewareChain.removeAll(pluginName)
 
+      // Unregister services owned by this plugin
+      serviceRegistry.unregisterByPlugin(pluginName)
+
+      // Unregister commands from CommandRegistry
+      const cmdRegistry = serviceRegistry.get<{ unregisterByPlugin(name: string): void }>('command-registry')
+      if (cmdRegistry && typeof cmdRegistry.unregisterByPlugin === 'function') {
+        cmdRegistry.unregisterByPlugin(pluginName)
+      }
+
       // Clear commands
       registeredCommands.length = 0
     },
