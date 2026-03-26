@@ -146,6 +146,13 @@ console.log('✅ All external imports are covered by published dependencies')
 // 7. Build and prepare @openacp/plugin-sdk
 const sdkDir = path.join(root, 'packages/plugin-sdk')
 if (fs.existsSync(sdkDir)) {
+  // SDK needs CLI type declarations — ensure tsc has been run on root first
+  const rootDtsPath = path.join(root, 'dist/index.d.ts')
+  if (!fs.existsSync(rootDtsPath)) {
+    console.log('\nBuilding CLI types (required by SDK)...')
+    execSync('pnpm tsc', { cwd: root, stdio: 'inherit' })
+  }
+
   console.log('\nBuilding @openacp/plugin-sdk...')
   execSync('npx tsc', { cwd: sdkDir, stdio: 'inherit' })
 

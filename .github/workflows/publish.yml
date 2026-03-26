@@ -33,6 +33,9 @@ jobs:
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
+      - name: Build CLI types (needed by SDK)
+        run: pnpm build
+
       - run: pnpm build:publish
 
       - name: Publish @openacp/cli
