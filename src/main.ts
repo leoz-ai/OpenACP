@@ -10,6 +10,7 @@ import { CommandRegistry } from './core/command-registry.js'
 import { registerSystemCommands } from './core/commands/index.js'
 import type { IChannelAdapter } from './core/channel.js'
 import type { TunnelService } from './plugins/tunnel/tunnel-service.js'
+import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -20,7 +21,12 @@ const OPENACP_DIR = path.join(os.homedir(), '.openacp')
 const PLUGINS_DATA_DIR = path.join(OPENACP_DIR, 'plugins', 'data')
 const REGISTRY_PATH = path.join(OPENACP_DIR, 'plugins.json')
 
-export async function startServer() {
+export interface StartServerOptions {
+  devPluginPath?: string
+  noWatch?: boolean
+}
+
+export async function startServer(opts?: StartServerOptions) {
   // 0. If running as daemon child, check state and write PID file
   if (process.argv.includes('--daemon-child')) {
     const { writePidFile, readPidFile, getPidPath, shouldAutoStart } = await import('./cli/daemon.js')
@@ -120,6 +126,46 @@ export async function startServer() {
 
     // Boot all built-in plugins in dependency order
     await core.lifecycleManager.boot(corePlugins)
+
+    // Load dev plugin if running in dev mode
+    if (opts?.devPluginPath) {
+      const { DevPluginLoader } = await import('./core/plugin/dev-loader.js')
+      const devLoader = new DevPluginLoader(opts.devPluginPath)
+
+      try {
+        const devPlugin = await devLoader.load()
+        await core.lifecycleManager.boot([devPlugin])
+        log.info({ plugin: devPlugin.name, version: devPlugin.version }, 'Dev plugin loaded')
+
+        // Watch dist/ directory for changes and hot-reload
+        if (!opts.noWatch) {
+          const distPath = devLoader.getDistPath()
+          let reloadTimer: ReturnType<typeof setTimeout> | null = null
+
+          fs.watch(distPath, { recursive: true }, (_eventType, filename) => {
+            if (!filename?.endsWith('.js')) return
+
+            // Debounce: wait 500ms after last change
+            if (reloadTimer) clearTimeout(reloadTimer)
+            reloadTimer = setTimeout(async () => {
+              try {
+                log.info({ filename }, 'Dev plugin changed, reloading...')
+                await core.lifecycleManager.unloadPlugin(devPlugin.name)
+                const reloaded = await devLoader.load()
+                await core.lifecycleManager.boot([reloaded])
+                log.info({ plugin: reloaded.name, version: reloaded.version }, 'Dev plugin reloaded')
+              } catch (err) {
+                log.error({ err }, 'Dev plugin reload failed')
+              }
+            }, 500)
+          })
+
+          log.info({ distPath }, 'Watching dev plugin for changes')
+        }
+      } catch (err) {
+        log.error({ err, pluginPath: opts.devPluginPath }, 'Failed to load dev plugin')
+      }
+    }
 
     // Wire adapters from service registry into core
     for (const adapterName of ['telegram', 'discord', 'slack']) {
