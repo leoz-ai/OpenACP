@@ -49,6 +49,12 @@ export interface OpenACPPlugin {
   setup(ctx: PluginContext): Promise<void>
   /** Called during shutdown in reverse order. 10s timeout. */
   teardown?(): Promise<void>
+  install?(ctx: InstallContext): Promise<void>
+  uninstall?(ctx: InstallContext, opts: { purge: boolean }): Promise<void>
+  configure?(ctx: InstallContext): Promise<void>
+  migrate?(ctx: MigrateContext, oldSettings: unknown, oldVersion: string): Promise<unknown>
+  settingsSchema?: import('zod').ZodSchema
+  essential?: boolean
 }
 
 // ============================================================
@@ -61,6 +67,86 @@ export interface PluginStorage {
   delete(key: string): Promise<void>
   list(): Promise<string[]>
   getDataDir(): string
+}
+
+// ─── Settings API (per-plugin settings.json) ───
+
+export interface SettingsAPI {
+  get<T = unknown>(key: string): Promise<T | undefined>
+  set<T = unknown>(key: string, value: T): Promise<void>
+  getAll(): Promise<Record<string, unknown>>
+  setAll(settings: Record<string, unknown>): Promise<void>
+  delete(key: string): Promise<void>
+  clear(): Promise<void>
+  has(key: string): Promise<boolean>
+}
+
+// ─── Terminal I/O (interactive CLI for plugins) ───
+
+export interface TerminalIO {
+  text(opts: {
+    message: string
+    placeholder?: string
+    defaultValue?: string
+    validate?: (value: string) => string | undefined
+  }): Promise<string>
+
+  select<T>(opts: {
+    message: string
+    options: { value: T; label: string; hint?: string }[]
+  }): Promise<T>
+
+  confirm(opts: {
+    message: string
+    initialValue?: boolean
+  }): Promise<boolean>
+
+  password(opts: {
+    message: string
+    validate?: (value: string) => string | undefined
+  }): Promise<string>
+
+  multiselect<T>(opts: {
+    message: string
+    options: { value: T; label: string; hint?: string }[]
+    required?: boolean
+  }): Promise<T[]>
+
+  log: {
+    info(message: string): void
+    success(message: string): void
+    warning(message: string): void
+    error(message: string): void
+    step(message: string): void
+  }
+
+  spinner(): {
+    start(message: string): void
+    stop(message?: string): void
+    fail(message?: string): void
+  }
+
+  note(message: string, title?: string): void
+  cancel(message?: string): void
+}
+
+// ─── Install Context (for install/configure/uninstall) ───
+
+export interface InstallContext {
+  pluginName: string
+  terminal: TerminalIO
+  settings: SettingsAPI
+  legacyConfig?: Record<string, unknown>
+  dataDir: string
+  log: Logger
+}
+
+// ─── Migrate Context (for boot-time migration) ───
+
+export interface MigrateContext {
+  pluginName: string
+  settings: SettingsAPI
+  log: Logger
 }
 
 export interface CommandArgs {
