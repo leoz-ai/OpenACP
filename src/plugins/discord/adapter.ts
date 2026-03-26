@@ -44,7 +44,8 @@ import {
 } from "./commands/index.js";
 import { spawnAssistant, buildWelcomeMessage } from "./assistant.js";
 import type { Attachment } from "../../core/types.js";
-import type { FileServiceInterface } from "../../core/plugin/types.js";
+import type { FileServiceInterface, CommandResponse } from "../../core/plugin/types.js";
+import type { CommandRegistry } from "../../core/command-registry.js";
 import {
   buildFallbackText,
   downloadDiscordAttachment,
@@ -212,16 +213,100 @@ export class DiscordAdapter extends MessagingAdapter {
 
   // ─── Interaction handler ──────────────────────────────────────────────────
 
+  private getCommandRegistry(): CommandRegistry | undefined {
+    return this.core.lifecycleManager?.serviceRegistry?.get<CommandRegistry>("command-registry");
+  }
+
   private setupInteractionHandler(): void {
     this.client.on("interactionCreate", async (interaction) => {
       try {
+        // --- Generic CommandRegistry dispatch (slash commands) ---
         if (interaction.isChatInputCommand()) {
+          const registry = this.getCommandRegistry();
+          if (registry) {
+            const commandName = interaction.commandName;
+            const def = registry.get(commandName);
+            if (def) {
+              const rawParts: string[] = [];
+              for (const opt of interaction.options.data) {
+                rawParts.push(String(opt.value ?? ""));
+              }
+
+              const channelId = interaction.channelId;
+              const sessionId =
+                this.core.sessionManager.getSessionByThread("discord", channelId)?.id ?? null;
+
+              const response = await registry.execute(
+                `/${commandName} ${rawParts.join(" ")}`.trim(),
+                {
+                  raw: "",
+                  sessionId,
+                  channelId: "discord",
+                  userId: interaction.user.id,
+                  options: Object.fromEntries(
+                    interaction.options.data.map((o) => [o.name, String(o.value ?? "")]),
+                  ),
+                  reply: async (content) => {
+                    if (typeof content === "string") {
+                      if (interaction.replied || interaction.deferred) {
+                        await interaction.editReply({ content });
+                      } else {
+                        await interaction.reply({ content });
+                      }
+                    }
+                  },
+                },
+              );
+
+              if (response.type !== "silent") {
+                await this.renderCommandResponse(response, interaction);
+              } else if (!interaction.replied && !interaction.deferred) {
+                await interaction.deferReply();
+              }
+              return; // handled by registry
+            }
+          }
+
+          // Fall through to existing slash command router
           await handleSlashCommand(interaction, this);
           return;
         }
 
+        // --- Button interactions ---
         if (interaction.isButton()) {
-          // Permission buttons take priority
+          // Command registry buttons (c/ prefix) — check before permission/legacy
+          if (interaction.customId.startsWith("c/")) {
+            const registry = this.getCommandRegistry();
+            if (registry) {
+              const command = interaction.customId.slice(2);
+              const channelId = interaction.channelId;
+              const sessionId =
+                this.core.sessionManager.getSessionByThread("discord", channelId)?.id ?? null;
+
+              const response = await registry.execute(command, {
+                raw: "",
+                sessionId,
+                channelId: "discord",
+                userId: interaction.user.id,
+                reply: async (content) => {
+                  if (typeof content === "string") {
+                    if (interaction.replied || interaction.deferred) {
+                      await interaction.editReply({ content });
+                    } else {
+                      await interaction.reply({ content, ephemeral: true });
+                    }
+                  }
+                },
+              });
+
+              if (response.type !== "silent") {
+                await this.renderCommandResponse(response, interaction);
+              }
+              return;
+            }
+          }
+
+          // Permission buttons take priority over legacy
           const handled =
             await this.permissionHandler.handleButtonInteraction(interaction);
           if (!handled) {
@@ -232,6 +317,81 @@ export class DiscordAdapter extends MessagingAdapter {
         log.error({ err }, "[DiscordAdapter] interactionCreate handler error");
       }
     });
+  }
+
+  // ─── CommandRegistry response rendering ──────────────────────────────────
+
+  private async renderCommandResponse(
+    response: CommandResponse,
+    interaction: import("discord.js").ChatInputCommandInteraction | import("discord.js").ButtonInteraction | import("discord.js").StringSelectMenuInteraction,
+  ): Promise<void> {
+    const reply = async (opts: Record<string, unknown>) => {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.editReply(opts);
+      } else {
+        await interaction.reply(opts);
+      }
+    };
+
+    switch (response.type) {
+      case "text":
+        await reply({ content: response.text });
+        break;
+      case "error":
+        await reply({ content: `\u26a0\ufe0f ${response.message}`, ephemeral: true });
+        break;
+      case "menu": {
+        const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } =
+          await import("discord.js");
+        const embed = new EmbedBuilder().setTitle(response.title);
+        const rows: InstanceType<typeof ActionRowBuilder>[] = [];
+        // Max 5 buttons per row, max 5 rows
+        for (let i = 0; i < response.options.length && rows.length < 5; i += 5) {
+          const row = new ActionRowBuilder();
+          const slice = response.options.slice(i, i + 5);
+          for (const opt of slice) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`c/${opt.command}`)
+                .setLabel(opt.label.slice(0, 80))
+                .setStyle(ButtonStyle.Secondary),
+            );
+          }
+          rows.push(row);
+        }
+        await reply({ embeds: [embed], components: rows });
+        break;
+      }
+      case "list": {
+        const { EmbedBuilder } = await import("discord.js");
+        const desc = response.items
+          .map((i) => `\u2022 **${i.label}**${i.detail ? ` \u2014 ${i.detail}` : ""}`)
+          .join("\n");
+        const embed = new EmbedBuilder()
+          .setTitle(response.title)
+          .setDescription(desc);
+        await reply({ embeds: [embed] });
+        break;
+      }
+      case "confirm": {
+        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } =
+          await import("discord.js");
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`c/${response.onYes}`)
+            .setLabel("Yes")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`c/${response.onNo || "noop"}`)
+            .setLabel("No")
+            .setStyle(ButtonStyle.Secondary),
+        );
+        await reply({ content: response.question, components: [row] });
+        break;
+      }
+      case "silent":
+        break;
+    }
   }
 
   // ─── Message handler ──────────────────────────────────────────────────────
