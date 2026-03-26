@@ -151,9 +151,10 @@ interface PluginContext {
   pluginName: string
   pluginConfig: Record<string, unknown>
 
-  // === Tier 1 — Events (observe) ===
+  // === Tier 1 — Events (observe + emit) ===
   on(event: string, handler: (...args: unknown[]) => void): void
   off(event: string, handler: (...args: unknown[]) => void): void
+  emit(event: string, payload: unknown): void  // requires 'events:emit' permission
 
   // === Tier 2 — Actions ===
 
@@ -273,8 +274,27 @@ interface MiddlewareOptions {
 ### Execution Order
 
 1. **Topo-sort order** (from dependency graph) — plugins loaded earlier run middleware first
-2. **Priority override** — if specified, overrides topo-sort position
+2. **Priority override** — if specified, overrides position WITHIN the same dependency level. **Priority cannot cause a plugin's middleware to run before its dependencies' middleware.** A plugin declaring `priority: 0` still runs after all plugins it depends on. Priority only reorders among plugins at the same topo-sort depth.
 3. **Same level + same priority** — registration order
+
+### Middleware Timeout
+
+Each middleware handler has a **5 second timeout**. If a handler does not call `next()` or return within 5 seconds, the chain skips it, logs a warning, and continues. This prevents a stuck middleware from blocking the entire pipeline.
+
+### `next()` Return Semantics
+
+`next()` invokes the remaining middleware chain and returns the final result. If the next middleware modifies the payload, `next()` returns the modified version. This allows post-processing:
+
+```typescript
+ctx.registerMiddleware('message:outgoing', {
+  handler: async (msg, next) => {
+    const result = await next()  // let other middleware + core process first
+    // result is the final payload after all downstream processing
+    logMessage(result)
+    return result
+  }
+})
+```
 
 ### Error Handling in Middleware
 
@@ -453,6 +473,10 @@ Config per plugin:
 Default: 10 errors per hour. Exceeded → auto-disable, emit `plugin:disabled` event, log warning with reason.
 
 Built-in plugins: no error budget (trusted, bugs should be fixed in code).
+
+### Recovery
+
+Auto-disable is **runtime-only** — it does not persist to config. On next process restart, the plugin is re-enabled and error budget is reset. This allows transient issues (network blips, temporary API failures) to recover automatically while preventing a broken plugin from spamming errors indefinitely within a single run.
 
 ---
 
@@ -668,9 +692,16 @@ Build the plugin system. Core modules stay hard-wired. Community plugins can loa
 | 7 | PluginContext factory |
 | 8 | LifecycleManager (boot/shutdown orchestration) |
 | 9 | Wire into core.ts — LifecycleManager replaces manual startup |
-| 10 | Wire middleware hooks into existing pipeline (handleMessage, SessionBridge, AgentInstance) |
-| 11 | CLI: `openacp plugin add/remove/list` commands |
-| 12 | Tests for all infrastructure |
+| 10a | Wire message hooks (`message:incoming`, `message:outgoing`) into core.handleMessage + SessionBridge |
+| 10b | Wire agent hooks (`agent:beforePrompt`, `agent:beforeEvent`, `agent:afterEvent`, `turn:start`, `turn:end`) into SessionBridge + AgentInstance |
+| 10c | Wire fs hooks (`fs:beforeRead`, `fs:beforeWrite`) into AgentInstance file callbacks |
+| 10d | Wire terminal hooks (`terminal:beforeCreate`, `terminal:afterExit`) into AgentInstance terminal callbacks |
+| 10e | Wire permission hooks (`permission:beforeRequest`, `permission:afterResolve`) into SessionBridge.wirePermissions |
+| 10f | Wire session hooks (`session:beforeCreate`, `session:afterDestroy`) into SessionFactory + SessionManager |
+| 10g | Wire control hooks (`mode:beforeChange`, `config:beforeChange`, `agent:beforeCancel`) into Session methods |
+| 11 | CLI: `openacp plugin add/remove/list/enable/disable` commands |
+| 12 | Unit tests for all infrastructure modules |
+| 13 | Integration test: full boot → plugin load → middleware execution → shutdown flow |
 
 **After Plan 1:** Community plugins work. Built-in modules still hard-wired in core. Both coexist.
 
