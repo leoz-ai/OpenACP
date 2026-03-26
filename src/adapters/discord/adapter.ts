@@ -23,7 +23,7 @@ import type { IRenderer } from "../shared/rendering/renderer.js";
 import { BaseRenderer } from "../shared/rendering/renderer.js";
 import type { AdapterCapabilities } from "../../core/channel.js";
 import type { DiscordChannelConfig } from "./types.js";
-import { DiscordSendQueue } from "./send-queue.js";
+import { SendQueue } from "../shared/primitives/send-queue.js";
 import { ToolCallTracker } from "./tool-call-tracker.js";
 import { DraftManager } from "./draft-manager.js";
 import { ActivityTracker } from "./activity.js";
@@ -62,7 +62,7 @@ export class DiscordAdapter extends MessagingAdapter {
   readonly core: OpenACPCore;
   private client: Client;
   private discordConfig: DiscordChannelConfig;
-  private sendQueue: DiscordSendQueue;
+  private sendQueue: SendQueue;
   private toolTracker: ToolCallTracker;
   private draftManager: DraftManager;
   private skillManager!: SkillCommandManager;
@@ -95,7 +95,7 @@ export class DiscordAdapter extends MessagingAdapter {
       ],
     });
 
-    this.sendQueue = new DiscordSendQueue();
+    this.sendQueue = new SendQueue({ minInterval: 1000 });
     this.toolTracker = new ToolCallTracker(this.sendQueue);
     this.draftManager = new DraftManager(this.sendQueue);
     this.fileService = core.fileService;

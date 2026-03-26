@@ -1,7 +1,7 @@
 import type { TextChannel, ThreadChannel, Message } from "discord.js";
 import { log } from "../../core/utils/log.js";
 import { formatToolCall, formatToolUpdate } from "./formatting.js";
-import type { DiscordSendQueue } from "./send-queue.js";
+import type { SendQueue } from "../shared/primitives/send-queue.js";
 import type {
   ToolCallMeta,
   ViewerLinks,
@@ -21,7 +21,7 @@ interface ToolCallState {
 export class ToolCallTracker {
   sessions: Map<string, Map<string, ToolCallState>> = new Map();
 
-  constructor(private sendQueue: DiscordSendQueue) {}
+  constructor(private sendQueue: SendQueue) {}
 
   async trackNewCall(
     sessionId: string,

@@ -4,7 +4,7 @@ import { log } from "../../core/utils/log.js";
 import type { PlanEntry } from "../../core/types.js";
 import { formatUsage, formatPlan } from "./formatting.js";
 import type { DisplayVerbosity } from "../shared/format-types.js";
-import type { DiscordSendQueue } from "./send-queue.js";
+import type { SendQueue } from "../shared/primitives/send-queue.js";
 
 // ─── ThinkingIndicator ────────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ export class UsageMessage {
 
   constructor(
     private thread: TextChannel | ThreadChannel,
-    private sendQueue: DiscordSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   async send(
@@ -114,7 +114,7 @@ export class PlanCard {
 
   constructor(
     private thread: TextChannel | ThreadChannel,
-    private sendQueue: DiscordSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   setVerbosity(v: DisplayVerbosity): void {
@@ -188,7 +188,7 @@ export class ActivityTracker {
 
   constructor(
     private thread: TextChannel | ThreadChannel,
-    private sendQueue: DiscordSendQueue,
+    private sendQueue: SendQueue,
   ) {
     this.thinking = new ThinkingIndicator(thread);
     this.planCard = new PlanCard(thread, sendQueue);

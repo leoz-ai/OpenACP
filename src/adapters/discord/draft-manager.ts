@@ -1,6 +1,6 @@
 import type { TextChannel, ThreadChannel } from 'discord.js'
 import { MessageDraft } from './streaming.js'
-import type { DiscordSendQueue } from './send-queue.js'
+import type { SendQueue } from '../shared/primitives/send-queue.js'
 import { detectAction, storeAction, buildActionKeyboard } from './action-detect.js'
 
 export class DraftManager {
@@ -8,7 +8,7 @@ export class DraftManager {
   textBuffers: Map<string, string> = new Map()
 
   constructor(
-    private sendQueue: DiscordSendQueue,
+    private sendQueue: SendQueue,
   ) {}
 
   getOrCreate(sessionId: string, thread: TextChannel | ThreadChannel): MessageDraft {
