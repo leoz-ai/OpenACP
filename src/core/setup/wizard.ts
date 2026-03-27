@@ -23,25 +23,17 @@ export async function runSetup(
   const { settingsManager, pluginRegistry } = opts ?? {};
 
   try {
-    const channelChoice = guardCancel(
-      await clack.select({
-        message: 'Which messaging platform do you want to use?',
-        options: [
-          { label: 'Telegram', value: 'telegram' },
-          { label: 'Discord', value: 'discord' },
-          { label: 'Both', value: 'both' },
-        ],
-      }),
-    );
+    // Only Telegram is built-in; Discord is available as @openacp/plugin-discord
+    const channelChoice = 'telegram';
 
     // Calculate total steps dynamically: channel(s) + workspace + run mode
-    const channelSteps = channelChoice === 'both' ? 2 : 1;
+    const channelSteps = 1;
     const runModeSteps = opts?.skipRunMode ? 0 : 1;
     const totalSteps = channelSteps + 1 + runModeSteps; // + workspace + optional run mode
 
     let currentStep = 0;
 
-    if (channelChoice === 'telegram' || channelChoice === 'both') {
+    if (channelChoice === 'telegram') {
       currentStep++;
       if (settingsManager && pluginRegistry) {
         // Delegate to Telegram plugin's install() via InstallContext
@@ -63,31 +55,6 @@ export async function runSetup(
       } else {
         // Plugin system not available — inform user
         console.log(fail('Plugin system not initialized. Cannot set up Telegram.'));
-        return false;
-      }
-    }
-    if (channelChoice === 'discord' || channelChoice === 'both') {
-      currentStep++;
-      if (settingsManager && pluginRegistry) {
-        // Delegate to Discord plugin's install() via InstallContext
-        const { createInstallContext } = await import('../plugin/install-context.js');
-        const discordPlugin = (await import('../../plugins/discord/index.js')).default;
-        const ctx = createInstallContext({
-          pluginName: discordPlugin.name,
-          settingsManager,
-          basePath: settingsManager.getBasePath(),
-        });
-        await discordPlugin.install!(ctx);
-        pluginRegistry.register(discordPlugin.name, {
-          version: discordPlugin.version,
-          source: 'builtin',
-          enabled: true,
-          settingsPath: settingsManager.getSettingsPath(discordPlugin.name),
-          description: discordPlugin.description,
-        });
-      } else {
-        // Plugin system not available — inform user
-        console.log(fail('Plugin system not initialized. Cannot set up Discord.'));
         return false;
       }
     }

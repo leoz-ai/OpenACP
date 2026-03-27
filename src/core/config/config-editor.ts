@@ -244,13 +244,20 @@ async function editDiscord(config: Config, updates: ConfigUpdates): Promise<void
 
       let tokenValid = true
       try {
-        const { validateDiscordToken } = await import('../../plugins/discord/validators.js')
-        const tokenResult = await validateDiscordToken(token.trim())
-        if (tokenResult.ok) {
-          console.log(ok(`Connected as @${tokenResult.username}`))
+        // Dynamic import to avoid hard dependency on Discord plugin (now external)
+        const specifier = '@openacp/plugin-discord/validators'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const discordValidators: any = await import(/* @vite-ignore */ specifier).catch(() => null)
+        if (discordValidators) {
+          const tokenResult = await discordValidators.validateDiscordToken(token.trim())
+          if (tokenResult.ok) {
+            console.log(ok(`Connected as @${tokenResult.username}`))
+          } else {
+            console.log(warn(`Token validation failed: ${tokenResult.error}`))
+            tokenValid = false
+          }
         } else {
-          console.log(warn(`Token validation failed: ${tokenResult.error}`))
-          tokenValid = false
+          console.log(warn('Discord plugin not installed — skipping token validation'))
         }
       } catch {
         console.log(warn('Discord validator not available — skipping validation'))

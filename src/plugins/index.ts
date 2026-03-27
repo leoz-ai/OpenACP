@@ -7,7 +7,6 @@ import notificationsPlugin from './notifications/index.js'
 import tunnelPlugin from './tunnel/index.js'
 import apiServerPlugin from './api-server/index.js'
 import telegramPlugin from './telegram/index.js'
-import discordPlugin from './discord/index.js'
 import slackPlugin from './slack/index.js'
 
 export const builtInPlugins = [
@@ -20,6 +19,5 @@ export const builtInPlugins = [
   tunnelPlugin,
   apiServerPlugin,
   telegramPlugin,
-  discordPlugin,
   slackPlugin,
 ]

@@ -338,7 +338,6 @@ async function autoRegisterBuiltinPlugins(
       import('./plugins/tunnel/index.js'),
       import('./plugins/api-server/index.js'),
       import('./plugins/telegram/index.js'),
-      import('./plugins/discord/index.js'),
       import('./plugins/slack/index.js'),
     ])
 
