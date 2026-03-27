@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "46c93d01eee8",
+  "strategy": "manual-commit",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/core/adapter-primitives/message-formatter.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/46/c93d01eee8/0/metadata.json",
+      "transcript": "/46/c93d01eee8/0/full.jsonl",
+      "context": "/46/c93d01eee8/0/context.md",
+      "content_hash": "/46/c93d01eee8/0/content_hash.txt",
+      "prompt": "/46/c93d01eee8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4047,
+    "cache_creation_tokens": 1717900,
+    "cache_read_tokens": 40508353,
+    "output_tokens": 150561,
+    "api_call_count": 350
+  }
+}
