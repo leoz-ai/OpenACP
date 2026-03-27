@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "cbc26f5db2c4",
+  "strategy": "manual-commit",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/superpowers/specs/2026-03-27-consolidated-tool-card-design.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cb/c26f5db2c4/0/metadata.json",
+      "transcript": "/cb/c26f5db2c4/0/full.jsonl",
+      "context": "/cb/c26f5db2c4/0/context.md",
+      "content_hash": "/cb/c26f5db2c4/0/content_hash.txt",
+      "prompt": "/cb/c26f5db2c4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3753,
+    "cache_creation_tokens": 668864,
+    "cache_read_tokens": 16812107,
+    "output_tokens": 52521,
+    "api_call_count": 145
+  }
+}

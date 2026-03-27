@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "cbc26f5db2c4",
+  "session_id": "bab71436-1a8b-40d7-944a-85122d753f92",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-27T08:24:14.382153Z",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/superpowers/specs/2026-03-27-consolidated-tool-card-design.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "64b2c839dde4",
+  "token_usage": {
+    "input_tokens": 3753,
+    "cache_creation_tokens": 668864,
+    "cache_read_tokens": 16812107,
+    "output_tokens": 52521,
+    "api_call_count": 145
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-27T08:24:13.52814Z",
+    "agent_lines": 0,
+    "human_added": 2,
+    "human_modified": 8,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 0
+  }
+}
