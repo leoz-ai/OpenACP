@@ -1,5 +1,8 @@
+import { execSync } from "node:child_process";
+import * as path from "node:path";
 import * as clack from "@clack/prompts";
 import type { Config, ConfigManager } from "../config/config.js";
+import type { ChannelId } from "./types.js";
 import type { OnboardSection } from "./types.js";
 import { ONBOARD_SECTION_OPTIONS } from "./types.js";
 import { guardCancel, ok, fail, printStartBanner, summarizeConfig } from "./helpers.js";
@@ -23,21 +26,37 @@ export async function runSetup(
   const { settingsManager, pluginRegistry } = opts ?? {};
 
   try {
-    // Only Telegram is built-in; Discord is available as @openacp/plugin-discord
-    const channelChoice = 'telegram';
+    if (!settingsManager || !pluginRegistry) {
+      console.log(fail('Plugin system not initialized. Cannot set up channels.'));
+      return false;
+    }
+
+    // Ask user which channels to set up
+    const channelChoices = guardCancel(
+      await clack.multiselect({
+        message: 'Which channels do you want to set up?',
+        options: [
+          { value: 'telegram' as const, label: 'Telegram', hint: 'built-in' },
+          { value: 'discord' as const, label: 'Discord', hint: 'will install @openacp/plugin-discord' },
+        ],
+        required: true,
+        initialValues: ['telegram' as const],
+      }),
+    ) as ChannelId[];
 
     // Calculate total steps dynamically: channel(s) + workspace + run mode
-    const channelSteps = 1;
+    const channelSteps = channelChoices.length;
     const runModeSteps = opts?.skipRunMode ? 0 : 1;
     const totalSteps = channelSteps + 1 + runModeSteps; // + workspace + optional run mode
 
     let currentStep = 0;
 
-    if (channelChoice === 'telegram') {
+    const { createInstallContext } = await import('../plugin/install-context.js');
+
+    for (const channelId of channelChoices) {
       currentStep++;
-      if (settingsManager && pluginRegistry) {
-        // Delegate to Telegram plugin's install() via InstallContext
-        const { createInstallContext } = await import('../plugin/install-context.js');
+
+      if (channelId === 'telegram') {
         const telegramPlugin = (await import('../../plugins/telegram/index.js')).default;
         const ctx = createInstallContext({
           pluginName: telegramPlugin.name,
@@ -52,10 +71,10 @@ export async function runSetup(
           settingsPath: settingsManager.getSettingsPath(telegramPlugin.name),
           description: telegramPlugin.description,
         });
-      } else {
-        // Plugin system not available — inform user
-        console.log(fail('Plugin system not initialized. Cannot set up Telegram.'));
-        return false;
+      }
+
+      if (channelId === 'discord') {
+        await installAndSetupDiscord(settingsManager, pluginRegistry);
       }
     }
 
@@ -154,6 +173,57 @@ export async function runSetup(
     }
     throw err;
   }
+}
+
+/**
+ * Install @openacp/plugin-discord from npm if needed, then run its install() hook.
+ */
+async function installAndSetupDiscord(
+  settingsManager: SettingsManager,
+  pluginRegistry: PluginRegistry,
+): Promise<void> {
+  const packageName = '@openacp/plugin-discord';
+
+  // Try to import first — if not installed, install it
+  let discordPlugin: any;
+  try {
+    discordPlugin = (await import(packageName)).default;
+  } catch {
+    const spinner = clack.spinner();
+    spinner.start(`Installing ${packageName}...`);
+    try {
+      const pluginsDir = path.join(settingsManager.getBasePath(), 'plugins');
+      execSync(`npm install ${packageName}`, {
+        cwd: pluginsDir,
+        stdio: 'pipe',
+      });
+      discordPlugin = (await import(packageName)).default;
+      spinner.stop(ok(`${packageName} installed`));
+    } catch (installErr) {
+      spinner.stop(fail(`Failed to install ${packageName}: ${(installErr as Error).message}`));
+      console.log(fail('You can install it later with: openacp plugin add @openacp/plugin-discord'));
+      return;
+    }
+  }
+
+  const { createInstallContext } = await import('../plugin/install-context.js');
+  const ctx = createInstallContext({
+    pluginName: discordPlugin.name,
+    settingsManager,
+    basePath: settingsManager.getBasePath(),
+  });
+
+  if (discordPlugin.install) {
+    await discordPlugin.install(ctx);
+  }
+
+  pluginRegistry.register(discordPlugin.name, {
+    version: discordPlugin.version,
+    source: 'npm',
+    enabled: true,
+    settingsPath: settingsManager.getSettingsPath(discordPlugin.name),
+    description: discordPlugin.description,
+  });
 }
 
 /**

@@ -26,8 +26,6 @@ async function input(opts: { message: string; default?: string; validate?: (val:
   if (clack.isCancel(result)) { clack.cancel('Cancelled.'); process.exit(0) }
   return result as string
 }
-// Validators are lazy-loaded from plugins to avoid static core→plugin dependencies
-// They're only needed when user edits specific config sections
 import { installAutoStart, uninstallAutoStart, isAutoStartInstalled, isAutoStartSupported } from '../../cli/autostart.js'
 import { expandHome } from './config.js'
 
@@ -164,6 +162,26 @@ async function editTelegram(config: Config, updates: ConfigUpdates): Promise<voi
 
 // --- Edit: Discord ---
 
+async function validateDiscordToken(
+  token: string,
+): Promise<{ ok: true; username: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: { Authorization: `Bot ${token}` },
+    })
+    if (res.status === 200) {
+      const data = (await res.json()) as { username: string }
+      return { ok: true, username: data.username }
+    }
+    if (res.status === 401) {
+      return { ok: false, error: 'Invalid bot token' }
+    }
+    return { ok: false, error: `Discord API returned ${res.status}` }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+}
+
 async function validateDiscordGuild(
   token: string,
   guildId: string,
@@ -243,24 +261,12 @@ async function editDiscord(config: Config, updates: ConfigUpdates): Promise<void
       })
 
       let tokenValid = true
-      try {
-        // Dynamic import to avoid hard dependency on Discord plugin (now external)
-        const specifier = '@openacp/plugin-discord/validators'
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const discordValidators: any = await import(/* @vite-ignore */ specifier).catch(() => null)
-        if (discordValidators) {
-          const tokenResult = await discordValidators.validateDiscordToken(token.trim())
-          if (tokenResult.ok) {
-            console.log(ok(`Connected as @${tokenResult.username}`))
-          } else {
-            console.log(warn(`Token validation failed: ${tokenResult.error}`))
-            tokenValid = false
-          }
-        } else {
-          console.log(warn('Discord plugin not installed — skipping token validation'))
-        }
-      } catch {
-        console.log(warn('Discord validator not available — skipping validation'))
+      const tokenResult = await validateDiscordToken(token.trim())
+      if (tokenResult.ok) {
+        console.log(ok(`Connected as @${tokenResult.username}`))
+      } else {
+        console.log(warn(`Token validation failed: ${tokenResult.error}`))
+        tokenValid = false
       }
       if (!tokenValid) {
         const action = await select({

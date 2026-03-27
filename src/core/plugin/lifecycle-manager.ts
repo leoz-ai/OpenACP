@@ -28,7 +28,8 @@ function resolvePluginConfig(pluginName: string, configManager: unknown): Record
     if (pluginEntry?.config && Object.keys(pluginEntry.config).length > 0) {
       return pluginEntry.config
     }
-    // Fallback to legacy config sections
+    // @deprecated Legacy config path mapping — kept for backward compat with pre-plugin configs.
+    // New plugins should use plugins.builtin['<name>'].config format. Remove when all users have migrated.
     const legacyMap: Record<string, string> = {
       '@openacp/security': 'security',
       '@openacp/speech': 'speech',
