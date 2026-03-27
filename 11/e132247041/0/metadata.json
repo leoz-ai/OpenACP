@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "11e132247041",
+  "session_id": "bab71436-1a8b-40d7-944a-85122d753f92",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-27T11:55:18.718665Z",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/dev/message-format-reference.md",
+    "src/core/adapter-primitives/messaging-adapter.ts",
+    "src/plugins/telegram/formatting.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "95d2b5eaf5d2",
+  "token_usage": {
+    "input_tokens": 4110,
+    "cache_creation_tokens": 2116451,
+    "cache_read_tokens": 46166844,
+    "output_tokens": 171453,
+    "api_call_count": 394
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-27T11:55:16.19069Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}

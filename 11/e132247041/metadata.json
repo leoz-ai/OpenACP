@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "11e132247041",
+  "strategy": "manual-commit",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/dev/message-format-reference.md",
+    "src/core/adapter-primitives/messaging-adapter.ts",
+    "src/plugins/telegram/formatting.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/11/e132247041/0/metadata.json",
+      "transcript": "/11/e132247041/0/full.jsonl",
+      "context": "/11/e132247041/0/context.md",
+      "content_hash": "/11/e132247041/0/content_hash.txt",
+      "prompt": "/11/e132247041/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4110,
+    "cache_creation_tokens": 2116451,
+    "cache_read_tokens": 46166844,
+    "output_tokens": 171453,
+    "api_call_count": 394
+  }
+}
