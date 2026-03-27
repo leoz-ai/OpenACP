@@ -206,14 +206,18 @@ export class OpenACPCore {
       // Rewire session to new topic
       session.threadId = newThreadId;
 
-      // Update session store with new topic ID
-      const platform: Record<string, unknown> = {};
-      if (session.channelId === "telegram") {
-        platform.topicId = Number(newThreadId);
-      } else {
-        platform.threadId = newThreadId;
+      // Update session store with new topic ID (best-effort — topic is already recreated)
+      try {
+        const platform: Record<string, unknown> = {};
+        if (session.channelId === "telegram") {
+          platform.topicId = Number(newThreadId);
+        } else {
+          platform.threadId = newThreadId;
+        }
+        await this.sessionManager.patchRecord(sessionId, { platform });
+      } catch (patchErr) {
+        log.warn({ err: patchErr, sessionId }, "Failed to update session record after archive — session will work but may not survive restart");
       }
-      await this.sessionManager.patchRecord(sessionId, { platform });
 
       return { ok: true, newThreadId };
     } catch (err) {
@@ -653,7 +657,6 @@ export class OpenACPCore {
           initialName: record.name,
           threadId: message.threadId,
         });
-        session.threadId = message.threadId;
         session.activate();
         session.dangerousMode = record.dangerousMode ?? false;
 

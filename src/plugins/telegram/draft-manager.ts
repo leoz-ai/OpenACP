@@ -113,6 +113,8 @@ export class DraftManager {
     if (finalized) {
       await finalized.draft.stripPattern(pattern);
     }
+    // If no draft found (e.g., TTS synthesis slower than next prompt cycle), the
+    // [TTS] block will remain visible. This is a rare edge case — log for debugging.
   }
 
   cleanup(sessionId: string): void {
