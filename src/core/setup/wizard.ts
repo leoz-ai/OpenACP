@@ -1,5 +1,3 @@
-import { execSync } from "node:child_process";
-import * as path from "node:path";
 import * as clack from "@clack/prompts";
 import type { Config, ConfigManager } from "../config/config.js";
 import type { ChannelId } from "./types.js";
@@ -192,12 +190,10 @@ async function installAndSetupDiscord(
     const spinner = clack.spinner();
     spinner.start(`Installing ${packageName}...`);
     try {
-      const pluginsDir = path.join(settingsManager.getBasePath(), 'plugins');
-      execSync(`npm install ${packageName}`, {
-        cwd: pluginsDir,
-        stdio: 'pipe',
-      });
-      discordPlugin = (await import(packageName)).default;
+      const { installNpmPlugin } = await import('../plugin/plugin-installer.js');
+      const pluginsDir = settingsManager.getBasePath();
+      const mod = await installNpmPlugin(packageName, pluginsDir);
+      discordPlugin = mod.default;
       spinner.stop(ok(`${packageName} installed`));
     } catch (installErr) {
       spinner.stop(fail(`Failed to install ${packageName}: ${(installErr as Error).message}`));

@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import * as clack from '@clack/prompts'
@@ -183,11 +182,11 @@ async function ensureDiscordPlugin(): Promise<any | null> {
       return null
     }
     try {
-      const pluginsDir = path.join(os.homedir(), '.openacp', 'plugins')
       console.log(dim(`Installing ${DISCORD_PACKAGE}...`))
-      execSync(`npm install ${DISCORD_PACKAGE}`, { cwd: pluginsDir, stdio: 'pipe' })
+      const { installNpmPlugin } = await import('../plugin/plugin-installer.js')
+      const mod = await installNpmPlugin(DISCORD_PACKAGE)
       console.log(ok(`${DISCORD_PACKAGE} installed`))
-      return await import(DISCORD_PACKAGE)
+      return mod
     } catch (err) {
       console.log(warn(`Failed to install: ${(err as Error).message}`))
       return null
