@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "8f576234cb09",
+  "session_id": "bab71436-1a8b-40d7-944a-85122d753f92",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-27T16:08:12.656532Z",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/core/adapter-primitives/__tests__/message-formatter.test.ts",
+    "src/core/adapter-primitives/message-formatter.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c25539debdcd",
+  "token_usage": {
+    "input_tokens": 4418,
+    "cache_creation_tokens": 2779444,
+    "cache_read_tokens": 68984972,
+    "output_tokens": 243820,
+    "api_call_count": 631
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-27T16:08:09.672116Z",
+    "agent_lines": 0,
+    "human_added": 18,
+    "human_modified": 21,
+    "human_removed": 0,
+    "total_committed": 18,
+    "agent_percentage": 0
+  }
+}
