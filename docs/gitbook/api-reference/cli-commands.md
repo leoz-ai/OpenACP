@@ -413,7 +413,7 @@ Runs an interactive wizard that prompts for:
 - Author
 - License
 
-Creates a directory with `src/index.ts`, `src/__tests__/index.test.ts`, `package.json`, `tsconfig.json`, and config files.
+Creates a directory with `src/index.ts`, `src/__tests__/index.test.ts`, `package.json`, `tsconfig.json`, `CLAUDE.md` (AI agent context), `PLUGIN_GUIDE.md` (developer guide), and config files.
 
 **Example**
 ```bash
