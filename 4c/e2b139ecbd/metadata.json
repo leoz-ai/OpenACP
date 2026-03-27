@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "4ce2b139ecbd",
+  "strategy": "manual-commit",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/plugins/discord/formatting.ts",
+    "src/plugins/telegram/formatting.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4c/e2b139ecbd/0/metadata.json",
+      "transcript": "/4c/e2b139ecbd/0/full.jsonl",
+      "context": "/4c/e2b139ecbd/0/context.md",
+      "content_hash": "/4c/e2b139ecbd/0/content_hash.txt",
+      "prompt": "/4c/e2b139ecbd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3865,
+    "cache_creation_tokens": 1133308,
+    "cache_read_tokens": 28596543,
+    "output_tokens": 108082,
+    "api_call_count": 221
+  }
+}
