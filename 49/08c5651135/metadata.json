@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "4908c5651135",
+  "strategy": "manual-commit",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/plugins/discord/__tests__/formatting.test.ts",
+    "src/plugins/discord/activity.ts",
+    "src/plugins/discord/formatting.ts",
+    "src/plugins/discord/renderer.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/49/08c5651135/0/metadata.json",
+      "transcript": "/49/08c5651135/0/full.jsonl",
+      "context": "/49/08c5651135/0/context.md",
+      "content_hash": "/49/08c5651135/0/content_hash.txt",
+      "prompt": "/49/08c5651135/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3936,
+    "cache_creation_tokens": 1404742,
+    "cache_read_tokens": 33715306,
+    "output_tokens": 121934,
+    "api_call_count": 269
+  }
+}
