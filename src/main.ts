@@ -127,6 +127,52 @@ export async function startServer(opts?: StartServerOptions) {
     // Boot all built-in plugins in dependency order
     await core.lifecycleManager.boot(corePlugins)
 
+    // Load community plugins from registry (npm and local sources)
+    try {
+      const communityPlugins: import('./core/plugin/types.js').OpenACPPlugin[] = []
+      const npmPlugins = pluginRegistry.listBySource('npm')
+      const localPlugins = pluginRegistry.listBySource('local')
+      const allCommunityEntries = new Map([...npmPlugins, ...localPlugins])
+
+      for (const [name, entry] of allCommunityEntries) {
+        if (!entry.enabled) continue
+
+        try {
+          let modulePath: string
+
+          if (entry.source === 'local') {
+            // Local plugin: name is the filesystem path or resolves directly
+            modulePath = name.startsWith('/') || name.startsWith('.')
+              ? path.resolve(name)
+              : path.join(OPENACP_DIR, 'plugins', 'node_modules', name)
+          } else {
+            // npm plugin: installed under ~/.openacp/plugins/node_modules/<name>
+            modulePath = path.join(OPENACP_DIR, 'plugins', 'node_modules', name)
+          }
+
+          log.debug({ plugin: name, modulePath }, 'Loading community plugin')
+          const mod = await import(modulePath)
+          const plugin = mod.default
+
+          if (!plugin || !plugin.name || !plugin.setup) {
+            log.warn({ plugin: name }, 'Community plugin has invalid exports (missing name or setup), skipping')
+            continue
+          }
+
+          communityPlugins.push(plugin)
+        } catch (err) {
+          log.warn({ err, plugin: name }, 'Failed to load community plugin, skipping')
+        }
+      }
+
+      if (communityPlugins.length > 0) {
+        log.debug({ plugins: communityPlugins.map(p => p.name) }, 'Booting community plugins')
+        await core.lifecycleManager.boot(communityPlugins)
+      }
+    } catch (err) {
+      log.warn({ err }, 'Community plugin loading failed')
+    }
+
     // Load dev plugin if running in dev mode
     if (opts?.devPluginPath) {
       const { DevPluginLoader } = await import('./core/plugin/dev-loader.js')
