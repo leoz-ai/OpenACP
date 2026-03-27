@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { builtInPlugins } from '../index.js'
 
 describe('Built-in plugin wrappers', () => {
-  it('exports all 11 built-in plugins', () => {
-    expect(builtInPlugins).toHaveLength(11)
+  it('exports all 10 built-in plugins', () => {
+    expect(builtInPlugins).toHaveLength(10)
   })
 
   it('all plugins have name, version, setup', () => {
@@ -26,7 +26,6 @@ describe('Built-in plugin wrappers', () => {
     expect(names).toContain('@openacp/security')
     expect(names).toContain('@openacp/file-service')
     expect(names).toContain('@openacp/notifications')
-    expect(names).toContain('@openacp/usage')
     expect(names).toContain('@openacp/speech')
     expect(names).toContain('@openacp/context')
     expect(names).toContain('@openacp/tunnel')
