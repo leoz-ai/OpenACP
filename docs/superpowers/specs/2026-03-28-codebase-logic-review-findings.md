@@ -266,51 +266,29 @@ These issues involve complex interactions between multiple services where timing
 
 ---
 
-# 5. Summary & Priority
+# 5. Fix Status
 
-## Fix Priority
+## Completed (4 commits on fix/codebase-logic-review)
 
-### Batch 1 — Quick code fixes (1-5 lines each)
-1. **C1** — Guard processPrompt for finished state
-2. **C2** — Add cancelled to error transitions
-3. **C5** — Remove thinking indicator on timeout
-4. **F9** — Move voiceMode "next" reset after successful prompt
-5. **C8** — Unref permission gate timer
-6. **C13** — Wrap abortPrompt in try-catch in cancelSession (agent may be dead)
-7. **C16** — Remove draft from map after finalize in shared DraftManager
+| Commit | Items Fixed |
+|--------|------------|
+| `9038102` | C1, C2, C3, C4, C5, C6, C8, C9, C11, C12, C13, C14, C15, C16, F1, F9, F19, F20, F21 |
+| `270ab52` | F11, F12, F13, C17, F22 |
+| `18c590d` | F3, F4, F5, F6, F10 |
+| `0bc34ca` | F18, F24 |
 
-### Batch 2 — Session lifecycle fixes
-8. **C12** — Set session.threadId BEFORE createSession in lazy resume (events dropped during spawn)
-9. **F1+F2** — Fix lazy resume: skip cancelled, fallback to fresh on failure
-10. **C15** — Backup corrupt sessions.json as .bak before starting empty
+**Total fixed: 30 items** (all code bugs + most feature issues)
+**Tests: 134 files, 1746 tests passing**
 
-### Batch 3 — API/CLI field mismatches
-11. **F19** — Fix CLI api session field access (.session wrapper + field names)
-12. **F20** — Fix CLI api health field access (uptime, memory)
-13. **F21** — Use AgentCatalog.resolve() in API sessions route
+## Remaining (deferred)
 
-### Batch 4 — Broken features
-14. **F3+F4** — Rewrite /archive: keep agent alive + recreate topic
-15. **F11+F12** — Fix /tts to set voiceMode + read config
-16. **F18** — Create usage plugin (UsageStore + UsageBudget + /usage command)
-17. **F13** — ThinkingIndicator dismiss() should delete message
-18. **C17** — ThinkingIndicator: delete message if dismissed during queue wait
-
-### Batch 5 — Error handling & stability
-19. **C3** — Validate config before writing to disk
-20. **C4** — Close session logger file descriptors
-21. **C6** — Clean up spinner/logger on boot failure
-22. **C9** — Catch sendMessage middleware errors
-23. **C14** — ToolCardState appendUsage: use scheduleFlush instead of immediate flush
-
-### Batch 6 — Missing features
-24. **F10** — Implement tts_strip event
-25. **F7** — Over-budget interactive selection for /resume
-26. **F22** — Settings validation at boot
-27. **F24** — Telegram /tunnel create/stop commands
-
-### Batch 6 — Test coverage
-22. **T1** — Lazy resume tests
-23. **T3** — API route handler tests
-24. **T5** — Tunnel tests
-25. **T6** — Telegram command handler tests
+| # | Item | Reason |
+|---|------|--------|
+| F7 | Over-budget /resume interactive selection | Complex UI flow — TODO added |
+| F14 | UsageMessage as separate deletable message | Design choice: merged into ToolCard |
+| F15 | PlanCard separate message with 3.5s debounce | Design choice: merged into ToolCard |
+| F16 | MessagingAdapter compose shared primitives | Architecture — separate effort |
+| F17 | Skill commands as inline buttons | UX redesign — separate effort |
+| F23 | Legacy config stripping after migration | Non-blocking — fallback works |
+| A1-A5 | Architecture gaps | Separate design efforts |
+| T1-T19 | Test coverage gaps | Ongoing |
