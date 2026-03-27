@@ -113,3 +113,7 @@ export type {
   SecurityService, NotificationService, UsageService,
   SpeechServiceInterface, TunnelServiceInterface, ContextService,
 } from './plugin/types.js'
+export { CommandRegistry } from './command-registry.js'
+export { DoctorEngine } from './doctor/index.js'
+export type { DoctorReport, PendingFix } from './doctor/types.js'
+export { PRODUCT_GUIDE } from '../data/product-guide.js'
