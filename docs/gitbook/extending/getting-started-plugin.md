@@ -416,10 +416,20 @@ npm publish --access public
 ### How users install your plugin
 
 ```bash
-openacp plugin add @myorg/hello-world
+openacp plugin install @myorg/hello-world
 ```
 
 This downloads from npm into `~/.openacp/plugins/`, validates the plugin interface, and runs `install()` if defined.
+
+### List your plugin in the registry
+
+After publishing to npm, add your plugin to the [OpenACP Plugin Registry](https://github.com/Open-ACP/plugin-registry) so users can discover it via `openacp plugin search`:
+
+1. Fork [Open-ACP/plugin-registry](https://github.com/Open-ACP/plugin-registry)
+2. Create `plugins/myorg--hello-world.json` with your plugin metadata
+3. Submit a PR — CI auto-validates and auto-merges
+
+See [Contributing > Publishing a Plugin to the Registry](contributing.md#publishing-a-plugin-to-the-registry) for the full guide.
 
 ---
 
