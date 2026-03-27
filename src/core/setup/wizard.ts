@@ -107,16 +107,17 @@ export async function runSetup(
         });
       }
 
+
       // Handle community plugin selections
       if (channelId.startsWith('community:')) {
         const npmPackage = channelId.slice('community:'.length);
-        const { execSync } = await import('node:child_process');
+        const { execFileSync } = await import('node:child_process');
         const pluginsDir = path.join(os.homedir(), '.openacp', 'plugins');
         const nodeModulesDir = path.join(pluginsDir, 'node_modules');
 
         // Install from npm
         try {
-          execSync(`npm install ${npmPackage} --prefix "${pluginsDir}" --save`, {
+          execFileSync('npm', ['install', npmPackage, '--prefix', pluginsDir, '--save'], {
             stdio: 'inherit',
             timeout: 60000,
           });

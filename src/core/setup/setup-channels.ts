@@ -73,7 +73,8 @@ async function configureViaPlugin(channelId: string): Promise<void> {
     try {
       const pluginModule = await import(channelId);
       plugin = pluginModule.default;
-    } catch {
+    } catch (err) {
+      console.log(`Could not load plugin "${channelId}": ${(err as Error).message}`);
       return;
     }
   }
@@ -81,7 +82,7 @@ async function configureViaPlugin(channelId: string): Promise<void> {
   if (plugin?.configure) {
     const { SettingsManager } = await import('../plugin/settings-manager.js');
     const { createInstallContext } = await import('../plugin/install-context.js');
-    const basePath = path.join(os.homedir(), '.openacp', 'plugins');
+    const basePath = path.join(os.homedir(), '.openacp', 'plugins', 'data');
     const settingsManager = new SettingsManager(basePath);
     const ctx = createInstallContext({
       pluginName: plugin.name,

@@ -200,7 +200,7 @@ async function configurePlugin(name: string): Promise<void> {
 async function installPlugin(input: string): Promise<void> {
   const os = await import('node:os')
   const path = await import('node:path')
-  const { execSync } = await import('node:child_process')
+  const { execFileSync } = await import('node:child_process')
   const { getCurrentVersion } = await import('../version.js')
   const { SettingsManager } = await import('../../core/plugin/settings-manager.js')
   const { createInstallContext } = await import('../../core/plugin/install-context.js')
@@ -291,7 +291,7 @@ async function installPlugin(input: string): Promise<void> {
   const nodeModulesDir = path.join(pluginsDir, 'node_modules')
 
   try {
-    execSync(`npm install ${installSpec} --prefix "${pluginsDir}" --save`, {
+    execFileSync('npm', ['install', installSpec, '--prefix', pluginsDir, '--save'], {
       stdio: 'inherit',
       timeout: 60000,
     })
