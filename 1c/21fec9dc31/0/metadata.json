@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.6",
+  "checkpoint_id": "1c21fec9dc31",
+  "session_id": "bab71436-1a8b-40d7-944a-85122d753f92",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-27T08:45:57.993615Z",
+  "branch": "fix/message-formatting-v2-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/plugins/discord/__tests__/formatting.test.ts",
+    "src/plugins/discord/formatting.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bba21026cde9",
+  "token_usage": {
+    "input_tokens": 3802,
+    "cache_creation_tokens": 737462,
+    "cache_read_tokens": 23703459,
+    "output_tokens": 78064,
+    "api_call_count": 176
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-27T08:45:56.867336Z",
+    "agent_lines": 0,
+    "human_added": 1808,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1808,
+    "agent_percentage": 0
+  }
+}
