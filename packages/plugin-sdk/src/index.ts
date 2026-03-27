@@ -37,12 +37,12 @@ export type { MessagingAdapterConfig, IRenderer, RenderedMessage } from '@openac
 // --- @stable: Adapter primitives ---
 export { SendQueue, DraftManager, ToolCallTracker, ActivityTracker } from '@openacp/cli'
 
-// --- @stable: Core classes (type-only — plugins consume, not instantiate) ---
-export type { OpenACPCore } from '@openacp/cli'
-export type { Session } from '@openacp/cli'
+// --- @stable: Core classes & values ---
+export { OpenACPCore } from '@openacp/cli'
+export { Session } from '@openacp/cli'
 export type { SessionEvents } from '@openacp/cli'
-export type { SessionManager } from '@openacp/cli'
-export type { CommandRegistry } from '@openacp/cli'
+export { SessionManager } from '@openacp/cli'
+export { CommandRegistry } from '@openacp/cli'
 
 // --- @stable: Logging ---
 export { log, createChildLogger } from '@openacp/cli'
@@ -54,6 +54,7 @@ export { PRODUCT_GUIDE } from '@openacp/cli'
 export type {
   Attachment, PlanEntry, StopReason, SessionStatus, ConfigOption,
   UsageRecord, InstallProgress,
+  DisplayVerbosity, ToolCallMeta, ToolUpdateMeta, ViewerLinks,
   TelegramPlatformData,
 } from '@openacp/cli'
 
@@ -62,5 +63,4 @@ export type {
 //   @openacp/plugin-sdk/formatting
 //   @openacp/plugin-sdk/config
 //   @openacp/plugin-sdk/testing
-export type { DisplayVerbosity, ToolCallMeta, ToolUpdateMeta, ViewerLinks } from './formatting.js'
 export type { ConfigFieldDef, DoctorReport, PendingFix } from './config.js'
