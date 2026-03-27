@@ -96,10 +96,10 @@ Published as `@openacp/cli` on npm. Users install with `npm install -g @openacp/
 
 ## Versioning
 
-Format: `YYYY.MMDD.<patch>` — e.g. `2026.0326.1` is the first patch on March 26, 2026.
+Format: `YYYY.MDD.<patch>` — e.g. `2026.327.1` is the first patch on March 27, 2026.
 
 - `YYYY` — year
-- `MMDD` — month + day (zero-padded)
+- `MDD` — month + day (no leading zeros, since semver strips them). Jan 5 = `15`, Mar 27 = `327`, Dec 5 = `1205`
 - `<patch>` — sequential patch number for that day, starting from 1
 
 ## Documentation Sync
