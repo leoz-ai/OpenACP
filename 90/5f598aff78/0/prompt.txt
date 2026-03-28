@@ -1,0 +1,15 @@
+g merge upstream/develop
+Auto-merging src/core/__tests__/message-transformer.test.ts
+CONFLICT (content): Merge conflict in src/core/__tests__/message-transformer.test.ts
+Auto-merging src/core/adapter-primitives/primitives/tool-card-state.ts
+Auto-merging src/core/message-transformer.ts
+Auto-merging src/plugins/telegram/__tests__/activity.test.ts
+Auto-merging src/plugins/telegram/activity.ts
+CONFLICT (content): Merge conflict in src/plugins/telegram/activity.ts
+Auto-merging src/plugins/telegram/adapter.ts
+CONFLICT (content): Merge conflict in src/plugins/telegram/adapter.ts
+Auto-merging src/plugins/telegram/formatting.ts
+CONFLICT (content): Merge conflict in src/plugins/telegram/formatting.ts
+Automatic merge failed; fix conflicts and then commit the result.
+> clauded
+fix conflict cho anh phất
