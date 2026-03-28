@@ -3,7 +3,7 @@
   "checkpoint_id": "905f598aff78",
   "strategy": "manual-commit",
   "branch": "fix/message-formatting-v2-gaps",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "README.md",
     "docs/gitbook/README.md",
@@ -136,13 +136,20 @@
       "context": "/90/5f598aff78/0/context.md",
       "content_hash": "/90/5f598aff78/0/content_hash.txt",
       "prompt": "/90/5f598aff78/0/prompt.txt"
+    },
+    {
+      "metadata": "/90/5f598aff78/1/metadata.json",
+      "transcript": "/90/5f598aff78/1/full.jsonl",
+      "context": "/90/5f598aff78/1/context.md",
+      "content_hash": "/90/5f598aff78/1/content_hash.txt",
+      "prompt": "/90/5f598aff78/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 25,
-    "cache_creation_tokens": 69455,
-    "cache_read_tokens": 1271693,
-    "output_tokens": 3817,
-    "api_call_count": 21
+    "input_tokens": 4478,
+    "cache_creation_tokens": 2959318,
+    "cache_read_tokens": 73130802,
+    "output_tokens": 253709,
+    "api_call_count": 681
   }
 }
