@@ -1,29 +1,30 @@
 import path from "node:path";
 import os from "node:os";
-import { ConfigManager } from "./config.js";
-import { AgentManager } from "./agent-manager.js";
-import { SessionManager } from "./session-manager.js";
-import { SessionBridge } from "./session-bridge.js";
-import { NotificationManager } from "./notification.js";
-import { ChannelAdapter } from "./channel.js";
-import { Session } from "./session.js";
+import { ConfigManager } from "./config/config.js";
+import { AgentManager } from "./agents/agent-manager.js";
+import { SessionManager } from "./sessions/session-manager.js";
+import { SessionBridge } from "./sessions/session-bridge.js";
+import type { NotificationManager } from "../plugins/notifications/notification.js";
+import type { IChannelAdapter } from "./channel.js";
+import { Session } from "./sessions/session.js";
 import { MessageTransformer } from "./message-transformer.js";
-import { FileService } from "./file-service.js";
-import { JsonFileSessionStore, type SessionStore } from "./session-store.js";
-import { UsageStore } from "./usage-store.js";
-import { UsageBudget } from "./usage-budget.js";
-import { SecurityGuard } from "./security-guard.js";
-import { SessionFactory } from "./session-factory.js";
+import type { FileServiceInterface } from "./plugin/types.js";
+import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
+import type { SecurityGuard } from "../plugins/security/security-guard.js";
+import { SessionFactory } from "./sessions/session-factory.js";
 import type { IncomingMessage } from "./types.js";
-import type { TunnelService } from "../tunnel/tunnel-service.js";
-import { getAgentCapabilities } from "./agent-registry.js";
-import { AgentCatalog } from "./agent-catalog.js";
+import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
+import { getAgentCapabilities } from "./agents/agent-registry.js";
+import { AgentCatalog } from "./agents/agent-catalog.js";
 import { EventBus } from "./event-bus.js";
-import { createChildLogger } from "./log.js";
-import { SpeechService, GroqSTT, EdgeTTS } from "./speech/index.js";
-import { ContextManager } from "./context/context-manager.js";
-import { EntireProvider } from "./context/entire/entire-provider.js";
-import type { ContextQuery, ContextOptions, ContextResult } from "./context/context-provider.js";
+import { LifecycleManager } from "./plugin/lifecycle-manager.js";
+import { ServiceRegistry } from "./plugin/service-registry.js";
+import { MiddlewareChain } from "./plugin/middleware-chain.js";
+import { ErrorTracker } from "./plugin/error-tracker.js";
+import { createChildLogger } from "./utils/log.js";
+import type { SpeechService } from "../plugins/speech/exports.js";
+import type { ContextManager } from "../plugins/context/context-manager.js";
+import type { ContextQuery, ContextOptions, ContextResult } from "../plugins/context/context-provider.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -31,12 +32,8 @@ export class OpenACPCore {
   agentCatalog: AgentCatalog;
   agentManager: AgentManager;
   sessionManager: SessionManager;
-  notificationManager: NotificationManager;
   messageTransformer: MessageTransformer;
-  fileService: FileService;
-  readonly speechService: SpeechService;
-  securityGuard: SecurityGuard;
-  adapters: Map<string, ChannelAdapter> = new Map();
+  adapters: Map<string, IChannelAdapter> = new Map();
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
@@ -44,9 +41,35 @@ export class OpenACPCore {
   private resumeLocks: Map<string, Promise<Session | null>> = new Map();
   eventBus: EventBus;
   sessionFactory: SessionFactory;
-  readonly usageStore: UsageStore | null = null;
-  readonly usageBudget: UsageBudget | null = null;
-  readonly contextManager: ContextManager;
+  readonly lifecycleManager: LifecycleManager;
+
+  // --- Lazy getters: resolve from ServiceRegistry (populated by plugins during boot) ---
+
+  private getService<T>(name: string): T {
+    const svc = this.lifecycleManager.serviceRegistry.get<T>(name);
+    if (!svc) throw new Error(`Service '${name}' not registered — is the ${name} plugin loaded?`);
+    return svc;
+  }
+
+  get securityGuard(): SecurityGuard {
+    return this.getService<SecurityGuard>('security');
+  }
+
+  get notificationManager(): NotificationManager {
+    return this.getService<NotificationManager>('notifications');
+  }
+
+  get fileService(): FileServiceInterface {
+    return this.getService<FileServiceInterface>('file-service');
+  }
+
+  get speechService(): SpeechService {
+    return this.getService<SpeechService>('speech');
+  }
+
+  get contextManager(): ContextManager {
+    return this.getService<ContextManager>('context');
+  }
 
   constructor(configManager: ConfigManager) {
     this.configManager = configManager;
@@ -60,90 +83,56 @@ export class OpenACPCore {
       config.sessionStore.ttlDays,
     );
     this.sessionManager = new SessionManager(this.sessionStore);
-    this.securityGuard = new SecurityGuard(configManager, this.sessionManager);
-    this.notificationManager = new NotificationManager(this.adapters);
-
-    // Usage tracking
-    const usageConfig = config.usage;
-    if (usageConfig.enabled) {
-      const usagePath = path.join(os.homedir(), ".openacp", "usage.json");
-      this.usageStore = new UsageStore(usagePath, usageConfig.retentionDays);
-      this.usageBudget = new UsageBudget(this.usageStore, usageConfig);
-    }
 
     this.messageTransformer = new MessageTransformer();
     this.eventBus = new EventBus();
     this.sessionManager.setEventBus(this.eventBus);
-    this.contextManager = new ContextManager();
-    this.contextManager.register(new EntireProvider());
-    this.fileService = new FileService(
-      path.join(os.homedir(), ".openacp", "files"),
-    );
 
-    // Initialize speech service — edge-tts is always available by default (free, no API key)
-    const speechConfig = config.speech ?? {
-      stt: { provider: null, providers: {} },
-      tts: { provider: "edge-tts", providers: {} },
-    };
-    // Default TTS provider to edge-tts if not explicitly set
-    if (speechConfig.tts.provider == null) {
-      speechConfig.tts.provider = "edge-tts";
-    }
-    this.speechService = new SpeechService(speechConfig);
-
-    // Register built-in STT providers
-    const groqConfig = speechConfig.stt?.providers?.groq;
-    if (groqConfig?.apiKey) {
-      this.speechService.registerSTTProvider(
-        "groq",
-        new GroqSTT(groqConfig.apiKey, groqConfig.model),
-      );
-    }
-
-    // Register built-in TTS providers — always register edge-tts (free, no config needed)
-    {
-      const edgeConfig = speechConfig.tts?.providers?.["edge-tts"];
-      const voice = edgeConfig?.voice as string | undefined;
-      this.speechService.registerTTSProvider("edge-tts", new EdgeTTS(voice));
-    }
-
+    // SessionFactory uses a lazy accessor for speechService (resolved from ServiceRegistry after plugin boot)
     this.sessionFactory = new SessionFactory(
       this.agentManager,
       this.sessionManager,
-      this.speechService,
+      () => this.speechService,
       this.eventBus,
     );
+
+    // Initialize plugin lifecycle manager (before setting middlewareChain on factory)
+    this.lifecycleManager = new LifecycleManager({
+      serviceRegistry: new ServiceRegistry(),
+      middlewareChain: new MiddlewareChain(),
+      errorTracker: new ErrorTracker(),
+      eventBus: this.eventBus as any,
+      sessions: this.sessionManager,
+      config: this.configManager,
+      core: this,
+      storagePath: path.join(os.homedir(), ".openacp", "plugins", "data"),
+      log: createChildLogger({ module: "plugin" }),
+    });
+
+    // Wire middleware chain to session factory and session manager
+    this.sessionFactory.middlewareChain = this.lifecycleManager.middlewareChain;
+    this.sessionManager.middlewareChain = this.lifecycleManager.middlewareChain;
 
     // Hot-reload: handle config changes that need side effects
     this.configManager.on(
       "config:changed",
       async ({ path: configPath, value }: { path: string; value: unknown }) => {
         if (configPath === "logging.level" && typeof value === "string") {
-          const { setLogLevel } = await import("./log.js");
+          const { setLogLevel } = await import("./utils/log.js");
           setLogLevel(value);
           log.info({ level: value }, "Log level changed at runtime");
         }
         if (configPath.startsWith("speech.")) {
-          const newConfig = this.configManager.get();
-          const newSpeechConfig = newConfig.speech ?? {
-            stt: { provider: null, providers: {} },
-            tts: { provider: null, providers: {} },
-          };
-          this.speechService.updateConfig(newSpeechConfig);
-          const groqCfg = newSpeechConfig.stt?.providers?.groq;
-          if (groqCfg?.apiKey) {
-            this.speechService.registerSTTProvider(
-              "groq",
-              new GroqSTT(groqCfg.apiKey, groqCfg.model),
-            );
+          const speechSvc = this.speechService;
+          if (speechSvc) {
+            const newConfig = this.configManager.get();
+            const newSpeechConfig = newConfig.speech ?? {
+              stt: { provider: null, providers: {} },
+              tts: { provider: null, providers: {} },
+            };
+            speechSvc.refreshProviders(newSpeechConfig);
+            log.info("Speech service config updated at runtime");
           }
-          // Re-register TTS providers on config change — always keep edge-tts available
-          {
-            const edgeConfig = newSpeechConfig.tts?.providers?.["edge-tts"];
-            const voice = edgeConfig?.voice as string | undefined;
-            this.speechService.registerTTSProvider("edge-tts", new EdgeTTS(voice));
-          }
-          log.info("Speech service config updated at runtime");
         }
       },
     );
@@ -158,7 +147,7 @@ export class OpenACPCore {
     this.messageTransformer = new MessageTransformer(service);
   }
 
-  registerAdapter(name: string, adapter: ChannelAdapter): void {
+  registerAdapter(name: string, adapter: IChannelAdapter): void {
     this.adapters.set(name, adapter);
   }
 
@@ -172,129 +161,68 @@ export class OpenACPCore {
   }
 
   async stop(): Promise<void> {
-    // 1. Notify users
+    // 1. Notify users (best effort — service may not be available)
     try {
-      await this.notificationManager.notifyAll({
-        sessionId: "system",
-        type: "error",
-        summary: "OpenACP is shutting down",
-      });
+      const nm = this.lifecycleManager.serviceRegistry.get<NotificationManager>('notifications');
+      if (nm) {
+        await nm.notifyAll({
+          sessionId: "system",
+          type: "error",
+          summary: "OpenACP is shutting down",
+        });
+      }
     } catch {
       /* best effort */
     }
 
-    // 2. Destroy all sessions
-    await this.sessionManager.destroyAll();
+    // 2. Persist session state (don't kill agents — they exit with parent)
+    await this.sessionManager.shutdownAll();
 
     // 3. Stop adapters
     for (const adapter of this.adapters.values()) {
       await adapter.stop();
     }
-
-    // 4. Cleanup usage store
-    if (this.usageStore) {
-      this.usageStore.destroy();
-    }
-  }
-
-  // --- Summary ---
-
-  async summarizeSession(sessionId: string): Promise<{ ok: true; summary: string } | { ok: false; error: string }> {
-    // Active session — summarize directly
-    const session = this.sessionManager.getSession(sessionId);
-    if (session && session.status === "active") {
-      try {
-        const summary = await session.generateSummary();
-        if (!summary) return { ok: false, error: "Agent could not generate summary" };
-        return { ok: true, summary };
-      } catch (err) {
-        return { ok: false, error: (err as Error).message };
-      }
-    }
-
-    // Ended session — respawn agent temporarily with conversation history
-    const record = this.sessionManager.getSessionRecord(sessionId);
-    if (!record?.agentSessionId) {
-      return { ok: false, error: "Session not found or has no agent history" };
-    }
-
-    const caps = getAgentCapabilities(record.agentName);
-    if (!caps.supportsResume) {
-      return { ok: false, error: `Agent "${record.agentName}" does not support resume — cannot summarize ended session` };
-    }
-
-    let tempSession: Session | undefined;
-    try {
-      const agentInstance = await this.agentManager.resume(
-        record.agentName,
-        record.workingDir,
-        record.agentSessionId,
-      );
-
-      tempSession = new Session({
-        id: `summary-${sessionId}`,
-        channelId: record.channelId,
-        agentName: record.agentName,
-        workingDirectory: record.workingDir,
-        agentInstance,
-      });
-      tempSession.activate();
-
-      const summary = await tempSession.generateSummary();
-      if (!summary) return { ok: false, error: "Agent could not generate summary" };
-      return { ok: true, summary };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    } finally {
-      if (tempSession) {
-        try { await tempSession.destroy(); } catch { /* best effort */ }
-      }
-    }
   }
 
   // --- Archive ---
 
-  async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async archiveSession(sessionId: string): Promise<{ ok: true; newThreadId: string } | { ok: false; error: string }> {
     const session = this.sessionManager.getSession(sessionId);
-    const record = this.sessionManager.getSessionRecord(sessionId);
+    if (!session) return { ok: false, error: "Session not found (must be in memory)" };
 
-    if (!session && !record) return { ok: false, error: "Session not found" };
+    // Must be active (not initializing or finished)
+    if (session.status !== "active" && session.status !== "cancelled" && session.status !== "error") {
+      return { ok: false, error: `Cannot archive session in '${session.status}' state` };
+    }
 
-    const channelId = session?.channelId ?? record?.channelId;
-    if (!channelId) return { ok: false, error: "No channel for session" };
-
-    const adapter = this.adapters.get(channelId);
+    const adapter = this.adapters.get(session.channelId);
     if (!adapter) return { ok: false, error: "Adapter not found for session" };
+    if (!adapter.archiveSessionTopic) return { ok: false, error: "Adapter does not support topic archiving" };
 
     try {
-      // 1. Delete topic — if session is in memory use archiveSessionTopic (cleans up trackers),
-      //    otherwise use deleteSessionThread (looks up topicId from record)
-      if (session) {
-        await adapter.archiveSessionTopic(session.id);
-      } else {
-        await adapter.deleteSessionThread(sessionId);
-      }
+      // archiveSessionTopic handles: cleanup trackers → delete old topic → create new topic
+      const newThreadId = await adapter.archiveSessionTopic(session.id);
 
-      // 2. Cancel the session if in memory (stop agent)
-      if (session) {
-        try {
-          await this.sessionManager.cancelSession(sessionId);
-        } catch {
-          // Session may already be finished/cancelled
-        } finally {
-          // Clear archiving flag after cancel completes — prevents race window
-          // where agent events try to send to deleted topic
-          session.archiving = false;
+      // Rewire session to new topic
+      session.threadId = newThreadId;
+
+      // Update session store with new topic ID (best-effort — topic is already recreated)
+      try {
+        const platform: Record<string, unknown> = {};
+        if (session.channelId === "telegram") {
+          platform.topicId = Number(newThreadId);
+        } else {
+          platform.threadId = newThreadId;
         }
+        await this.sessionManager.patchRecord(sessionId, { platform });
+      } catch (patchErr) {
+        log.warn({ err: patchErr, sessionId }, "Failed to update session record after archive — session will work but may not survive restart");
       }
 
-      // 3. Remove session record
-      await this.sessionManager.removeRecord(sessionId);
-
-      return { ok: true };
+      return { ok: true, newThreadId };
     } catch (err) {
-      // Clear archiving flag on error too
-      if (session) session.archiving = false;
+      // Clear archiving flag on error
+      session.archiving = false;
       return { ok: false, error: (err as Error).message };
     }
   }
@@ -310,6 +238,17 @@ export class OpenACPCore {
       },
       "Incoming message",
     );
+
+    // Hook: message:incoming — modifiable, can block
+    if (this.lifecycleManager?.middlewareChain) {
+      const result = await this.lifecycleManager.middlewareChain.execute(
+        'message:incoming',
+        message,
+        async (msg) => msg,
+      );
+      if (!result) return; // blocked by middleware
+      message = result;
+    }
 
     // Security: check user access and session limits
     const access = this.securityGuard.checkAccess(message);
@@ -365,9 +304,15 @@ export class OpenACPCore {
     existingSessionId?: string;
     createThread?: boolean;
     initialName?: string;
+    threadId?: string;
   }): Promise<Session> {
     // 1-3. Spawn/resume agent, create Session, register in SessionManager
     const session = await this.sessionFactory.create(params);
+
+    // Set threadId early so agent events during bridge.connect() can find the thread
+    if (params.threadId) {
+      session.threadId = params.threadId;
+    }
 
     // 4. Create thread if needed
     const adapter = this.adapters.get(params.channelId);
@@ -387,8 +332,7 @@ export class OpenACPCore {
 
     // 5b-5c. Wire usage tracking and tunnel cleanup
     this.sessionFactory.wireSideEffects(session, {
-      usageStore: this.usageStore,
-      usageBudget: this.usageBudget,
+      eventBus: this.eventBus,
       notificationManager: this.notificationManager,
       tunnelService: this._tunnelService,
     });
@@ -680,8 +624,8 @@ export class OpenACPCore {
       return null;
     }
 
-    // Don't resume errored sessions (cancelled sessions can still be resumed)
-    if (record.status === "error") {
+    // Don't resume errored or cancelled sessions
+    if (record.status === "error" || record.status === "cancelled") {
       log.debug(
         {
           threadId: message.threadId,
@@ -711,8 +655,8 @@ export class OpenACPCore {
           resumeAgentSessionId: record.agentSessionId,
           existingSessionId: record.sessionId,
           initialName: record.name,
+          threadId: message.threadId,
         });
-        session.threadId = message.threadId;
         session.activate();
         session.dangerousMode = record.dangerousMode ?? false;
 
@@ -748,13 +692,14 @@ export class OpenACPCore {
   // --- Event Wiring ---
 
   /** Create a SessionBridge for the given session and adapter */
-  createBridge(session: Session, adapter: ChannelAdapter): SessionBridge {
+  createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
     return new SessionBridge(session, adapter, {
       messageTransformer: this.messageTransformer,
       notificationManager: this.notificationManager,
       sessionManager: this.sessionManager,
       eventBus: this.eventBus,
       fileService: this.fileService,
+      middlewareChain: this.lifecycleManager?.middlewareChain,
     });
   }
 }
