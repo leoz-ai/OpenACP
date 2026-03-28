@@ -1,0 +1,28 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+Reply with only "ready".
+
+### Prompt 2
+
+nghiên cứu dự án này, và đưa ra các chức năng chính
+
+### Prompt 3
+
+Summarize this conversation in max 5 words for a topic title. Reply ONLY with the title, nothing else.
+
+### Prompt 4
+
+về mặt code khi format show ở đây thì nó chạy theo chế độ nào? nếu như theo claude cli thì nó khác biệt thế nào
+
+### Prompt 5
+
+Cách OpenACP format và hiển thị : phân tích một cách chi tiết và rõ ràng
+
+### Prompt 6
+
+Fix lỗi typing liên tục mặc dù đã gửi xong message. Nên tối ưu lại. Khi nào cần typing là khi nhận dc messqge của user thì sẽ hiện typing. Khi gửi hết câu trả lời thì hết thping
+
