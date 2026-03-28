@@ -186,47 +186,43 @@ export class OpenACPCore {
 
   // --- Archive ---
 
-  async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async archiveSession(sessionId: string): Promise<{ ok: true; newThreadId: string } | { ok: false; error: string }> {
     const session = this.sessionManager.getSession(sessionId);
-    const record = this.sessionManager.getSessionRecord(sessionId);
+    if (!session) return { ok: false, error: "Session not found (must be in memory)" };
 
-    if (!session && !record) return { ok: false, error: "Session not found" };
+    // Must be active (not initializing or finished)
+    if (session.status !== "active" && session.status !== "cancelled" && session.status !== "error") {
+      return { ok: false, error: `Cannot archive session in '${session.status}' state` };
+    }
 
-    const channelId = session?.channelId ?? record?.channelId;
-    if (!channelId) return { ok: false, error: "No channel for session" };
-
-    const adapter = this.adapters.get(channelId);
+    const adapter = this.adapters.get(session.channelId);
     if (!adapter) return { ok: false, error: "Adapter not found for session" };
+    if (!adapter.archiveSessionTopic) return { ok: false, error: "Adapter does not support topic archiving" };
 
     try {
-      // 1. Delete topic — if session is in memory use archiveSessionTopic (cleans up trackers),
-      //    otherwise use deleteSessionThread (looks up topicId from record)
-      if (session) {
-        await adapter.archiveSessionTopic?.(session.id);
-      } else {
-        await adapter.deleteSessionThread?.(sessionId);
-      }
+      // archiveSessionTopic handles: cleanup trackers → delete old topic → create new topic
+      const newThreadId = await adapter.archiveSessionTopic(session.id);
 
-      // 2. Cancel the session if in memory (stop agent)
-      if (session) {
-        try {
-          await this.sessionManager.cancelSession(sessionId);
-        } catch {
-          // Session may already be finished/cancelled
-        } finally {
-          // Clear archiving flag after cancel completes — prevents race window
-          // where agent events try to send to deleted topic
-          session.archiving = false;
+      // Rewire session to new topic
+      session.threadId = newThreadId;
+
+      // Update session store with new topic ID (best-effort — topic is already recreated)
+      try {
+        const platform: Record<string, unknown> = {};
+        if (session.channelId === "telegram") {
+          platform.topicId = Number(newThreadId);
+        } else {
+          platform.threadId = newThreadId;
         }
+        await this.sessionManager.patchRecord(sessionId, { platform });
+      } catch (patchErr) {
+        log.warn({ err: patchErr, sessionId }, "Failed to update session record after archive — session will work but may not survive restart");
       }
 
-      // 3. Remove session record
-      await this.sessionManager.removeRecord(sessionId);
-
-      return { ok: true };
+      return { ok: true, newThreadId };
     } catch (err) {
-      // Clear archiving flag on error too
-      if (session) session.archiving = false;
+      // Clear archiving flag on error
+      session.archiving = false;
       return { ok: false, error: (err as Error).message };
     }
   }
@@ -308,9 +304,15 @@ export class OpenACPCore {
     existingSessionId?: string;
     createThread?: boolean;
     initialName?: string;
+    threadId?: string;
   }): Promise<Session> {
     // 1-3. Spawn/resume agent, create Session, register in SessionManager
     const session = await this.sessionFactory.create(params);
+
+    // Set threadId early so agent events during bridge.connect() can find the thread
+    if (params.threadId) {
+      session.threadId = params.threadId;
+    }
 
     // 4. Create thread if needed
     const adapter = this.adapters.get(params.channelId);
@@ -622,8 +624,8 @@ export class OpenACPCore {
       return null;
     }
 
-    // Don't resume errored sessions (cancelled sessions can still be resumed)
-    if (record.status === "error") {
+    // Don't resume errored or cancelled sessions
+    if (record.status === "error" || record.status === "cancelled") {
       log.debug(
         {
           threadId: message.threadId,
@@ -653,8 +655,8 @@ export class OpenACPCore {
           resumeAgentSessionId: record.agentSessionId,
           existingSessionId: record.sessionId,
           initialName: record.name,
+          threadId: message.threadId,
         });
-        session.threadId = message.threadId;
         session.activate();
         session.dangerousMode = record.dangerousMode ?? false;
 
