@@ -74,24 +74,13 @@ export class ToolStateMap {
     content?: string | null,
     viewerLinks?: ViewerLinks,
     diffStats?: { added: number; removed: number },
-  ): ToolEntry {
+  ): ToolEntry | undefined {
     const entry = this.entries.get(id);
 
     if (!entry) {
       // Buffer the update for when upsert is called
       this.pendingUpdates.set(id, { status, rawInput, content, viewerLinks, diffStats });
-      // Return a placeholder — callers should not rely on this when entry is absent
-      return {
-        id,
-        name: "",
-        kind: "",
-        rawInput: rawInput ?? null,
-        content: content ?? null,
-        status,
-        viewerLinks,
-        diffStats,
-        isNoise: false,
-      };
+      return undefined;
     }
 
     this._applyUpdate(entry, { status, rawInput, content, viewerLinks, diffStats });

@@ -5,7 +5,6 @@ import type { ToolCallMeta } from "../format-types.js";
 const makeMeta = (overrides: Partial<ToolCallMeta> = {}): ToolCallMeta => ({
   id: "tool-1",
   name: "Read",
-  kind: "read",
   status: "running",
   rawInput: {},
   ...overrides,
