@@ -4,6 +4,7 @@ import type {
   ViewerLinks,
 } from "../../core/adapter-primitives/format-types.js";
 import type { ToolCardSnapshot } from "../../core/adapter-primitives/primitives/tool-card-state.js";
+import type { ToolDisplaySpec } from "../../core/adapter-primitives/display-spec-builder.js";
 import {
   STATUS_ICONS,
   KIND_ICONS,
@@ -188,72 +189,82 @@ export function splitMessage(text: string, maxLength = 3800): string[] {
 export function renderToolCard(snap: ToolCardSnapshot): string {
   const sections: string[] = [];
 
-  // Header
   const { totalVisible, completedVisible, allComplete } = snap;
   const headerCheck = allComplete ? " ✅" : "";
   if (totalVisible > 0) {
-    sections.push(
-      `<b>📋 Tools (${completedVisible}/${totalVisible})</b>${headerCheck}`,
-    );
+    sections.push(`<b>📋 Tools (${completedVisible}/${totalVisible})</b>${headerCheck}`);
   }
 
-  // TODO(Task 8): update to use snap.specs instead of snap.entries after formatting.ts is refactored
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const visible: any[] = ((snap as any).entries ?? []).filter((e: any) => !e.hidden);
-  const completed = visible.filter(
-    (e) =>
-      e.status === "completed" || e.status === "done" || e.status === "failed",
-  );
-  const running = visible.filter(
-    (e) =>
-      e.status !== "completed" && e.status !== "done" && e.status !== "failed",
-  );
+  const DONE = new Set(["completed", "done", "failed", "error"]);
+  const visible = snap.specs.filter((s) => !s.isHidden);
+  const completed = visible.filter((s) => DONE.has(s.status));
+  const running = visible.filter((s) => !DONE.has(s.status));
 
-  for (const entry of completed) {
-    let line = `${entry.icon} ${escapeHtml(entry.label)}`;
-    if (entry.viewerLinks) {
-      const links: string[] = [];
-      const fileName = entry.viewerFilePath?.split("/").pop() ?? "";
-      if (entry.viewerLinks.file)
-        links.push(
-          `<a href="${escapeHtml(entry.viewerLinks.file)}">View ${escapeHtml(fileName || "file")}</a>`,
-        );
-      if (entry.viewerLinks.diff)
-        links.push(
-          `<a href="${escapeHtml(entry.viewerLinks.diff)}">View diff</a>`,
-        );
-      if (links.length > 0) line += `\n    ${links.join(" · ")}`;
-    }
-    sections.push(line);
+  for (const spec of completed) {
+    sections.push(renderSpecSection(spec));
   }
 
-  // Plan section (between completed and running tools)
   if (snap.planEntries && snap.planEntries.length > 0) {
-    const planDone = snap.planEntries.filter(
-      (e) => e.status === "completed",
-    ).length;
+    const planDone = snap.planEntries.filter((e) => e.status === "completed").length;
     const planTotal = snap.planEntries.length;
     sections.push(`── Plan: ${planDone}/${planTotal} ──`);
-
-    const statusIcon: Record<string, string> = {
-      completed: "✅",
-      in_progress: "🔄",
-      pending: "⬜",
-    };
+    const statusIcon: Record<string, string> = { completed: "✅", in_progress: "🔄", pending: "⬜" };
     for (let i = 0; i < snap.planEntries.length; i++) {
       const e = snap.planEntries[i];
-      const icon = statusIcon[e.status] ?? "⬜";
-      sections.push(`${icon} ${i + 1}. ${escapeHtml(e.content)}`);
+      sections.push(`${statusIcon[e.status] ?? "⬜"} ${i + 1}. ${escapeHtml(e.content)}`);
     }
     sections.push("────");
   }
 
-  // Running tools (after plan)
-  for (const entry of running) {
-    sections.push(`${entry.icon} ${escapeHtml(entry.label)}`);
+  for (const spec of running) {
+    sections.push(renderSpecSection(spec));
   }
 
   return sections.join("\n\n");
+}
+
+function renderSpecSection(spec: ToolDisplaySpec): string {
+  const lines: string[] = [];
+
+  const DONE = new Set(["completed", "done", "failed", "error"]);
+  const statusSuffix =
+    spec.status === "error" || spec.status === "failed"
+      ? " ❌"
+      : DONE.has(spec.status)
+        ? " ✅"
+        : "";
+  let titleLine = `${spec.icon} ${escapeHtml(spec.title)}${statusSuffix}`;
+  if (spec.diffStats) {
+    const { added, removed } = spec.diffStats;
+    if (added > 0 && removed > 0) titleLine += ` · <i>+${added}/-${removed} lines</i>`;
+    else if (added > 0) titleLine += ` · <i>+${added} lines</i>`;
+    else if (removed > 0) titleLine += ` · <i>-${removed} lines</i>`;
+  }
+  lines.push(titleLine);
+
+  if (spec.description) lines.push(`   <i>${escapeHtml(spec.description)}</i>`);
+  if (spec.command) lines.push(`   <code>${escapeHtml(spec.command)}</code>`);
+  if (spec.outputSummary) lines.push(`   · ${escapeHtml(spec.outputSummary)}`);
+  if (spec.outputContent) {
+    const truncated =
+      spec.outputContent.length > 800
+        ? spec.outputContent.slice(0, 797) + "…"
+        : spec.outputContent;
+    lines.push(`   <pre><code>${escapeHtml(truncated)}</code></pre>`);
+  }
+
+  if (spec.viewerLinks?.file || spec.viewerLinks?.diff || spec.outputViewerLink) {
+    const linkParts: string[] = [];
+    if (spec.viewerLinks?.file)
+      linkParts.push(`📄 <a href="${escapeHtml(spec.viewerLinks.file)}">View file</a>`);
+    if (spec.viewerLinks?.diff)
+      linkParts.push(`📝 <a href="${escapeHtml(spec.viewerLinks.diff)}">View diff</a>`);
+    if (spec.outputViewerLink)
+      linkParts.push(`📋 <a href="${escapeHtml(spec.outputViewerLink)}">View output</a>`);
+    lines.push(`   ${linkParts.join("\n   ")}`);
+  }
+
+  return lines.join("\n");
 }
 
 const TELEGRAM_MAX_LENGTH = 4096;
@@ -270,10 +281,16 @@ export function splitToolCardText(text: string): string[] {
   let current = "";
 
   for (const section of sections) {
-    const candidate = current ? `${current}\n\n${section}` : section;
+    // Handle single section > limit (truncate with ellipsis)
+    const safeSection =
+      section.length > TELEGRAM_MAX_LENGTH
+        ? section.slice(0, TELEGRAM_MAX_LENGTH - 3) + "..."
+        : section;
+
+    const candidate = current ? `${current}\n\n${safeSection}` : safeSection;
     if (candidate.length > TELEGRAM_MAX_LENGTH && current) {
       chunks.push(current);
-      current = section;
+      current = safeSection;
     } else {
       current = candidate;
     }
