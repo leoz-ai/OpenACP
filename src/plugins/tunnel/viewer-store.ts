@@ -20,7 +20,7 @@ const EXTENSION_LANGUAGE: Record<string, string> = {
 
 export interface ViewerEntry {
   id: string
-  type: 'file' | 'diff'
+  type: 'file' | 'diff' | 'output'
   filePath?: string
   content: string
   oldContent?: string
@@ -94,6 +94,28 @@ export class ViewerStore {
       expiresAt: now + this.ttlMs,
     })
     log.debug({ id, filePath }, 'Stored diff for viewing')
+    return id
+  }
+
+  storeOutput(sessionId: string, label: string, output: string): string | null {
+    if (output.length > MAX_CONTENT_SIZE) {
+      log.debug({ label, size: output.length }, 'Output too large for viewer')
+      return null
+    }
+    const id = nanoid(12)
+    const now = Date.now()
+    this.entries.set(id, {
+      id,
+      type: 'output',
+      filePath: label,
+      content: output,
+      language: 'text',
+      sessionId,
+      workingDirectory: '',
+      createdAt: now,
+      expiresAt: now + this.ttlMs,
+    })
+    log.debug({ id, label }, 'Stored output for viewing')
     return id
   }
 
