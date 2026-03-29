@@ -24,7 +24,8 @@ OpenACP responds to commands sent in your chat platform. This page covers every 
 | `/dangerous` | No | Yes | Toggle dangerous mode (Discord) |
 | `/text_to_speech` | Yes | No | Toggle TTS for a session |
 | `/tts` | No | Yes | Toggle TTS (Discord) |
-| `/verbosity` | Yes | Yes | Set output detail level |
+| `/outputmode` | Yes | Yes | Set output detail level (replaces `/verbosity`) |
+| `/verbosity` | Yes | Yes | Deprecated — use `/outputmode` instead |
 | `/usage` | Yes | No | View token usage and cost |
 | `/archive` | Yes | No | Archive a session topic |
 | `/summary` | Yes | No | Generate an AI summary of a session |
@@ -134,13 +135,24 @@ Toggle dangerous mode for the current session. When enabled, all permission requ
 
 Toggle text-to-speech for the current session. Without an argument, enables TTS for the next message only. With `on`, enables persistently. With `off`, disables.
 
-### `/verbosity low|medium|high`
+### `/outputmode low|medium|high`
 
-Set how much detail OpenACP shows for agent activity.
+Set how much detail OpenACP shows for agent activity. You can also set a per-session override:
+
+```
+/outputmode low             # set globally for this channel
+/outputmode high            # show full detail including inline output
+/outputmode session high    # override for the current session only
+/outputmode session reset   # clear the session override
+```
 
 - `low` — minimal output, title only
 - `medium` — balanced (default)
-- `high` — full detail including tool call content
+- `high` — full detail including inline output for short results, viewer links for long output
+
+### `/verbosity low|medium|high` (deprecated)
+
+Alias for `/outputmode`. Use `/outputmode` instead.
 
 ### `/usage [today|week|month]` (Telegram only)
 

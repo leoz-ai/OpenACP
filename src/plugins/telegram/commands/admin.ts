@@ -430,8 +430,8 @@ export function setupVerbosityCallbacks(bot: Bot, core: OpenACPCore): void {
     if (level !== "low" && level !== "medium" && level !== "high") return;
 
     await core.configManager.save(
-      { channels: { telegram: { displayVerbosity: level } } },
-      "channels.telegram.displayVerbosity",
+      { channels: { telegram: { outputMode: level } } },
+      "channels.telegram.outputMode",
     );
 
     try {

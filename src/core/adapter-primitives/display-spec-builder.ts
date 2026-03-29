@@ -1,8 +1,9 @@
 // src/core/adapter-primitives/display-spec-builder.ts
 
-import { KIND_ICONS, STATUS_ICONS } from "./format-types.js";
+import { KIND_ICONS } from "./format-types.js";
 import type { OutputMode, ViewerLinks } from "./format-types.js";
 import type { ToolEntry } from "./stream-accumulator.js";
+import type { TunnelServiceInterface } from "../plugin/types.js";
 
 // ─── Output spec interfaces ────────────────────────────────────────────────
 
@@ -110,7 +111,13 @@ function isShortOutput(content: string): boolean {
 // ─── DisplaySpecBuilder ───────────────────────────────────────────────────
 
 export class DisplaySpecBuilder {
-  buildToolSpec(entry: ToolEntry, mode: OutputMode): ToolDisplaySpec {
+  constructor(private tunnelService?: TunnelServiceInterface) {}
+
+  buildToolSpec(
+    entry: ToolEntry,
+    mode: OutputMode,
+    sessionContext?: { id: string; workingDirectory: string },
+  ): ToolDisplaySpec {
     const icon = KIND_ICONS[entry.kind] ?? KIND_ICONS["other"] ?? "🛠️";
     const title = buildTitle(entry);
     const isHidden = entry.isNoise && mode !== "high";
@@ -137,19 +144,33 @@ export class DisplaySpecBuilder {
 
     let outputSummary: string | null = null;
     let outputContent: string | null = null;
+    let outputViewerLink: string | undefined = undefined;
+    let outputFallbackContent: string | undefined = undefined;
 
-    if (content && content.trim().length > 0) {
-      if (includeMeta) {
-        outputSummary = buildOutputSummary(content);
-      }
-      if (mode === "high" && isShortOutput(content)) {
+    if (content && content.trim().length > 0 && includeMeta) {
+      outputSummary = buildOutputSummary(content);
+
+      const isLong =
+        content.split("\n").length > INLINE_MAX_LINES || content.length > INLINE_MAX_CHARS;
+
+      if (isLong) {
+        if (this.tunnelService && sessionContext) {
+          const label =
+            typeof input.command === "string" ? input.command : entry.name;
+          const id = this.tunnelService.getStore().storeOutput(sessionContext.id, label, content);
+          if (id !== null) {
+            outputViewerLink = this.tunnelService.outputUrl(id);
+          }
+        } else if (mode === "high") {
+          outputFallbackContent = content;
+        }
+      } else if (mode === "high") {
         outputContent = content;
       }
     }
 
     const diffStats = includeMeta ? (entry.diffStats ?? null) : null;
 
-    // outputViewerLink and outputFallbackContent populated in Task 6 (ViewerStore integration)
     return {
       id: entry.id,
       icon,
@@ -160,8 +181,8 @@ export class DisplaySpecBuilder {
       outputContent,
       diffStats,
       viewerLinks: entry.viewerLinks,
-      outputViewerLink: undefined,
-      outputFallbackContent: undefined,
+      outputViewerLink,
+      outputFallbackContent,
       status: entry.status,
       isNoise: entry.isNoise,
       isHidden,
@@ -169,7 +190,7 @@ export class DisplaySpecBuilder {
   }
 
   buildThoughtSpec(content: string, mode: OutputMode): ThoughtDisplaySpec {
-    const indicator = STATUS_ICONS["in_progress"] ?? "🔄";
+    const indicator = "Thinking...";
     return {
       indicator,
       content: mode === "high" ? content : null,

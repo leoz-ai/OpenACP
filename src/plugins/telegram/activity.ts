@@ -257,6 +257,7 @@ export class ActivityTracker {
   private tracer: DebugTracer | null;
   private sessionId: string;
   private sessionContext?: { id: string; workingDirectory: string };
+  private tunnelService?: TunnelServiceInterface;
 
   constructor(
     private api: Bot["api"],
@@ -273,8 +274,8 @@ export class ActivityTracker {
     this.tracer = tracer;
     this.sessionId = sessionId;
     this.sessionContext = sessionContext;
-    void tunnelService; // reserved for future use
-    this.specBuilder = new DisplaySpecBuilder();
+    this.tunnelService = tunnelService;
+    this.specBuilder = new DisplaySpecBuilder(tunnelService);
     this.toolStateMap = new ToolStateMap();
     this.thoughtBuffer = new ThoughtBuffer();
     this.thinking = new ThinkingIndicator(api, chatId, threadId, sendQueue, sessionId, tracer);
@@ -319,7 +320,7 @@ export class ActivityTracker {
     this.thinking.reset();
 
     const entry = this.toolStateMap.upsert(meta, kind, rawInput);
-    const spec = this.specBuilder.buildToolSpec(entry, this.outputMode);
+    const spec = this.specBuilder.buildToolSpec(entry, this.outputMode, this.sessionContext);
     this.toolCard.updateFromSpec(spec);
   }
 
@@ -339,7 +340,7 @@ export class ActivityTracker {
     // Skip spec build for out-of-order updates — buffered in pendingUpdates
     if (!existed || !entry) return;
 
-    const spec = this.specBuilder.buildToolSpec(entry, this.outputMode);
+    const spec = this.specBuilder.buildToolSpec(entry, this.outputMode, this.sessionContext);
     this.toolCard.updateFromSpec(spec);
     this.previousToolCard?.updateFromSpec(spec);
     // Forward to previous state map so re-builds use latest data

@@ -63,7 +63,7 @@ Channel adapters. Each key is a channel identifier. The built-in channels are `t
   "enabled": true,
   "botToken": "1234567890:ABC...",
   "chatId": -1001234567890,
-  "displayVerbosity": "medium"
+  "outputMode": "medium"
 }
 ```
 
@@ -72,7 +72,7 @@ Channel adapters. Each key is a channel identifier. The built-in channels are `t
 | `enabled` | boolean | `false` | Whether this channel is active |
 | `botToken` | string | — | Telegram Bot API token |
 | `chatId` | number | — | Forum group chat ID |
-| `displayVerbosity` | `low` \| `medium` \| `high` | `medium` | Detail level for agent output messages |
+| `outputMode` | `low` \| `medium` \| `high` | `medium` | Detail level for agent output messages. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
 **Discord:**
 

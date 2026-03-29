@@ -190,7 +190,7 @@ export const STATIC_COMMANDS = [
   { command: "tunnels", description: "List active tunnels" },
   { command: 'archive', description: 'Archive session topic (recreate with clean history)' },
   { command: 'text_to_speech', description: 'Toggle Text to Speech (/text_to_speech on, /text_to_speech off)' },
-  { command: 'verbosity', description: 'Set display verbosity (/verbosity low|medium|high)' },
+  { command: 'verbosity', description: 'Deprecated: use /outputmode instead' },
   { command: "outputmode", description: "Control output display level (low/medium/high)" },
   { command: 'resume', description: 'Resume with conversation history from Entire checkpoints' },
 ];

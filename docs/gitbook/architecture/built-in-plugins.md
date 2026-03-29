@@ -22,9 +22,9 @@ Telegram messaging adapter using the grammY framework.
 |-----|------|-------------|
 | `botToken` | string | Telegram Bot Token from @BotFather |
 | `chatId` | string | Supergroup Chat ID |
-| `displayVerbosity` | `'low' \| 'medium' \| 'high'` | How much agent output to show |
+| `outputMode` | `'low' \| 'medium' \| 'high'` | How much agent output to show. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
-**Commands**: `/verbosity`, `/archive` (adapter-specific), plus overrides for `/new`, `/resume`, `/settings` with multi-step wizards.
+**Commands**: `/outputmode`, `/verbosity` (deprecated alias for `/outputmode`), `/archive` (adapter-specific), plus overrides for `/new`, `/resume`, `/settings` with multi-step wizards.
 
 ---
 
@@ -44,9 +44,9 @@ Discord messaging adapter using discord.js.
 |-----|------|-------------|
 | `botToken` | string | Discord Bot Token |
 | `guildId` | string | Discord Server ID |
-| `displayVerbosity` | `'low' \| 'medium' \| 'high'` | How much agent output to show |
+| `outputMode` | `'low' \| 'medium' \| 'high'` | How much agent output to show. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
-**Commands**: `/verbosity` (adapter-specific).
+**Commands**: `/outputmode`, `/verbosity` (deprecated alias).
 
 ---
 
