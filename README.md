@@ -83,12 +83,14 @@ That's it. Send a message to your bot and start coding.
 - **Session persistence** — Sessions survive restarts, with configurable TTL
 - **Permission control** — Approve or deny agent actions via buttons, with optional auto-approve
 - **Real-time streaming** — See agent thinking, tool calls, and output as they happen
+- **Agent switching** — Switch agents mid-conversation with `/switch`; history carries over automatically
 
 ### Developer Tools
 
 - **Tunnel & port forwarding** — Expose local ports to the internet (Cloudflare, ngrok, bore, Tailscale)
 - **Built-in file viewer** — Monaco Editor with syntax highlighting, diffs, and markdown preview
 - **Session transfer** — Move sessions between terminal and chat (`/handoff`)
+- **Agent switch** — Change which AI agent handles your session mid-conversation (`/switch`)
 - **Voice & speech** — Send voice messages, get spoken responses (Groq STT + Edge TTS)
 - **Usage tracking** — Token counts, cost reports, optional monthly budget limits
 - **Context resume** — Resume sessions with full conversation history

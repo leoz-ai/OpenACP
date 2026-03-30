@@ -198,6 +198,23 @@ Map of named agent configurations. Each key is an agent name used in `defaultAge
 
 ---
 
+## agentSwitch
+
+Controls the behavior of the `/switch` command.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `agentSwitch.labelHistory` | boolean | `true` | When `true`, agent names are prepended to messages in the conversation history injected into the new agent during a switch. Helps the incoming agent distinguish which AI produced which response. |
+
+**Example**
+```json
+"agentSwitch": {
+  "labelHistory": true
+}
+```
+
+---
+
 ## integrations
 
 Tracks installed agent integrations (managed automatically by `openacp agents install` / `openacp integrate`).

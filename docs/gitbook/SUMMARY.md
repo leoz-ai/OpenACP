@@ -42,6 +42,7 @@
 * [Usage & Budget](features/usage-and-budget.md)
 * [Session Persistence](features/session-persistence.md)
 * [Session Handoff](features/session-handoff.md)
+* [Agent Switch](features/agent-switch.md)
 * [Doctor Diagnostics](features/doctor.md)
 * [Assistant Mode](features/assistant-mode.md)
 

@@ -29,6 +29,7 @@ OpenACP responds to commands sent in your chat platform. This page covers every 
 | `/usage` | Yes | No | View token usage and cost |
 | `/archive` | Yes | No | Archive a session topic |
 | `/summary` | Yes | No | Generate an AI summary of a session |
+| `/switch` | Yes | Yes | Switch to a different agent mid-conversation |
 | `/handoff` | Yes | Yes | Continue session in your terminal |
 | `/integrate` | Yes | Yes | Manage agent integrations |
 | `/restart` | Yes | Yes | Restart OpenACP |
@@ -165,6 +166,24 @@ Archive the current session: stops the agent, removes the session record, and de
 ### `/summary` (Telegram only)
 
 Ask the agent to summarize what it has accomplished in the current session. Works inside a session topic.
+
+### `/switch [agent-name | label on|off]`
+
+Switch to a different agent mid-conversation. The current conversation history is injected into the new agent so context is preserved.
+
+```
+/switch                        # show a menu of available agents
+/switch claude                 # switch directly to the claude agent
+/switch gemini                 # switch directly to the gemini agent
+/switch label on               # enable agent name labels in history during switches
+/switch label off              # disable agent name labels
+```
+
+If you switch back to a previously used agent without having sent any user prompts in the current session, the old session is resumed (if the agent supports resume). Otherwise a new session is created with the conversation history injected.
+
+The session thread or topic remains the same across all switches — only the agent handling the conversation changes.
+
+See [Agent Switch](../features/agent-switch.md) for the full feature guide.
 
 ### `/handoff`
 
