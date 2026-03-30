@@ -19,7 +19,7 @@ Channel adapters. Each adapter key under `channels` is an object. The built-in T
 | `channels.telegram.chatId` | number | `0` | Telegram group/supergroup chat ID |
 | `channels.telegram.notificationTopicId` | number \| null | `null` | Forum topic ID for system notifications |
 | `channels.telegram.assistantTopicId` | number \| null | `null` | Forum topic ID for the Assistant |
-| `channels.telegram.displayVerbosity` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Controls how much detail is shown in messages |
+| `channels.telegram.outputMode` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Controls how much detail is shown in messages. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
 ### channels.discord.*
 
@@ -31,7 +31,7 @@ Channel adapters. Each adapter key under `channels` is an object. The built-in T
 | `channels.discord.forumChannelId` | string \| null | `null` | Forum channel ID for session threads |
 | `channels.discord.notificationChannelId` | string \| null | `null` | Channel ID for system notifications |
 | `channels.discord.assistantThreadId` | string \| null | `null` | Thread ID for the Assistant |
-| `channels.discord.displayVerbosity` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Controls message verbosity |
+| `channels.discord.outputMode` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Controls message verbosity. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
 ### channels.slack.*
 
@@ -55,7 +55,7 @@ Slack support is provided via a plugin adapter. Fields follow the schema below w
 |---|---|---|---|
 | `enabled` | boolean | `false` | Whether this channel is active |
 | `adapter` | string | — | Package name for plugin-based adapters |
-| `displayVerbosity` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Message detail level |
+| `outputMode` | `"low"` \| `"medium"` \| `"high"` | `"medium"` | Message detail level. The legacy key `displayVerbosity` is accepted for backward compatibility. |
 
 ---
 

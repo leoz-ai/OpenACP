@@ -144,7 +144,7 @@ export class OpenACPCore {
 
   set tunnelService(service: TunnelService | undefined) {
     this._tunnelService = service;
-    this.messageTransformer = new MessageTransformer(service);
+    this.messageTransformer.tunnelService = service;
   }
 
   registerAdapter(name: string, adapter: IChannelAdapter): void {

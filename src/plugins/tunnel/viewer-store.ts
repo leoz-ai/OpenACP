@@ -20,7 +20,7 @@ const EXTENSION_LANGUAGE: Record<string, string> = {
 
 export interface ViewerEntry {
   id: string
-  type: 'file' | 'diff'
+  type: 'file' | 'diff' | 'output'
   filePath?: string
   content: string
   oldContent?: string
@@ -97,6 +97,28 @@ export class ViewerStore {
     return id
   }
 
+  storeOutput(sessionId: string, label: string, output: string): string | null {
+    if (output.length > MAX_CONTENT_SIZE) {
+      log.debug({ label, size: output.length }, 'Output too large for viewer')
+      return null
+    }
+    const id = nanoid(12)
+    const now = Date.now()
+    this.entries.set(id, {
+      id,
+      type: 'output',
+      filePath: label,
+      content: output,
+      language: 'text',
+      sessionId,
+      workingDirectory: '',
+      createdAt: now,
+      expiresAt: now + this.ttlMs,
+    })
+    log.debug({ id, label }, 'Stored output for viewing')
+    return id
+  }
+
   get(id: string): ViewerEntry | undefined {
     const entry = this.entries.get(id)
     if (!entry) return undefined
@@ -122,18 +144,23 @@ export class ViewerStore {
   }
 
   private isPathAllowed(filePath: string, workingDirectory: string): boolean {
-    try {
-      // realpathSync resolves symlinks AND returns canonical case on
-      // case-insensitive filesystems (macOS HFS+/APFS, Windows NTFS)
-      const resolved = fs.realpathSync(path.resolve(workingDirectory, filePath))
-      const workspace = fs.realpathSync(path.resolve(workingDirectory))
-      return resolved.startsWith(workspace + path.sep) || resolved === workspace
-    } catch {
-      // File doesn't exist yet — fall back to path-only check
-      const resolved = path.resolve(workingDirectory, filePath)
-      const workspace = path.resolve(workingDirectory)
-      return resolved.startsWith(workspace + path.sep) || resolved === workspace
+    const caseInsensitive = process.platform === 'darwin' || process.platform === 'win32'
+
+    // Resolve paths, using realpathSync when possible for symlink/case canonicalization
+    let resolved: string
+    let workspace: string
+    try { resolved = fs.realpathSync(path.resolve(workingDirectory, filePath)) }
+    catch { resolved = path.resolve(workingDirectory, filePath) }
+    try { workspace = fs.realpathSync(path.resolve(workingDirectory)) }
+    catch { workspace = path.resolve(workingDirectory) }
+
+    // macOS/Windows have case-insensitive filesystems — always compare lowercase
+    if (caseInsensitive) {
+      const rLower = resolved.toLowerCase()
+      const wLower = workspace.toLowerCase()
+      return rLower.startsWith(wLower + path.sep) || rLower === wLower
     }
+    return resolved.startsWith(workspace + path.sep) || resolved === workspace
   }
 
   private detectLanguage(filePath: string): string | undefined {

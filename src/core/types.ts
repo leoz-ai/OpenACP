@@ -1,3 +1,5 @@
+import type { OutputMode } from "./adapter-primitives/format-types.js";
+
 export interface Attachment {
   type: 'image' | 'audio' | 'file';
   filePath: string;
@@ -225,6 +227,7 @@ export interface SessionRecord<P = Record<string, unknown>> {
   lastActiveAt: string;
   name?: string;
   dangerousMode?: boolean;
+  outputMode?: OutputMode;
   platform: P;
 }
 

@@ -10,6 +10,7 @@ import type {
   FileServiceInterface,
 } from "../../core/index.js";
 import { createChildLogger } from "../../core/utils/log.js";
+import type { DebugTracer } from "../../core/utils/debug-tracer.js";
 const log = createChildLogger({ module: "telegram" });
 import type { TelegramChannelConfig } from "./types.js";
 import type { CommandRegistry } from "../../core/command-registry.js";
@@ -57,7 +58,10 @@ import type {
   DisplayVerbosity,
   ToolCallMeta,
   ToolUpdateMeta,
+  OutputMode,
 } from "../../core/adapter-primitives/format-types.js";
+import { OutputModeResolver } from "../../core/adapter-primitives/output-mode-resolver.js";
+import type { TunnelServiceInterface } from "../../core/plugin/types.js";
 // evaluateNoise is handled by MessagingAdapter.shouldDisplay()
 
 interface PlanMetadata {
@@ -117,6 +121,7 @@ export class TelegramAdapter extends MessagingAdapter {
   private assistantTopicId!: number;
   private sendQueue = new SendQueue({ minInterval: 3000 });
   private _sessionThreadIds = new Map<string, number>();
+  private outputModeResolver = new OutputModeResolver();
 
   // Extracted managers
   private draftManager!: DraftManager;
@@ -137,18 +142,30 @@ export class TelegramAdapter extends MessagingAdapter {
   private getOrCreateTracker(
     sessionId: string,
     threadId: number,
-    verbosity: DisplayVerbosity = "medium",
+    outputMode: OutputMode = "medium",
   ): ActivityTracker {
     let tracker = this.sessionTrackers.get(sessionId);
     if (!tracker) {
+      const tunnelService = this.core.lifecycleManager?.serviceRegistry?.get("tunnel") as TunnelServiceInterface | undefined;
+      const session = this.core.sessionManager.getSession(sessionId);
+      const sessionContext = session ? {
+        id: sessionId,
+        workingDirectory: session.workingDirectory,
+      } : undefined;
       tracker = new ActivityTracker(
         this.bot.api,
         this.telegramConfig.chatId,
         threadId,
         this.sendQueue,
-        verbosity,
+        outputMode,
+        sessionId,
+        this.getTracer(sessionId),
+        tunnelService,
+        sessionContext,
       );
       this.sessionTrackers.set(sessionId, tracker);
+    } else {
+      tracker.setOutputMode(outputMode);
     }
     return tracker;
   }
@@ -748,8 +765,10 @@ export class TelegramAdapter extends MessagingAdapter {
         "telegram",
         String(threadId),
       )?.id;
-      if (sessionId)
+      if (sessionId) {
+        this.getTracer(sessionId)?.log("telegram", { action: "incoming:message", sessionId, userId: String(ctx.from?.id), text: ctx.message?.text });
         await this.draftManager.finalize(sessionId, this.assistantSession?.id);
+      }
       if (sessionId) {
         const tracker = this.sessionTrackers.get(sessionId);
         if (tracker) await tracker.onNewPrompt();
@@ -857,6 +876,10 @@ export class TelegramAdapter extends MessagingAdapter {
    */
   private _dispatchQueues = new Map<string, Promise<void>>();
 
+  private getTracer(sessionId: string): DebugTracer | null {
+    return this.core.sessionManager.getSession(sessionId)?.agentInstance?.debugTracer ?? null;
+  }
+
   async sendMessage(
     sessionId: string,
     content: OutgoingMessage,
@@ -882,6 +905,7 @@ export class TelegramAdapter extends MessagingAdapter {
     // Serialize dispatch per session to preserve event ordering
     const prev = this._dispatchQueues.get(sessionId) ?? Promise.resolve();
     const next = prev.then(async () => {
+      this.getTracer(sessionId)?.log("telegram", { action: "dispatch:enter", sessionId, message: content });
       this._sessionThreadIds.set(sessionId, threadId);
       try {
         await super.sendMessage(sessionId, content);
@@ -897,25 +921,39 @@ export class TelegramAdapter extends MessagingAdapter {
 
   protected async handleThought(
     sessionId: string,
-    _content: OutgoingMessage,
+    content: OutgoingMessage,
     _verbosity: DisplayVerbosity,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:thought", sessionId, text: content.text });
     const threadId = this.getThreadId(sessionId);
-    const tracker = this.getOrCreateTracker(sessionId, threadId);
-    await tracker.onThought();
+    const mode = this.outputModeResolver.resolve(
+      this.context.configManager,
+      this.name,
+      sessionId,
+      this.core.sessionManager as any,
+    );
+    const tracker = this.getOrCreateTracker(sessionId, threadId, mode);
+    await tracker.onThought(content.text);
   }
 
   protected async handleText(
     sessionId: string,
     content: OutgoingMessage,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:text", sessionId, text: content.text });
     const threadId = this.getThreadId(sessionId);
     // Per-session dispatch queue serializes all events, so we can safely await here.
     if (!this.draftManager.hasDraft(sessionId)) {
-      const tracker = this.getOrCreateTracker(sessionId, threadId);
+      const mode = this.outputModeResolver.resolve(
+        this.context.configManager,
+        this.name,
+        sessionId,
+        this.core.sessionManager as any,
+      );
+      const tracker = this.getOrCreateTracker(sessionId, threadId, mode);
       await tracker.onTextStart();
     }
-    const draft = this.draftManager.getOrCreate(sessionId, threadId);
+    const draft = this.draftManager.getOrCreate(sessionId, threadId, this.getTracer(sessionId));
     draft.append(content.text);
     this.draftManager.appendText(sessionId, content.text);
   }
@@ -923,12 +961,19 @@ export class TelegramAdapter extends MessagingAdapter {
   protected async handleToolCall(
     sessionId: string,
     content: OutgoingMessage,
-    verbosity: DisplayVerbosity,
+    _verbosity: DisplayVerbosity,
   ): Promise<void> {
     const threadId = this.getThreadId(sessionId);
     const meta = (content.metadata ?? {}) as Partial<ToolCallMeta>;
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:toolCall", sessionId, toolId: meta.id, toolName: meta.name, kind: meta.kind, status: meta.status, displaySummary: meta.displaySummary, rawInput: meta.rawInput });
 
-    const tracker = this.getOrCreateTracker(sessionId, threadId, verbosity);
+    const mode = this.outputModeResolver.resolve(
+      this.context.configManager,
+      this.name,
+      sessionId,
+      this.core.sessionManager as any,
+    );
+    const tracker = this.getOrCreateTracker(sessionId, threadId, mode);
     await this.draftManager.finalize(sessionId, this.assistantSession?.id);
     await tracker.onToolCall(
       {
@@ -952,28 +997,45 @@ export class TelegramAdapter extends MessagingAdapter {
   protected async handleToolUpdate(
     sessionId: string,
     content: OutgoingMessage,
-    verbosity: DisplayVerbosity,
+    _verbosity: DisplayVerbosity,
   ): Promise<void> {
     const threadId = this.getThreadId(sessionId);
     const meta = (content.metadata ?? {}) as Partial<ToolUpdateMeta>;
-    const tracker = this.getOrCreateTracker(sessionId, threadId, verbosity);
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:toolUpdate", sessionId, toolId: meta.id, name: meta.name, kind: meta.kind, status: meta.status, viewerLinks: meta.viewerLinks, viewerFilePath: meta.viewerFilePath });
+    const mode = this.outputModeResolver.resolve(
+      this.context.configManager,
+      this.name,
+      sessionId,
+      this.core.sessionManager as any,
+    );
+    const tracker = this.getOrCreateTracker(sessionId, threadId, mode);
     await tracker.onToolUpdate(
       meta.id ?? "",
       meta.status ?? "completed",
       meta.viewerLinks as { file?: string; diff?: string } | undefined,
       meta.viewerFilePath as string | undefined,
+      typeof meta.content === "string" ? meta.content : null,
+      meta.rawInput ?? undefined,
+      (meta as any).diffStats as { added: number; removed: number } | undefined,
     );
   }
 
   protected async handlePlan(
     sessionId: string,
     content: OutgoingMessage,
-    verbosity: DisplayVerbosity,
+    _verbosity: DisplayVerbosity,
   ): Promise<void> {
     const threadId = this.getThreadId(sessionId);
     const meta = (content.metadata ?? {}) as Partial<PlanMetadata>;
     const entries = meta.entries ?? [];
-    const tracker = this.getOrCreateTracker(sessionId, threadId, verbosity);
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:plan", sessionId, entryCount: entries.length });
+    const mode = this.outputModeResolver.resolve(
+      this.context.configManager,
+      this.name,
+      sessionId,
+      this.core.sessionManager as any,
+    );
+    const tracker = this.getOrCreateTracker(sessionId, threadId, mode);
     await tracker.onPlan(
       entries.map((e) => ({
         content: e.content,
@@ -990,6 +1052,7 @@ export class TelegramAdapter extends MessagingAdapter {
   ): Promise<void> {
     const threadId = this.getThreadId(sessionId);
     const meta = content.metadata as UsageMetadata | undefined;
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:usage", sessionId, tokensUsed: meta?.tokensUsed, contextSize: meta?.contextSize, cost: (meta as Record<string, unknown>)?.cost });
     await this.draftManager.finalize(sessionId, this.assistantSession?.id);
 
     // Send usage as a separate message (not part of the tool card)
@@ -1036,6 +1099,7 @@ export class TelegramAdapter extends MessagingAdapter {
     sessionId: string,
     content: OutgoingMessage,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:attachment", sessionId, type: content.attachment?.type, fileName: content.attachment?.fileName });
     const threadId = this.getThreadId(sessionId);
     if (!content.attachment) return;
     const { attachment } = content;
@@ -1098,6 +1162,7 @@ export class TelegramAdapter extends MessagingAdapter {
     sessionId: string,
     _content: OutgoingMessage,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:sessionEnd", sessionId });
     const threadId = this.getThreadId(sessionId);
     await this.draftManager.finalize(sessionId, this.assistantSession?.id);
     this.draftManager.cleanup(sessionId);
@@ -1121,6 +1186,7 @@ export class TelegramAdapter extends MessagingAdapter {
     sessionId: string,
     content: OutgoingMessage,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:error", sessionId, text: content.text });
     const threadId = this.getThreadId(sessionId);
     await this.draftManager.finalize(sessionId, this.assistantSession?.id);
     const tracker = this.sessionTrackers.get(sessionId);
@@ -1145,6 +1211,7 @@ export class TelegramAdapter extends MessagingAdapter {
     sessionId: string,
     content: OutgoingMessage,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "handle:system", sessionId, text: content.text });
     const threadId = this.getThreadId(sessionId);
     await this.sendQueue.enqueue(() =>
       this.bot.api.sendMessage(
@@ -1163,6 +1230,7 @@ export class TelegramAdapter extends MessagingAdapter {
     sessionId: string,
     request: PermissionRequest,
   ): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "permission:send", sessionId, requestId: request.id, description: request.description });
     log.info({ sessionId, requestId: request.id }, "Permission request sent");
     const session = this.core.sessionManager.getSession(sessionId);
     if (!session) return;
@@ -1173,6 +1241,7 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   async sendNotification(notification: NotificationMessage): Promise<void> {
+    this.getTracer(notification.sessionId)?.log("telegram", { action: "notification:send", sessionId: notification.sessionId, type: notification.type });
     if (notification.sessionId === this.assistantSession?.id) return;
 
     log.info(
@@ -1218,6 +1287,7 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   async createSessionThread(sessionId: string, name: string): Promise<string> {
+    this.getTracer(sessionId)?.log("telegram", { action: "thread:create", sessionId, name });
     log.info({ sessionId, name }, "Session topic created");
     return String(
       await createSessionTopic(this.bot, this.telegramConfig.chatId, name),
@@ -1225,6 +1295,7 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   async renameSessionThread(sessionId: string, newName: string): Promise<void> {
+    this.getTracer(sessionId)?.log("telegram", { action: "thread:rename", sessionId, newName });
     const session = this.core.sessionManager.getSession(sessionId);
     if (!session) return;
     await renameSessionTopic(
@@ -1374,6 +1445,7 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   async archiveSessionTopic(sessionId: string): Promise<string> {
+    this.getTracer(sessionId)?.log("telegram", { action: "thread:archive", sessionId });
     const core = this.core as OpenACPCore;
     const session = core.sessionManager.getSession(sessionId);
     if (!session) throw new Error("Session not found");

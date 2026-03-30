@@ -9,34 +9,43 @@ import {
   splitMessage,
   renderToolCard,
 } from "../formatting.js";
-import type {
-  ToolCardSnapshot,
-  ToolCardEntry,
-} from "../../../core/adapter-primitives/primitives/tool-card-state.js";
+import type { ToolCardSnapshot } from "../../../core/adapter-primitives/primitives/tool-card-state.js";
+import type { ToolDisplaySpec } from "../../../core/adapter-primitives/display-spec-builder.js";
 
-function makeEntry(
+function makeSpec(
   id: string,
-  overrides?: Partial<ToolCardEntry>,
-): ToolCardEntry {
+  overrides?: Partial<ToolDisplaySpec>,
+): ToolDisplaySpec {
   return {
     id,
-    name: "Read",
-    status: "completed",
+    kind: "read",
     icon: "✅",
-    label: "📖 Read src/main.ts",
-    hidden: false,
+    title: "Read src/main.ts",
+    description: null,
+    command: null,
+    outputSummary: null,
+    outputContent: null,
+    diffStats: null,
+    status: "completed",
+    isNoise: false,
+    isHidden: false,
     ...overrides,
   };
 }
 
-function makeSnapshot(overrides?: Partial<ToolCardSnapshot>): ToolCardSnapshot {
+function makeSnapshot(
+  specs: ToolDisplaySpec[] = [],
+  overrides?: Partial<ToolCardSnapshot>,
+): ToolCardSnapshot {
+  const visible = specs.filter((s) => !s.isHidden);
+  const done = visible.filter((s) =>
+    ["completed", "done", "failed", "error"].includes(s.status),
+  ).length;
   return {
-    entries: [],
-    visibleCount: 0,
-    totalVisible: 0,
-    completedVisible: 0,
-    allComplete: false,
-    verbosity: "medium",
+    specs,
+    totalVisible: visible.length,
+    completedVisible: done,
+    allComplete: visible.length > 0 && done === visible.length,
     ...overrides,
   };
 }
@@ -595,42 +604,28 @@ describe("formatUsage verbosity", () => {
 
 describe("renderToolCard", () => {
   it("renders header with HTML bold", () => {
-    const snap = makeSnapshot({
-      entries: [makeEntry("t1")],
-      visibleCount: 1,
-      totalVisible: 1,
-      completedVisible: 1,
-      allComplete: true,
-    });
+    const snap = makeSnapshot([makeSpec("t1")]);
     const result = renderToolCard(snap);
     expect(result).toContain("<b>📋 Tools (1/1)</b> ✅");
   });
 
   it("escapes HTML in tool labels", () => {
-    const snap = makeSnapshot({
-      entries: [makeEntry("t1", { label: "📖 Read <script>.ts" })],
-      visibleCount: 1,
-      totalVisible: 1,
-      completedVisible: 1,
-    });
+    const snap = makeSnapshot([makeSpec("t1", { title: "Read <script>.ts" })]);
     const result = renderToolCard(snap);
     expect(result).toContain("&lt;script&gt;");
     expect(result).not.toContain("<script>");
   });
 
   it("renders viewer links as HTML anchors", () => {
-    const snap = makeSnapshot({
-      entries: [makeEntry("t1", { viewerLinks: { diff: "http://diff.url" } })],
-      visibleCount: 1,
-      totalVisible: 1,
-      completedVisible: 1,
-    });
+    const snap = makeSnapshot([
+      makeSpec("t1", { viewerLinks: { diff: "http://diff.url" } }),
+    ]);
     const result = renderToolCard(snap);
     expect(result).toContain('<a href="http://diff.url">');
   });
 
   it("renders plan section with HTML escaping", () => {
-    const snap = makeSnapshot({
+    const snap = makeSnapshot([], {
       planEntries: [
         { content: "Step <1>", status: "completed", priority: "high" },
       ],
@@ -640,12 +635,8 @@ describe("renderToolCard", () => {
   });
 
   it("does not render usage in tool card (usage is a separate message)", () => {
-    const snap = makeSnapshot({
-      entries: [makeEntry("t1")],
+    const snap = makeSnapshot([makeSpec("t1")], {
       usage: { tokensUsed: 12500, contextSize: 200000 },
-      visibleCount: 1,
-      totalVisible: 1,
-      completedVisible: 1,
     });
     const result = renderToolCard(snap);
     expect(result).not.toContain("📊");

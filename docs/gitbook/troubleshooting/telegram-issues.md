@@ -104,10 +104,12 @@ If you haven't finished initial setup, see the [Telegram Setup guide](../platfor
 
 **Solution:**
 - This is a Telegram API constraint, not an OpenACP bug.
-- Lower `displayVerbosity` to `"low"` in your Telegram config to reduce the number of intermediate edits sent during streaming:
+- Lower `outputMode` to `"low"` in your Telegram config to reduce the number of intermediate edits sent during streaming:
 
 ```json
 "telegram": {
-  "displayVerbosity": "low"
+  "outputMode": "low"
 }
 ```
+
+  The legacy key `displayVerbosity` is also accepted for backward compatibility.

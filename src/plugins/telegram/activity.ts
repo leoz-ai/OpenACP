@@ -1,15 +1,18 @@
 import type { Bot } from "grammy";
 import { createChildLogger } from "../../core/utils/log.js";
 import type { PlanEntry } from "../../core/types.js";
-import type {
-  ToolCallMeta,
-  DisplayVerbosity,
-  ViewerLinks,
-} from "../../core/adapter-primitives/format-types.js";
+import type { ToolCallMeta, ViewerLinks } from "../../core/adapter-primitives/format-types.js";
 import type { SendQueue } from "../../core/adapter-primitives/primitives/send-queue.js";
+import type { DebugTracer } from "../../core/utils/debug-tracer.js";
 import { ToolCardState } from "../../core/adapter-primitives/primitives/tool-card-state.js";
 import type { ToolCardSnapshot } from "../../core/adapter-primitives/primitives/tool-card-state.js";
-import { renderToolCard, splitToolCardText } from "./formatting.js";
+import { escapeHtml, renderToolCard, splitToolCardText } from "./formatting.js";
+import { ToolStateMap } from "../../core/adapter-primitives/stream-accumulator.js";
+import { ThoughtBuffer } from "../../core/adapter-primitives/stream-accumulator.js";
+import { DisplaySpecBuilder } from "../../core/adapter-primitives/display-spec-builder.js";
+import type { ToolDisplaySpec } from "../../core/adapter-primitives/display-spec-builder.js";
+import type { OutputMode } from "../../core/adapter-primitives/format-types.js";
+import type { TunnelServiceInterface } from "../../core/plugin/types.js";
 
 const log = createChildLogger({ module: "telegram:activity" });
 
@@ -24,27 +27,35 @@ export class ThinkingIndicator {
   private dismissed = false;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private showTime = 0;
+  private tracer: DebugTracer | null;
 
   constructor(
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
     private sendQueue: SendQueue,
-  ) {}
+    private sessionId: string = "",
+    tracer: DebugTracer | null = null,
+  ) {
+    this.tracer = tracer;
+  }
 
   async show(): Promise<void> {
-    if (this.msgId || this.sending || this.dismissed) return;
+    if (this.sending || this.dismissed) return;
+    if (this.msgId) return;
     this.sending = true;
     this.showTime = Date.now();
+    const text = "💭 <i>Thinking...</i>";
     try {
       const result = await this.sendQueue.enqueue(() =>
-        this.api.sendMessage(this.chatId, "💭 <i>Thinking...</i>", {
+        this.api.sendMessage(this.chatId, text, {
           message_thread_id: this.threadId,
           parse_mode: "HTML",
           disable_notification: true,
         }),
       );
       if (result) {
+        this.tracer?.log("telegram", { action: "thinking:show", sessionId: this.sessionId, msgId: result.message_id });
         if (this.dismissed) {
           // dismissed during queue wait — message stays in chat (no delete to save API calls)
         } else {
@@ -59,10 +70,27 @@ export class ThinkingIndicator {
     }
   }
 
+  /** Edit the indicator message to append a viewer link, then dismiss. */
+  async finalizeWithViewerLink(url: string): Promise<void> {
+    this.stopRefreshTimer();
+    if (this.msgId && !this.dismissed) {
+      const text = `💭 <i>Thinking...</i>      <a href="${escapeHtml(url)}">View thinking</a>`;
+      await this.sendQueue
+        .enqueue(() => {
+          if (!this.msgId) return Promise.resolve(undefined);
+          return this.api.editMessageText(this.chatId, this.msgId, text, { parse_mode: "HTML" });
+        })
+        .catch(() => {});
+    }
+    this.dismissed = true;
+    this.msgId = undefined;
+  }
+
   /** Dismiss indicator: stops refresh timer. Message is left in chat to reduce API calls. */
   async dismiss(): Promise<void> {
     if (this.dismissed) return;
     this.dismissed = true;
+    this.tracer?.log("telegram", { action: "thinking:dismiss", sessionId: this.sessionId });
     this.stopRefreshTimer();
     this.msgId = undefined;
   }
@@ -84,6 +112,7 @@ export class ThinkingIndicator {
         return;
       }
       const elapsed = Math.round((Date.now() - this.showTime) / 1000);
+      const refreshText = `💭 <i>Still thinking... (${elapsed}s)</i>`;
       this.sendQueue
         .enqueue(() => {
           // Re-check after waiting in queue — dismiss may have been called
@@ -91,7 +120,7 @@ export class ThinkingIndicator {
           return this.api.editMessageText(
             this.chatId,
             this.msgId,
-            `💭 <i>Still thinking... (${elapsed}s)</i>`,
+            refreshText,
             { parse_mode: "HTML" },
           );
         })
@@ -116,16 +145,20 @@ export class ToolCard {
   private lastSentText?: string;
   private flushPromise: Promise<void> = Promise.resolve();
   private overflowMsgIds: number[] = [];
+  private tracer: DebugTracer | null;
+  private sessionId: string;
 
   constructor(
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
     private sendQueue: SendQueue,
-    verbosity: DisplayVerbosity,
+    sessionId: string = "",
+    tracer: DebugTracer | null = null,
   ) {
+    this.tracer = tracer;
+    this.sessionId = sessionId;
     this.state = new ToolCardState({
-      verbosity,
       onFlush: (snapshot) => {
         this.flushPromise = this.flushPromise
           .then(() => this._sendOrEdit(snapshot))
@@ -134,28 +167,15 @@ export class ToolCard {
     });
   }
 
-  addTool(meta: ToolCallMeta, kind: string, rawInput: unknown): void {
-    this.state.addTool(meta, kind, rawInput);
-  }
-
-  updateTool(
-    id: string,
-    status: string,
-    viewerLinks?: ViewerLinks,
-    viewerFilePath?: string,
-  ): void {
-    this.state.updateTool(id, status, viewerLinks, viewerFilePath);
+  updateFromSpec(spec: ToolDisplaySpec): void {
+    this.state.updateFromSpec(spec);
   }
 
   updatePlan(entries: PlanEntry[]): void {
     this.state.updatePlan(entries);
   }
 
-  appendUsage(usage: {
-    tokensUsed?: number;
-    contextSize?: number;
-    cost?: number;
-  }): void {
+  appendUsage(usage: { tokensUsed?: number; contextSize?: number; cost?: number }): void {
     this.state.appendUsage(usage);
   }
 
@@ -177,22 +197,33 @@ export class ToolCard {
   }
 
   private async _sendOrEdit(snapshot: ToolCardSnapshot): Promise<void> {
-    const fullText = renderToolCard(snapshot);
+    // Overflow strip: if full render exceeds Telegram limit, strip inline outputContent
+    let snapshotToRender = snapshot;
+    let fullText = renderToolCard(snapshotToRender);
+    if (fullText.length > 4096) {
+      snapshotToRender = {
+        ...snapshot,
+        specs: snapshot.specs.map((s) =>
+          s.outputContent ? { ...s, outputContent: null } : s
+        ),
+      };
+      fullText = renderToolCard(snapshotToRender);
+    }
+
     if (!fullText) return;
     if (this.msgId && fullText === this.lastSentText) return;
     this.lastSentText = fullText;
 
     const chunks = splitToolCardText(fullText);
+    this.tracer?.log("telegram", { action: "toolCard:render", sessionId: this.sessionId, chunks: chunks.length, total: snapshot.totalVisible, completed: snapshot.completedVisible, allComplete: snapshot.allComplete, msgId: this.msgId, entries: snapshot.specs.map(s => ({ id: s.id, kind: s.kind, icon: s.icon, title: s.title })), html: fullText });
 
     try {
-      // First chunk: edit existing message or send new
       const firstChunk = chunks[0];
       if (this.msgId) {
         await this.sendQueue.enqueue(() =>
-          this.api.editMessageText(this.chatId, this.msgId!, firstChunk, {
-            parse_mode: "HTML",
-          }),
+          this.api.editMessageText(this.chatId, this.msgId!, firstChunk, { parse_mode: "HTML" }),
         );
+        this.tracer?.log("telegram", { action: "telegram:edit", sessionId: this.sessionId, msgId: this.msgId, html: firstChunk });
       } else {
         const result = await this.sendQueue.enqueue(() =>
           this.api.sendMessage(this.chatId, firstChunk, {
@@ -202,23 +233,17 @@ export class ToolCard {
           }),
         );
         if (result) this.msgId = result.message_id;
+        this.tracer?.log("telegram", { action: "telegram:send", sessionId: this.sessionId, msgId: result?.message_id, html: firstChunk });
       }
 
-      // Overflow chunks: edit existing overflow messages or send new ones
       for (let i = 1; i < chunks.length; i++) {
-        const overflowIdx = i - 1; // index into overflowMsgIds
+        const overflowIdx = i - 1;
         if (overflowIdx < this.overflowMsgIds.length) {
-          // Edit existing overflow message
           await this.sendQueue.enqueue(() =>
-            this.api.editMessageText(
-              this.chatId,
-              this.overflowMsgIds[overflowIdx],
-              chunks[i],
-              { parse_mode: "HTML" },
-            ),
+            this.api.editMessageText(this.chatId, this.overflowMsgIds[overflowIdx], chunks[i], { parse_mode: "HTML" }),
           );
+          this.tracer?.log("telegram", { action: "telegram:edit:overflow", sessionId: this.sessionId, msgId: this.overflowMsgIds[overflowIdx] });
         } else {
-          // Send new overflow message
           const result = await this.sendQueue.enqueue(() =>
             this.api.sendMessage(this.chatId, chunks[i], {
               message_thread_id: this.threadId,
@@ -227,6 +252,7 @@ export class ToolCard {
             }),
           );
           if (result) this.overflowMsgIds.push(result.message_id);
+          this.tracer?.log("telegram", { action: "telegram:send:overflow", sessionId: this.sessionId, msgId: result?.message_id });
         }
       }
     } catch (err) {
@@ -242,48 +268,91 @@ export class ActivityTracker {
   private thinking: ThinkingIndicator;
   private toolCard: ToolCard;
   private previousToolCard?: ToolCard;
-  private verbosity: DisplayVerbosity;
+  private toolStateMap: ToolStateMap;
+  private previousToolStateMap?: ToolStateMap;
+  private specBuilder: DisplaySpecBuilder;
+  private thoughtBuffer: ThoughtBuffer;
+  private _outputMode: OutputMode;
+  private tracer: DebugTracer | null;
+  private sessionId: string;
+  private sessionContext?: { id: string; workingDirectory: string };
+  private tunnelService?: TunnelServiceInterface;
 
   constructor(
     private api: Bot["api"],
     private chatId: number,
     private threadId: number,
     private sendQueue: SendQueue,
-    verbosity: DisplayVerbosity = "medium",
+    outputMode: OutputMode = "medium",
+    sessionId: string = "",
+    tracer: DebugTracer | null = null,
+    tunnelService?: TunnelServiceInterface,
+    sessionContext?: { id: string; workingDirectory: string },
   ) {
-    this.verbosity = verbosity;
-    this.thinking = new ThinkingIndicator(api, chatId, threadId, sendQueue);
-    this.toolCard = new ToolCard(api, chatId, threadId, sendQueue, verbosity);
+    this._outputMode = outputMode;
+    this.tracer = tracer;
+    this.sessionId = sessionId;
+    this.sessionContext = sessionContext;
+    this.tunnelService = tunnelService;
+    this.specBuilder = new DisplaySpecBuilder(tunnelService);
+    this.toolStateMap = new ToolStateMap();
+    this.thoughtBuffer = new ThoughtBuffer();
+    this.thinking = new ThinkingIndicator(api, chatId, threadId, sendQueue, sessionId, tracer);
+    this.toolCard = new ToolCard(api, chatId, threadId, sendQueue, sessionId, tracer);
+  }
+
+  setOutputMode(mode: OutputMode): void {
+    this._outputMode = mode;
   }
 
   async onNewPrompt(): Promise<void> {
+    this.tracer?.log("telegram", { action: "tracker:newPrompt", sessionId: this.sessionId });
     this.isFirstEvent = true;
+    this.thoughtBuffer.reset();
     await this.thinking.dismiss();
     this.thinking.reset();
-
-    // Finalize old tool card (flush pending state) and create a fresh one
-    // so the new prompt gets its own tool card message instead of editing the old one.
     await this.toolCard.finalize();
-    this.toolCard = new ToolCard(
-      this.api,
-      this.chatId,
-      this.threadId,
-      this.sendQueue,
-      this.verbosity,
-    );
+    // Clear previous card references so tool updates from new prompt don't leak into old messages
+    this.previousToolCard = undefined;
+    this.previousToolStateMap = undefined;
+    this.toolStateMap.clear();
+    this.toolCard = new ToolCard(this.api, this.chatId, this.threadId, this.sendQueue, this.sessionId, this.tracer);
   }
 
-  async onThought(): Promise<void> {
+  async onThought(text: string): Promise<void> {
+    this.tracer?.log("telegram", { action: "tracker:thought", sessionId: this.sessionId });
     this.isFirstEvent = false;
-    // If tool card has content, finalize it — thought interrupts the tool sequence
+    if (!this.thoughtBuffer.isSealed()) this.thoughtBuffer.append(text);
     await this.sealToolCardIfNeeded();
     await this.thinking.show();
   }
 
   async onTextStart(): Promise<void> {
+    this.tracer?.log("telegram", { action: "tracker:textStart", sessionId: this.sessionId });
     this.isFirstEvent = false;
-    await this.thinking.dismiss();
-    // If tool card has content, finalize it — text interrupts the tool sequence
+    this.thoughtBuffer.seal();
+
+    // In high mode with tunnel: store thought content and show a viewer link before dismissing
+    if (this._outputMode === "high" && this.tunnelService && this.sessionContext) {
+      const thoughtText = this.thoughtBuffer.getText();
+      if (thoughtText.trim().length > 0) {
+        const id = this.tunnelService.getStore().storeOutput(
+          this.sessionContext.id,
+          "thinking",
+          thoughtText,
+        );
+        if (id !== null) {
+          await this.thinking.finalizeWithViewerLink(this.tunnelService.outputUrl(id));
+        } else {
+          await this.thinking.dismiss();
+        }
+      } else {
+        await this.thinking.dismiss();
+      }
+    } else {
+      await this.thinking.dismiss();
+    }
+
     await this.sealToolCardIfNeeded();
   }
 
@@ -292,26 +361,14 @@ export class ActivityTracker {
     kind: string,
     rawInput: unknown,
   ): Promise<void> {
+    this.tracer?.log("telegram", { action: "tracker:toolCall", sessionId: this.sessionId, meta, kind, rawInput });
     this.isFirstEvent = false;
     await this.thinking.dismiss();
     this.thinking.reset();
-    this.toolCard.addTool(meta, kind, rawInput);
-  }
 
-  /** Finalize current tool card and create a fresh one (when interrupted by text/thought) */
-  private async sealToolCardIfNeeded(): Promise<void> {
-    if (!this.toolCard.hasContent()) return;
-    await this.toolCard.finalize();
-    // Keep reference so late tool_updates (e.g. last tool completing after text starts)
-    // can still reach the sealed card and update its status.
-    this.previousToolCard = this.toolCard;
-    this.toolCard = new ToolCard(
-      this.api,
-      this.chatId,
-      this.threadId,
-      this.sendQueue,
-      this.verbosity,
-    );
+    const entry = this.toolStateMap.upsert(meta, kind, rawInput);
+    const spec = this.specBuilder.buildToolSpec(entry, this._outputMode, this.sessionContext);
+    this.toolCard.updateFromSpec(spec);
   }
 
   async onToolUpdate(
@@ -319,14 +376,36 @@ export class ActivityTracker {
     status: string,
     viewerLinks?: ViewerLinks,
     viewerFilePath?: string,
+    content?: string | null,
+    rawInput?: unknown,
+    diffStats?: { added: number; removed: number },
   ): Promise<void> {
-    this.toolCard.updateTool(id, status, viewerLinks, viewerFilePath);
-    // Forward to previous sealed card — the tool may belong there if text/thought
-    // started before this tool's completion update arrived.
-    this.previousToolCard?.updateTool(id, status, viewerLinks, viewerFilePath);
+    this.tracer?.log("telegram", { action: "tracker:toolUpdate", sessionId: this.sessionId, toolId: id, status, viewerLinks, viewerFilePath, hasPrevCard: !!this.previousToolCard });
+
+    // Forward to previous card first if the tool originated there (out-of-order update after seal)
+    if (this.previousToolStateMap?.get(id)) {
+      this.previousToolStateMap.merge(id, status, rawInput, content, viewerLinks, diffStats);
+      const prevEntry = this.previousToolStateMap.get(id);
+      if (prevEntry) {
+        const prevSpec = this.specBuilder.buildToolSpec(prevEntry, this._outputMode, this.sessionContext);
+        this.previousToolCard?.updateFromSpec(prevSpec);
+      }
+    }
+
+    const existed = !!this.toolStateMap.get(id);
+    const entry = this.toolStateMap.merge(id, status, rawInput, content, viewerLinks, diffStats);
+    // Skip spec build for out-of-order updates — buffered in pendingUpdates
+    if (!existed || !entry) return;
+
+    if (viewerLinks || entry.viewerLinks) {
+      log.debug({ toolId: id, status, hasIncomingLinks: !!viewerLinks, hasEntryLinks: !!entry.viewerLinks, entryLinks: entry.viewerLinks }, "toolUpdate: viewer links trace");
+    }
+    const spec = this.specBuilder.buildToolSpec(entry, this._outputMode, this.sessionContext);
+    this.toolCard.updateFromSpec(spec);
   }
 
   async onPlan(entries: PlanEntry[]): Promise<void> {
+    this.tracer?.log("telegram", { action: "tracker:plan", sessionId: this.sessionId, entries });
     this.isFirstEvent = false;
     await this.thinking.dismiss();
     this.toolCard.updatePlan(entries);
@@ -354,5 +433,15 @@ export class ActivityTracker {
   destroy(): void {
     void this.thinking.dismiss();
     this.toolCard.destroy();
+  }
+
+  private async sealToolCardIfNeeded(): Promise<void> {
+    if (!this.toolCard.hasContent()) return;
+    this.tracer?.log("telegram", { action: "tracker:seal", sessionId: this.sessionId });
+    await this.toolCard.finalize();
+    this.previousToolCard = this.toolCard;
+    this.previousToolStateMap = this.toolStateMap;
+    this.toolStateMap = new ToolStateMap();
+    this.toolCard = new ToolCard(this.api, this.chatId, this.threadId, this.sendQueue, this.sessionId, this.tracer);
   }
 }

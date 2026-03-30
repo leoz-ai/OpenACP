@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { ViewerStore } from './viewer-store.js'
 import { renderFileViewer } from './templates/file-viewer.js'
 import { renderDiffViewer } from './templates/diff-viewer.js'
+import { renderOutputViewer } from './templates/output-viewer.js'
 
 function notFoundPage(): string {
   return `<!DOCTYPE html>
@@ -43,6 +44,14 @@ export function createTunnelServer(store: ViewerStore, authToken?: string): Hono
       return c.html(notFoundPage(), 404)
     }
     return c.html(renderDiffViewer(entry))
+  })
+
+  app.get('/output/:id', (c) => {
+    const entry = store.get(c.req.param('id'))
+    if (!entry || entry.type !== 'output') {
+      return c.html(notFoundPage(), 404)
+    }
+    return c.html(renderOutputViewer(entry))
   })
 
   app.get('/api/file/:id', (c) => {

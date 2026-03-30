@@ -55,7 +55,7 @@ If you haven't finished initial setup, see the [Slack Setup guide](../platform-s
 **Solution:**
 - OpenACP's `SlackSendQueue` serialises outbound API calls automatically to respect rate limits.
 - If you hit limits consistently, reduce `security.maxConcurrentSessions` in config.
-- Avoid bursting many messages at once; consider using `displayVerbosity: "low"` to reduce intermediate streaming updates.
+- Avoid bursting many messages at once; consider using `outputMode: "low"` (or the deprecated `displayVerbosity: "low"`) to reduce intermediate streaming updates.
 
 ---
 

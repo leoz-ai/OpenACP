@@ -4,9 +4,11 @@ import type {
   ViewerLinks,
 } from "../../core/adapter-primitives/format-types.js";
 import type { ToolCardSnapshot } from "../../core/adapter-primitives/primitives/tool-card-state.js";
+import type { ToolDisplaySpec } from "../../core/adapter-primitives/display-spec-builder.js";
 import {
   STATUS_ICONS,
   KIND_ICONS,
+  KIND_LABELS,
 } from "../../core/adapter-primitives/format-types.js";
 import {
   progressBar,
@@ -188,71 +190,116 @@ export function splitMessage(text: string, maxLength = 3800): string[] {
 export function renderToolCard(snap: ToolCardSnapshot): string {
   const sections: string[] = [];
 
-  // Header
   const { totalVisible, completedVisible, allComplete } = snap;
   const headerCheck = allComplete ? " ✅" : "";
   if (totalVisible > 0) {
-    sections.push(
-      `<b>📋 Tools (${completedVisible}/${totalVisible})</b>${headerCheck}`,
-    );
+    sections.push(`<b>📋 Tools (${completedVisible}/${totalVisible})</b>${headerCheck}`);
   }
 
-  // Tool entries
-  const visible = snap.entries.filter((e) => !e.hidden);
-  const completed = visible.filter(
-    (e) =>
-      e.status === "completed" || e.status === "done" || e.status === "failed",
-  );
-  const running = visible.filter(
-    (e) =>
-      e.status !== "completed" && e.status !== "done" && e.status !== "failed",
-  );
+  const DONE = new Set(["completed", "done", "failed", "error"]);
+  const visible = snap.specs.filter((s) => !s.isHidden);
+  const completed = visible.filter((s) => DONE.has(s.status));
+  const running = visible.filter((s) => !DONE.has(s.status));
 
-  for (const entry of completed) {
-    let line = `${entry.icon} ${escapeHtml(entry.label)}`;
-    if (entry.viewerLinks) {
-      const links: string[] = [];
-      const fileName = entry.viewerFilePath?.split("/").pop() ?? "";
-      if (entry.viewerLinks.file)
-        links.push(
-          `<a href="${escapeHtml(entry.viewerLinks.file)}">View ${escapeHtml(fileName || "file")}</a>`,
-        );
-      if (entry.viewerLinks.diff)
-        links.push(
-          `<a href="${escapeHtml(entry.viewerLinks.diff)}">View diff</a>`,
-        );
-      if (links.length > 0) line += `\n    ${links.join(" · ")}`;
-    }
-    sections.push(line);
+  for (const spec of completed) {
+    sections.push(renderSpecSection(spec));
   }
 
-  // Plan section (between completed and running tools)
   if (snap.planEntries && snap.planEntries.length > 0) {
-    const planDone = snap.planEntries.filter(
-      (e) => e.status === "completed",
-    ).length;
+    const planDone = snap.planEntries.filter((e) => e.status === "completed").length;
     const planTotal = snap.planEntries.length;
     sections.push(`── Plan: ${planDone}/${planTotal} ──`);
-
-    const statusIcon: Record<string, string> = {
-      completed: "✅",
-      in_progress: "🔄",
-      pending: "⬜",
-    };
+    const statusIcon: Record<string, string> = { completed: "✅", in_progress: "🔄", pending: "⬜" };
     for (let i = 0; i < snap.planEntries.length; i++) {
       const e = snap.planEntries[i];
-      const icon = statusIcon[e.status] ?? "⬜";
-      sections.push(`${icon} ${i + 1}. ${escapeHtml(e.content)}`);
+      sections.push(`${statusIcon[e.status] ?? "⬜"} ${i + 1}. ${escapeHtml(e.content)}`);
     }
     sections.push("────");
   }
 
-  // Running tools (after plan)
-  for (const entry of running) {
-    sections.push(`${entry.icon} ${escapeHtml(entry.label)}`);
+  for (const spec of running) {
+    sections.push(renderSpecSection(spec));
   }
 
   return sections.join("\n\n");
+}
+
+const FILE_KINDS = new Set(["read", "edit", "write", "delete"]);
+
+/** Shorten absolute file paths to just filename (+ line range if present) */
+function shortenTitle(title: string, kind: string): string {
+  if (!FILE_KINDS.has(kind) || !title.includes("/")) return title;
+  // Separate optional parenthesized suffix (e.g. " (lines 10–50)" or " (from line 10)")
+  const parenIdx = title.indexOf(" (");
+  const pathPart = parenIdx > 0 ? title.slice(0, parenIdx) : title;
+  const rangePart = parenIdx > 0 ? title.slice(parenIdx) : "";
+  const fileName = pathPart.split("/").pop() || pathPart;
+  return fileName + rangePart;
+}
+
+function renderSpecSection(spec: ToolDisplaySpec): string {
+  const lines: string[] = [];
+
+  const DONE = new Set(["completed", "done", "failed", "error"]);
+  // Status prefix at the start so text doesn't shift when status changes
+  const statusPrefix =
+    spec.status === "error" || spec.status === "failed"
+      ? "❌ "
+      : DONE.has(spec.status)
+        ? "✅ "
+        : "🔄 ";
+
+  // Build title line: "✅ 📖 Read · filename.ts"
+  const kindLabel = KIND_LABELS[spec.kind];
+  const displayTitle = shortenTitle(spec.title, spec.kind);
+  // Suppress title when it duplicates the kind label (e.g. "Edit · Edit")
+  const hasUniqueTitle = displayTitle && displayTitle.toLowerCase() !== kindLabel?.toLowerCase()
+    && displayTitle.toLowerCase() !== spec.kind;
+  let titleLine: string;
+  if (kindLabel) {
+    titleLine = hasUniqueTitle
+      ? `${statusPrefix}${spec.icon} <b>${kindLabel}</b> · ${escapeHtml(displayTitle)}`
+      : `${statusPrefix}${spec.icon} <b>${kindLabel}</b>`;
+  } else {
+    titleLine = `${statusPrefix}${spec.icon} ${escapeHtml(displayTitle)}`;
+  }
+  if (spec.diffStats) {
+    const { added, removed } = spec.diffStats;
+    if (added > 0 && removed > 0) titleLine += ` · <i>+${added}/-${removed} lines</i>`;
+    else if (added > 0) titleLine += ` · <i>+${added} lines</i>`;
+    else if (removed > 0) titleLine += ` · <i>-${removed} lines</i>`;
+  }
+  lines.push(titleLine);
+
+  if (spec.description) lines.push(`   <i>${escapeHtml(spec.description)}</i>`);
+  if (spec.command) lines.push(`   <code>${escapeHtml(spec.command)}</code>`);
+  if (spec.inputContent) {
+    const truncated = spec.inputContent.length > 800 ? spec.inputContent.slice(0, 797) + "…" : spec.inputContent;
+    lines.push(`   <pre><code>${escapeHtml(truncated)}</code></pre>`);
+  }
+  if (spec.outputSummary) lines.push(`   · ${escapeHtml(spec.outputSummary)}`);
+  if (spec.outputContent || spec.outputFallbackContent) {
+    const raw = spec.outputContent ?? spec.outputFallbackContent!;
+    const truncated =
+      raw.length > 800
+        ? raw.slice(0, 797) + "…"
+        : raw;
+    lines.push(`   <pre><code>${escapeHtml(truncated)}</code></pre>`);
+  }
+
+  if (spec.viewerLinks?.file || spec.viewerLinks?.diff || spec.outputViewerLink) {
+    const linkParts: string[] = [];
+    const shortName = displayTitle || kindLabel || spec.kind;
+    if (spec.viewerLinks?.file)
+      linkParts.push(`<a href="${escapeHtml(spec.viewerLinks.file)}">View ${escapeHtml(shortName)}</a>`);
+    if (spec.viewerLinks?.diff)
+      linkParts.push(`<a href="${escapeHtml(spec.viewerLinks.diff)}">View diff</a>`);
+    if (spec.outputViewerLink)
+      linkParts.push(`<a href="${escapeHtml(spec.outputViewerLink)}">View output</a>`);
+    lines.push(`      ${linkParts.join(" · ")}`);
+  }
+
+  return lines.join("\n");
 }
 
 const TELEGRAM_MAX_LENGTH = 4096;
@@ -269,10 +316,16 @@ export function splitToolCardText(text: string): string[] {
   let current = "";
 
   for (const section of sections) {
-    const candidate = current ? `${current}\n\n${section}` : section;
+    // Handle single section > limit (truncate with ellipsis)
+    const safeSection =
+      section.length > TELEGRAM_MAX_LENGTH
+        ? section.slice(0, TELEGRAM_MAX_LENGTH - 3) + "..."
+        : section;
+
+    const candidate = current ? `${current}\n\n${safeSection}` : safeSection;
     if (candidate.length > TELEGRAM_MAX_LENGTH && current) {
       chunks.push(current);
-      current = section;
+      current = safeSection;
     } else {
       current = candidate;
     }

@@ -13,8 +13,8 @@ const BaseChannelSchema = z
     adapter: z.string().optional(), // package name for plugin adapters
     displayVerbosity: z
       .enum(["low", "medium", "high"])
-      .default("medium")
       .optional(),
+    outputMode: z.enum(["low", "medium", "high"]).optional(),
   })
   .passthrough();
 
@@ -149,6 +149,7 @@ export const ConfigSchema = z.object({
     )
     .default({}),
   speech: SpeechSchema,
+  outputMode: z.enum(["low", "medium", "high"]).default("medium").optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

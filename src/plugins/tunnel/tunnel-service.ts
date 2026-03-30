@@ -138,4 +138,8 @@ export class TunnelService {
   diffUrl(entryId: string): string {
     return `${this.getPublicUrl()}/diff/${entryId}`
   }
+
+  outputUrl(entryId: string): string {
+    return `${this.getPublicUrl()}/output/${entryId}`
+  }
 }

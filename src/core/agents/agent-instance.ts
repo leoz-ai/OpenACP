@@ -32,6 +32,7 @@ import type {
   ForkSessionResponse,
   SetSessionConfigOptionResponse,
 } from "@agentclientprotocol/sdk";
+import { createDebugTracer, type DebugTracer } from "../utils/debug-tracer.js";
 import { createChildLogger } from "../utils/log.js";
 const log = createChildLogger({ module: "agent-instance" });
 
@@ -163,6 +164,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
   agentName: string;
   promptCapabilities?: { image?: boolean; audio?: boolean };
   middlewareChain?: MiddlewareChain;
+  debugTracer: DebugTracer | null = null;
 
   // Callback — set by core when wiring events
   onPermissionRequest: (request: PermissionRequest) => Promise<string> =
@@ -216,10 +218,14 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
 
     const stdinLogger = new Transform({
       transform(chunk, _enc, cb) {
-        log.debug(
-          { direction: "send", raw: chunk.toString().trimEnd() },
-          "ACP raw",
-        );
+        if (instance.debugTracer) {
+          const raw = chunk.toString().trimEnd();
+          try {
+            instance.debugTracer.log("acp", { dir: "send", data: JSON.parse(raw) });
+          } catch {
+            instance.debugTracer.log("acp", { dir: "send", data: raw });
+          }
+        }
         cb(null, chunk);
       },
     });
@@ -227,10 +233,14 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
 
     const stdoutLogger = new Transform({
       transform(chunk, _enc, cb) {
-        log.debug(
-          { direction: "recv", raw: chunk.toString().trimEnd() },
-          "ACP raw",
-        );
+        if (instance.debugTracer) {
+          const raw = chunk.toString().trimEnd();
+          try {
+            instance.debugTracer.log("acp", { dir: "recv", data: JSON.parse(raw) });
+          } catch {
+            instance.debugTracer.log("acp", { dir: "recv", data: raw });
+          }
+        }
         cb(null, chunk);
       },
     });
@@ -316,6 +326,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       mcpServers: resolvedMcp as any,
     });
     instance.sessionId = response.sessionId;
+    instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
     instance.setupCrashDetection();
 
     log.info(
@@ -345,6 +356,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         cwd: workingDirectory,
       });
       instance.sessionId = response.sessionId;
+      instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
       log.info(
         { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
         "Agent resume complete",
@@ -360,6 +372,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         mcpServers: resolvedMcp as any,
       });
       instance.sessionId = response.sessionId;
+      instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
       log.info(
         { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
         "Agent fallback spawn complete",

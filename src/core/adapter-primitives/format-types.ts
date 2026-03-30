@@ -1,6 +1,8 @@
 // src/adapters/shared/format-types.ts
 
-export type DisplayVerbosity = "low" | "medium" | "high";
+export type OutputMode = "low" | "medium" | "high";
+/** @deprecated Use OutputMode instead */
+export type DisplayVerbosity = OutputMode;
 
 export type NoiseAction = "hide" | "collapse";
 
@@ -72,6 +74,19 @@ export const KIND_ICONS: Record<string, string> = {
   install: "📦",
   move: "📦",
   other: "🛠️",
+};
+
+export const KIND_LABELS: Record<string, string> = {
+  read: "Read",
+  edit: "Edit",
+  write: "Write",
+  delete: "Delete",
+  web: "Web",
+  fetch: "Fetch",
+  agent: "Agent",
+  think: "Think",
+  install: "Install",
+  move: "Move",
 };
 
 export interface ViewerLinks {
