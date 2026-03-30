@@ -525,6 +525,11 @@ export class Session extends TypedEmitter<SessionEvents> {
       promptCount: this.promptCount,
     });
 
+    // Reject any pending permission request before destroying old agent
+    if (this.permissionGate.isPending) {
+      this.permissionGate.reject("Agent switched");
+    }
+
     // Destroy old agent
     await this.agentInstance.destroy();
 
@@ -534,6 +539,14 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.agentName = agentName;
     this.agentSessionId = newAgent.sessionId;
     this.promptCount = 0;
+
+    // Reset agent-specific ACP state (will be re-populated by new agent)
+    this.agentCapabilities = undefined;
+    this.currentMode = undefined;
+    this.availableModes = [];
+    this.currentModel = undefined;
+    this.availableModels = [];
+    this.configOptions = [];
 
     this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }

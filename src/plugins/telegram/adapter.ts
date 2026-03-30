@@ -1438,6 +1438,19 @@ export class TelegramAdapter extends MessagingAdapter {
     await this.skillManager.cleanup(sessionId);
   }
 
+  async cleanupSessionState(sessionId: string): Promise<void> {
+    // Finalize and clean up draft state
+    await this.draftManager.finalize(sessionId, this.assistantSession?.id);
+    this.draftManager.cleanup(sessionId);
+
+    // Destroy activity tracker (stops ThinkingIndicator timers, finalizes ToolCard)
+    const tracker = this.sessionTrackers.get(sessionId);
+    if (tracker) {
+      tracker.destroy();
+      this.sessionTrackers.delete(sessionId);
+    }
+  }
+
   async stripTTSBlock(sessionId: string): Promise<void> {
     await this.draftManager.stripPattern(sessionId, /\[TTS\][\s\S]*?\[\/TTS\]/g);
   }

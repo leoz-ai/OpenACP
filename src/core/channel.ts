@@ -38,6 +38,9 @@ export interface IChannelAdapter {
   // Skill commands — optional
   sendSkillCommands?(sessionId: string, commands: AgentCommand[]): Promise<void>
   cleanupSkillCommands?(sessionId: string): Promise<void>
+
+  // Agent switch cleanup — optional, called when switching agents to clear adapter-side per-session state
+  cleanupSessionState?(sessionId: string): Promise<void>
 }
 
 /**
@@ -67,5 +70,6 @@ export abstract class ChannelAdapter<TCore = unknown> implements IChannelAdapter
 
   async sendSkillCommands(_sessionId: string, _commands: AgentCommand[]): Promise<void> {}
   async cleanupSkillCommands(_sessionId: string): Promise<void> {}
+  async cleanupSessionState(_sessionId: string): Promise<void> {}
   async archiveSessionTopic(_sessionId: string): Promise<string> { return ""; }
 }

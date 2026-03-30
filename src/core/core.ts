@@ -628,6 +628,11 @@ export class OpenACPCore {
       await switchAdapter.sendSkillCommands(session.id, []);
     }
 
+    // Clean up adapter-side per-session state (draft manager, activity tracker, etc.)
+    if (switchAdapter?.cleanupSessionState) {
+      await switchAdapter.cleanupSessionState(session.id);
+    }
+
     // Capture pre-switch state for rollback
     const fromAgentSessionId = session.agentSessionId;
 
