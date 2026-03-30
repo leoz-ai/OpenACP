@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import * as clack from "@clack/prompts";
 import type { Config, ConfigManager } from "../config/config.js";
 import type { ChannelId } from "./types.js";
@@ -15,6 +16,9 @@ import { configureChannels } from "./setup-channels.js";
 import { RegistryClient } from "../plugin/registry-client.js";
 import type { SettingsManager } from "../plugin/settings-manager.js";
 import type { PluginRegistry } from "../plugin/plugin-registry.js";
+import { InstanceRegistry } from "../instance-registry.js";
+import { generateSlug, getGlobalRoot } from "../instance-context.js";
+import { copyInstance } from "../instance-copy.js";
 
 // ─── Registry discovery ───
 
@@ -39,7 +43,14 @@ async function fetchCommunityAdapters(): Promise<CommunityAdapterOption[]> {
 
 export async function runSetup(
   configManager: ConfigManager,
-  opts?: { skipRunMode?: boolean; settingsManager?: SettingsManager; pluginRegistry?: PluginRegistry },
+  opts?: {
+    skipRunMode?: boolean
+    settingsManager?: SettingsManager
+    pluginRegistry?: PluginRegistry
+    instanceName?: string
+    from?: string       // path to copy from (parent dir, not .openacp)
+    instanceRoot?: string  // the .openacp dir being set up
+  },
 ): Promise<boolean> {
   await printStartBanner();
   clack.intro("Let's set up OpenACP");
@@ -50,6 +61,97 @@ export async function runSetup(
     if (!settingsManager || !pluginRegistry) {
       console.log(fail('Plugin system not initialized. Cannot set up channels.'));
       return false;
+    }
+
+    // ─── Instance name prompt ───
+
+    const instanceRoot = opts?.instanceRoot ?? getGlobalRoot();
+    const isGlobal = instanceRoot === getGlobalRoot();
+
+    let instanceName = opts?.instanceName;
+    if (!instanceName) {
+      const defaultName = isGlobal ? 'Main' : `openacp-${Date.now()}`;
+      const nameResult = await clack.text({
+        message: 'Give this setup a name',
+        defaultValue: defaultName,
+        validate: (v) => (!v?.trim() ? 'Name cannot be empty' : undefined),
+      });
+      if (clack.isCancel(nameResult)) return false;
+      instanceName = nameResult.trim();
+    }
+
+    // ─── Copy-from flow ───
+
+    const globalRoot = getGlobalRoot();
+    const registryPath = path.join(globalRoot, 'instances.json');
+    const instanceRegistry = new InstanceRegistry(registryPath);
+    await instanceRegistry.load();
+
+    let didCopy = false;
+
+    // Check --from flag first
+    if (opts?.from) {
+      const fromRoot = path.join(opts.from, '.openacp');
+      if (fs.existsSync(path.join(fromRoot, 'config.json'))) {
+        const inheritableMap = buildInheritableKeysMap();
+        await copyInstance(fromRoot, instanceRoot, { inheritableKeys: inheritableMap });
+        didCopy = true;
+      } else {
+        console.error(`No OpenACP setup found at ${fromRoot}`);
+        return false;
+      }
+    }
+
+    // If no --from, check if we can offer to copy interactively
+    if (!didCopy) {
+      const existingInstances = instanceRegistry.list().filter(e =>
+        fs.existsSync(path.join(e.root, 'config.json')) && e.root !== instanceRoot
+      );
+
+      if (existingInstances.length > 0) {
+        const shouldCopy = await clack.confirm({
+          message: 'Use settings from an existing setup as a starting point?',
+          initialValue: true,
+        });
+
+        if (clack.isCancel(shouldCopy)) return false;
+
+        if (shouldCopy === true) {
+          let sourceRoot: string;
+          if (existingInstances.length === 1) {
+            sourceRoot = existingInstances[0]!.root;
+          } else {
+            const choice = await clack.select({
+              message: 'Which setup to copy from?',
+              options: existingInstances.map(e => {
+                let name = e.id;
+                try {
+                  const cfg = JSON.parse(fs.readFileSync(path.join(e.root, 'config.json'), 'utf-8'));
+                  if (cfg.instanceName) name = cfg.instanceName;
+                } catch {}
+                const displayPath = e.root.replace(/\/.openacp$/, '');
+                return { value: e.root, label: `${name} (${displayPath})` };
+              }),
+            });
+            if (clack.isCancel(choice)) return false;
+            sourceRoot = choice;
+          }
+
+          const inheritableMap = buildInheritableKeysMap();
+          await copyInstance(sourceRoot, instanceRoot, {
+            inheritableKeys: inheritableMap,
+            onProgress: (step, status) => {
+              if (status === 'done') console.log(`  ✓ ${step}`);
+            },
+          });
+          didCopy = true;
+        }
+      }
+    }
+
+    // If copied, reload config so the wizard sees existing values
+    if (didCopy && await configManager.exists()) {
+      await configManager.load();
     }
 
     const communityAdapters = await fetchCommunityAdapters()
@@ -190,6 +292,7 @@ export async function runSetup(
     };
 
     const config: Config = {
+      instanceName,
       channels: {},
       agents: {},
       defaultAgent,
@@ -247,6 +350,11 @@ export async function runSetup(
       await pluginRegistry.save();
     }
 
+    // Register instance in the global registry
+    const id = instanceRegistry.uniqueId(generateSlug(instanceName));
+    instanceRegistry.register(id, instanceRoot);
+    await instanceRegistry.save();
+
     clack.outro(`Config saved to ${configManager.getConfigPath()}`);
 
     if (!opts?.skipRunMode) {
@@ -293,6 +401,19 @@ async function registerBuiltinPlugins(
       });
     }
   }
+}
+
+// ─── Inheritable keys for copy flow ───
+
+function buildInheritableKeysMap(): Record<string, string[]> {
+  // Hardcoded for built-in plugins — community plugins declare their own
+  return {
+    '@openacp/tunnel': ['provider', 'maxUserTunnels', 'auth'],
+    '@openacp/api-server': ['host'],
+    '@openacp/security': ['allowedUsers', 'maxSessionsPerUser', 'rateLimits'],
+    '@openacp/usage': ['budget'],
+    '@openacp/speech': ['tts'],
+  };
 }
 
 // ─── Reconfigure (section-based, for existing config) ───
