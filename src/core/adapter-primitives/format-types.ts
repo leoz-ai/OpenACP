@@ -76,6 +76,24 @@ export const KIND_ICONS: Record<string, string> = {
   other: "🛠️",
 };
 
+export const KIND_LABELS: Record<string, string> = {
+  read: "Read",
+  edit: "Edit",
+  write: "Write",
+  delete: "Delete",
+  execute: "Terminal",
+  command: "Terminal",
+  bash: "Terminal",
+  terminal: "Terminal",
+  search: "Search",
+  web: "Web",
+  fetch: "Fetch",
+  agent: "Agent",
+  think: "Think",
+  install: "Install",
+  move: "Move",
+};
+
 export interface ViewerLinks {
   file?: string;
   diff?: string;

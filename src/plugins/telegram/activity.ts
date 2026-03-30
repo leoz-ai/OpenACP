@@ -289,6 +289,9 @@ export class ActivityTracker {
     await this.thinking.dismiss();
     this.thinking.reset();
     await this.toolCard.finalize();
+    // Clear previous card references so tool updates from new prompt don't leak into old messages
+    this.previousToolCard = undefined;
+    this.previousToolStateMap = undefined;
     this.toolStateMap.clear();
     this.toolCard = new ToolCard(this.api, this.chatId, this.threadId, this.sendQueue, this.sessionId, this.tracer);
   }
@@ -335,6 +338,16 @@ export class ActivityTracker {
   ): Promise<void> {
     this.tracer?.log("telegram", { action: "tracker:toolUpdate", sessionId: this.sessionId, toolId: id, status, hasPrevCard: !!this.previousToolCard });
 
+    // Forward to previous card first if the tool originated there (out-of-order update after seal)
+    if (this.previousToolStateMap?.get(id)) {
+      this.previousToolStateMap.merge(id, status, rawInput, content, viewerLinks, diffStats);
+      const prevEntry = this.previousToolStateMap.get(id);
+      if (prevEntry) {
+        const prevSpec = this.specBuilder.buildToolSpec(prevEntry, this.outputMode, this.sessionContext);
+        this.previousToolCard?.updateFromSpec(prevSpec);
+      }
+    }
+
     const existed = !!this.toolStateMap.get(id);
     const entry = this.toolStateMap.merge(id, status, rawInput, content, viewerLinks, diffStats);
     // Skip spec build for out-of-order updates — buffered in pendingUpdates
@@ -342,9 +355,6 @@ export class ActivityTracker {
 
     const spec = this.specBuilder.buildToolSpec(entry, this.outputMode, this.sessionContext);
     this.toolCard.updateFromSpec(spec);
-    this.previousToolCard?.updateFromSpec(spec);
-    // Forward to previous state map so re-builds use latest data
-    this.previousToolStateMap?.merge(id, status, rawInput, content, viewerLinks, diffStats);
   }
 
   async onPlan(entries: PlanEntry[]): Promise<void> {

@@ -8,6 +8,7 @@ import type { ToolDisplaySpec } from "../../core/adapter-primitives/display-spec
 import {
   STATUS_ICONS,
   KIND_ICONS,
+  KIND_LABELS,
 } from "../../core/adapter-primitives/format-types.js";
 import {
   progressBar,
@@ -223,17 +224,46 @@ export function renderToolCard(snap: ToolCardSnapshot): string {
   return sections.join("\n\n");
 }
 
+const FILE_KINDS = new Set(["read", "edit", "write", "delete"]);
+
+/** Shorten absolute file paths to just filename (+ line range if present) */
+function shortenTitle(title: string, kind: string): string {
+  if (!FILE_KINDS.has(kind) || !title.includes("/")) return title;
+  // Separate optional :lineRange suffix (e.g. ":10-50" or ":10")
+  const colonIdx = title.lastIndexOf(":");
+  const hasRange = colonIdx > 0 && /^\d/.test(title.slice(colonIdx + 1));
+  const pathPart = hasRange ? title.slice(0, colonIdx) : title;
+  const rangePart = hasRange ? title.slice(colonIdx) : "";
+  const fileName = pathPart.split("/").pop() || pathPart;
+  return fileName + rangePart;
+}
+
 function renderSpecSection(spec: ToolDisplaySpec): string {
   const lines: string[] = [];
 
   const DONE = new Set(["completed", "done", "failed", "error"]);
-  const statusSuffix =
+  // Status prefix at the start so text doesn't shift when status changes
+  const statusPrefix =
     spec.status === "error" || spec.status === "failed"
-      ? " ❌"
+      ? "❌ "
       : DONE.has(spec.status)
-        ? " ✅"
-        : "";
-  let titleLine = `${spec.icon} ${escapeHtml(spec.title)}${statusSuffix}`;
+        ? "✅ "
+        : "🔄 ";
+
+  // Build title line: "✅ 📖 Read · filename.ts"
+  const kindLabel = KIND_LABELS[spec.kind];
+  const displayTitle = shortenTitle(spec.title, spec.kind);
+  // Suppress title when it duplicates the kind label (e.g. "Edit · Edit")
+  const hasUniqueTitle = displayTitle && displayTitle.toLowerCase() !== kindLabel?.toLowerCase()
+    && displayTitle.toLowerCase() !== spec.kind;
+  let titleLine: string;
+  if (kindLabel) {
+    titleLine = hasUniqueTitle
+      ? `${statusPrefix}${spec.icon} <b>${kindLabel}</b> · ${escapeHtml(displayTitle)}`
+      : `${statusPrefix}${spec.icon} <b>${kindLabel}</b>`;
+  } else {
+    titleLine = `${statusPrefix}${spec.icon} ${escapeHtml(displayTitle)}`;
+  }
   if (spec.diffStats) {
     const { added, removed } = spec.diffStats;
     if (added > 0 && removed > 0) titleLine += ` · <i>+${added}/-${removed} lines</i>`;
@@ -256,12 +286,12 @@ function renderSpecSection(spec: ToolDisplaySpec): string {
   if (spec.viewerLinks?.file || spec.viewerLinks?.diff || spec.outputViewerLink) {
     const linkParts: string[] = [];
     if (spec.viewerLinks?.file)
-      linkParts.push(`📄 <a href="${escapeHtml(spec.viewerLinks.file)}">View file</a>`);
+      linkParts.push(`<a href="${escapeHtml(spec.viewerLinks.file)}">View file</a>`);
     if (spec.viewerLinks?.diff)
-      linkParts.push(`📝 <a href="${escapeHtml(spec.viewerLinks.diff)}">View diff</a>`);
+      linkParts.push(`<a href="${escapeHtml(spec.viewerLinks.diff)}">View diff</a>`);
     if (spec.outputViewerLink)
-      linkParts.push(`📋 <a href="${escapeHtml(spec.outputViewerLink)}">View output</a>`);
-    lines.push(`   ${linkParts.join("\n   ")}`);
+      linkParts.push(`<a href="${escapeHtml(spec.outputViewerLink)}">View output</a>`);
+    lines.push(`      ${linkParts.join(" · ")}`);
   }
 
   return lines.join("\n");

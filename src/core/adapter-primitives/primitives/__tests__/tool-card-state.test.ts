@@ -9,6 +9,7 @@ function makeSpec(
 ): ToolDisplaySpec {
   return {
     id,
+    kind: "other",
     icon: "",
     title,
     description: null,

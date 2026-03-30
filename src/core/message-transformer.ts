@@ -6,7 +6,15 @@ import { createChildLogger } from "./utils/log.js";
 const log = createChildLogger({ module: "message-transformer" });
 
 export class MessageTransformer {
-  constructor(private tunnelService?: TunnelServiceInterface) {}
+  tunnelService?: TunnelServiceInterface;
+  /** Cache rawInput from tool_call so it's available in tool_update (which often lacks it) */
+  private toolRawInputCache: Map<string, unknown> = new Map();
+  /** Cache viewer links generated from intermediate updates so completion events carry them */
+  private toolViewerCache: Map<string, { viewerLinks: Record<string, string>; viewerFilePath: string }> = new Map();
+
+  constructor(tunnelService?: TunnelServiceInterface) {
+    this.tunnelService = tunnelService;
+  }
 
   transform(
     event: AgentEvent,
@@ -18,6 +26,10 @@ export class MessageTransformer {
       case "thought":
         return { type: "thought", text: event.content };
       case "tool_call": {
+        // Cache rawInput (only if non-empty) for later tool_update events
+        if (event.id && this.isNonEmptyInput(event.rawInput)) {
+          this.toolRawInputCache.set(event.id, event.rawInput);
+        }
         const meta = event.meta as Record<string, unknown> | undefined;
         const metadata: Record<string, unknown> = {
           id: event.id,
@@ -35,6 +47,17 @@ export class MessageTransformer {
         return { type: "tool_call", text: event.name, metadata };
       }
       case "tool_update": {
+        // Update cache if this update carries non-empty rawInput (some agents send it on first update)
+        if (event.id && this.isNonEmptyInput(event.rawInput)) {
+          this.toolRawInputCache.set(event.id, event.rawInput);
+        }
+        // Merge cached rawInput when tool_update doesn't carry it
+        const cachedRawInput = event.id ? this.toolRawInputCache.get(event.id) : undefined;
+        const effectiveRawInput = this.isNonEmptyInput(event.rawInput) ? event.rawInput : cachedRawInput;
+        // Clean up cache on terminal status
+        if (event.id && (event.status === "completed" || event.status === "done" || event.status === "failed" || event.status === "error")) {
+          this.toolRawInputCache.delete(event.id);
+        }
         const meta = event.meta as Record<string, unknown> | undefined;
         const metadata: Record<string, unknown> = {
           id: event.id,
@@ -42,12 +65,34 @@ export class MessageTransformer {
           kind: event.kind,
           status: event.status,
           content: event.content,
-          rawInput: event.rawInput,
+          rawInput: effectiveRawInput,
           displaySummary: meta?.displaySummary,
           displayTitle: meta?.displayTitle,
           displayKind: meta?.displayKind,
         };
-        this.enrichWithViewerLinks(event, metadata, sessionContext);
+        // Use a synthetic event with merged rawInput for enrichWithViewerLinks
+        const enrichEvent = { ...event, rawInput: effectiveRawInput };
+        this.enrichWithViewerLinks(enrichEvent as typeof event, metadata, sessionContext);
+        // Viewer link caching: intermediate updates have raw content (preferred),
+        // completion events have formatted content (with line numbers) — always prefer cached
+        if (event.id) {
+          const cached = this.toolViewerCache.get(event.id);
+          if (cached) {
+            // Cache already has links from intermediate update (raw content) — always use those
+            metadata.viewerLinks = cached.viewerLinks;
+            metadata.viewerFilePath = cached.viewerFilePath;
+          } else if (metadata.viewerLinks) {
+            // First time generating links — cache them
+            this.toolViewerCache.set(event.id, {
+              viewerLinks: metadata.viewerLinks as Record<string, string>,
+              viewerFilePath: metadata.viewerFilePath as string,
+            });
+          }
+          // Clean up viewer cache on terminal status
+          if (event.status === "completed" || event.status === "done" || event.status === "failed" || event.status === "error") {
+            this.toolViewerCache.delete(event.id);
+          }
+        }
         return { type: "tool_update", text: "", metadata };
       }
       case "plan":
@@ -118,18 +163,46 @@ export class MessageTransformer {
     }
   }
 
+  /** Check if rawInput is a non-empty object (not null, not {}) */
+  private isNonEmptyInput(input: unknown): input is Record<string, unknown> {
+    return input !== null && input !== undefined && typeof input === "object" && !Array.isArray(input) && Object.keys(input as object).length > 0;
+  }
+
   private enrichWithViewerLinks(
     event: AgentEvent & { type: "tool_call" | "tool_update" },
     metadata: Record<string, unknown>,
     sessionContext?: { id: string; workingDirectory: string },
   ): void {
-    if (!this.tunnelService || !sessionContext) return;
+    // Compute diffStats from rawInput even without tunnelService
+    const kind = "kind" in event ? event.kind : undefined;
+    if (!metadata.diffStats && (kind === "edit" || kind === "write")) {
+      const ri = event.rawInput as Record<string, unknown> | undefined;
+      if (ri) {
+        const oldStr = typeof ri.old_string === "string" ? ri.old_string : typeof ri.oldText === "string" ? ri.oldText : null;
+        const newStr = typeof ri.new_string === "string" ? ri.new_string : typeof ri.newText === "string" ? ri.newText : typeof ri.content === "string" ? ri.content : null;
+        if (oldStr !== null && newStr !== null) {
+          // For edits: old_string is fully removed, new_string is fully added
+          const removed = oldStr ? oldStr.split("\n").length : 0;
+          const added = newStr ? newStr.split("\n").length : 0;
+          if (added > 0 || removed > 0) {
+            metadata.diffStats = { added, removed };
+          }
+        }
+      }
+    }
+
+    if (!this.tunnelService || !sessionContext) {
+      log.debug(
+        { hasTunnel: !!this.tunnelService, hasCtx: !!sessionContext, kind },
+        "enrichWithViewerLinks: skipping (no tunnel or session context)",
+      );
+      return;
+    }
 
     const name = "name" in event ? event.name || "" : "";
-    const kind = "kind" in event ? event.kind : undefined;
 
     log.debug(
-      { name, kind, status: event.status, hasContent: !!event.content },
+      { name, kind, status: event.status, hasContent: !!event.content, hasRawInput: !!event.rawInput },
       "enrichWithViewerLinks: inspecting event",
     );
 
@@ -140,7 +213,13 @@ export class MessageTransformer {
       event.rawInput,
       event.meta,
     );
-    if (!fileInfo) return;
+    if (!fileInfo) {
+      log.debug(
+        { name, kind, hasContent: !!event.content, hasRawInput: !!event.rawInput, hasMeta: !!event.meta },
+        "enrichWithViewerLinks: extractFileInfo returned null",
+      );
+      return;
+    }
 
     log.info(
       {
@@ -166,13 +245,15 @@ export class MessageTransformer {
       );
       if (id) viewerLinks.diff = this.tunnelService.diffUrl(id);
 
-      // Compute diff stats: net line count change
-      const oldLines = fileInfo.oldContent.split("\n").length;
-      const newLines = fileInfo.content.split("\n").length;
-      const added = Math.max(0, newLines - oldLines);
-      const removed = Math.max(0, oldLines - newLines);
-      if (added > 0 || removed > 0) {
-        metadata.diffStats = { added, removed };
+      // Compute diff stats from full file content only if not already set from rawInput
+      if (!metadata.diffStats) {
+        const oldLines = fileInfo.oldContent.split("\n").length;
+        const newLines = fileInfo.content.split("\n").length;
+        const added = Math.max(0, newLines - oldLines);
+        const removed = Math.max(0, oldLines - newLines);
+        if (added > 0 || removed > 0) {
+          metadata.diffStats = { added, removed };
+        }
       }
     }
 

@@ -6,6 +6,7 @@ import type { ToolDisplaySpec } from "../../../core/adapter-primitives/display-s
 function makeSpec(overrides: Partial<ToolDisplaySpec> = {}): ToolDisplaySpec {
   return {
     id: "t1",
+    kind: "read",
     icon: "📖",
     title: "Read foo.ts",
     description: null,

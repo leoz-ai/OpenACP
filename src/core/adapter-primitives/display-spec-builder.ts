@@ -9,6 +9,7 @@ import type { TunnelServiceInterface } from "../plugin/types.js";
 
 export interface ToolDisplaySpec {
   id: string;
+  kind: string;
   icon: string;
   title: string;
   description: string | null;
@@ -108,6 +109,11 @@ function isShortOutput(content: string): boolean {
   return content.split("\n").length <= INLINE_MAX_LINES && content.length <= INLINE_MAX_CHARS;
 }
 
+/** Check if title was derived from the command (exact match or truncated version) */
+function isTitleFromCommand(title: string, command: string): boolean {
+  return title === command || (command.length > 60 && title === command.slice(0, 57) + "...");
+}
+
 // ─── DisplaySpecBuilder ───────────────────────────────────────────────────
 
 export class DisplaySpecBuilder {
@@ -127,17 +133,22 @@ export class DisplaySpecBuilder {
 
     const input = asRecord(entry.rawInput);
 
-    const description = includeMeta
-      ? typeof input.description === "string"
-        ? input.description
-        : null
-      : null;
+    // Deduplicate: skip description if it matches title, kind label, or tool name
+    const rawDescription = typeof input.description === "string" ? input.description : null;
+    const descLower = rawDescription?.toLowerCase();
+    const description =
+      includeMeta && rawDescription && rawDescription !== title
+        && descLower !== entry.kind && descLower !== entry.name.toLowerCase()
+        ? rawDescription : null;
 
+    // Deduplicate: skip command if title was derived from it
+    const rawCommand =
+      EXECUTE_KINDS.has(entry.kind) && typeof input.command === "string"
+        ? input.command
+        : null;
     const command =
-      includeMeta && EXECUTE_KINDS.has(entry.kind)
-        ? typeof input.command === "string"
-          ? input.command
-          : null
+      includeMeta && rawCommand && !isTitleFromCommand(title, rawCommand)
+        ? rawCommand
         : null;
 
     const content = entry.content;
@@ -173,6 +184,7 @@ export class DisplaySpecBuilder {
 
     return {
       id: entry.id,
+      kind: entry.kind,
       icon,
       title,
       description,

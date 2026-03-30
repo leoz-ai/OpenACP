@@ -18,6 +18,7 @@ function makeSpec(
 ): ToolDisplaySpec {
   return {
     id,
+    kind: "read",
     icon: "✅",
     title: "Read src/main.ts",
     description: null,

@@ -22,6 +22,7 @@ describe("DisplaySpecBuilder.buildToolSpec", () => {
   describe("low mode", () => {
     it("returns title only, no description, no command, no output", () => {
       const spec = builder.buildToolSpec(makeEntry(), "low");
+      expect(spec.kind).toBe("execute");
       expect(spec.title).toBeTruthy();
       expect(spec.description).toBeNull();
       expect(spec.command).toBeNull();
@@ -43,7 +44,8 @@ describe("DisplaySpecBuilder.buildToolSpec", () => {
   describe("medium mode", () => {
     it("includes description and command for execute kind", () => {
       const spec = builder.buildToolSpec(makeEntry(), "medium");
-      expect(spec.description).toBe("Build TypeScript");
+      // title is "Build TypeScript" (from description), so description is deduped to null
+      expect(spec.description).toBeNull();
       expect(spec.command).toBe("pnpm build");
     });
 
@@ -107,13 +109,14 @@ describe("DisplaySpecBuilder.buildToolSpec", () => {
   });
 
   describe("Read tool — no command field", () => {
-    it("extracts description from rawInput.description, no command", () => {
+    it("extracts description from rawInput.description when it differs from title", () => {
       const entry = makeEntry({
         name: "Read",
         kind: "read",
         rawInput: { file_path: "src/foo.ts", description: "Read foo" },
       });
       const spec = builder.buildToolSpec(entry, "medium");
+      // title is "src/foo.ts" (from file_path), description "Read foo" differs → kept
       expect(spec.description).toBe("Read foo");
       expect(spec.command).toBeNull();
     });
