@@ -30,6 +30,7 @@ export class SessionBridge {
     to: SessionStatus,
   ) => void;
   private namedHandler?: (name: string) => void;
+  private promptCountHandler?: (count: number) => void;
 
   constructor(
     private session: Session,
@@ -89,6 +90,9 @@ export class SessionBridge {
     }
     if (this.namedHandler) {
       this.session.off("named", this.namedHandler);
+    }
+    if (this.promptCountHandler) {
+      this.session.off("prompt_count_changed", this.promptCountHandler);
     }
 
     // Reset agent callbacks to no-op
@@ -411,5 +415,11 @@ export class SessionBridge {
       this.adapter.renameSessionThread(this.session.id, name);
     };
     this.session.on("named", this.namedHandler);
+
+    // Persist prompt count after each prompt for resume decisions
+    this.promptCountHandler = (count: number) => {
+      this.deps.sessionManager.patchRecord(this.session.id, { currentPromptCount: count });
+    };
+    this.session.on("prompt_count_changed", this.promptCountHandler);
   }
 }

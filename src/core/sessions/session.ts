@@ -32,6 +32,7 @@ export interface SessionEvents {
   status_change: (from: SessionStatus, to: SessionStatus) => void;
   named: (name: string) => void;
   error: (error: Error) => void;
+  prompt_count_changed: (count: number) => void;
 }
 
 export class Session extends TypedEmitter<SessionEvents> {
@@ -181,6 +182,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     if (this._status === "finished") return;
 
     this.promptCount++;
+    this.emit('prompt_count_changed', this.promptCount);
 
     if (this._status === "initializing" || this._status === "cancelled" || this._status === "error") {
       this.activate();
