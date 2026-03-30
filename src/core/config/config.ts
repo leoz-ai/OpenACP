@@ -151,6 +151,9 @@ export const ConfigSchema = z.object({
     .default({}),
   speech: SpeechSchema,
   outputMode: z.enum(["low", "medium", "high"]).default("medium").optional(),
+  agentSwitch: z.object({
+    labelHistory: z.boolean().default(true),
+  }).default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

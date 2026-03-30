@@ -118,6 +118,14 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     scope: "sensitive",
     hotReload: true,
   },
+  {
+    path: "agentSwitch.labelHistory",
+    displayName: "Label Agent in History",
+    group: "agent",
+    type: "toggle",
+    scope: "safe",
+    hotReload: true,
+  },
 ];
 
 export function getFieldDef(path: string): ConfigFieldDef | undefined {

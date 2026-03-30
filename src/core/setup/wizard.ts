@@ -229,6 +229,7 @@ export async function runSetup(
         stt: { provider: null, providers: {} },
         tts: { provider: null, providers: {} },
       },
+      agentSwitch: { labelHistory: true },
     };
 
     try {
