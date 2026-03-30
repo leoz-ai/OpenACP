@@ -1,5 +1,5 @@
-import * as os from "node:os";
 import * as path from "node:path";
+import { getGlobalRoot } from "../instance-context.js";
 import * as clack from "@clack/prompts";
 import type { Config } from "../config/config.js";
 import type { ConfiguredChannelAction, ChannelId, ChannelStatus } from "./types.js";
@@ -82,7 +82,7 @@ async function configureViaPlugin(channelId: string): Promise<void> {
   if (plugin?.configure) {
     const { SettingsManager } = await import('../plugin/settings-manager.js');
     const { createInstallContext } = await import('../plugin/install-context.js');
-    const basePath = path.join(os.homedir(), '.openacp', 'plugins', 'data');
+    const basePath = path.join(getGlobalRoot(), 'plugins', 'data');
     const settingsManager = new SettingsManager(basePath);
     const ctx = createInstallContext({
       pluginName: plugin.name,

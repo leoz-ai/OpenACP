@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { createChildLogger } from "../utils/log.js";
+import { getGlobalRoot } from "../instance-context.js";
 const log = createChildLogger({ module: "config-migrations" });
 
 type RawConfig = Record<string, unknown>;
@@ -60,7 +60,7 @@ export const migrations: Migration[] = [
   {
     name: "migrate-agents-to-store",
     apply(raw) {
-      const agentsJsonPath = path.join(os.homedir(), ".openacp", "agents.json");
+      const agentsJsonPath = path.join(getGlobalRoot(), "agents.json");
       if (fs.existsSync(agentsJsonPath)) return false;
 
       const agents = raw.agents as Record<string, unknown> | undefined;

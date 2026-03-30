@@ -12,9 +12,11 @@ export class CloudflareTunnelProvider implements TunnelProvider {
   private child: ChildProcess | null = null
   private publicUrl = ''
   private options: Record<string, unknown>
+  private binDir: string
 
-  constructor(options: Record<string, unknown> = {}) {
+  constructor(options: Record<string, unknown> = {}, binDir?: string) {
     this.options = options
+    this.binDir = binDir ?? path.join(os.homedir(), '.openacp', 'bin')
   }
 
   async start(localPort: number): Promise<string> {
@@ -96,8 +98,8 @@ export class CloudflareTunnelProvider implements TunnelProvider {
     // 1. Check PATH first (respects user's system install)
     if (commandExists('cloudflared')) return 'cloudflared'
 
-    // 2. Check ~/.openacp/bin/ (installed by post-upgrade)
-    const binPath = path.join(os.homedir(), '.openacp', 'bin', 'cloudflared')
+    // 2. Check binDir (installed by post-upgrade)
+    const binPath = path.join(this.binDir, 'cloudflared')
     if (fs.existsSync(binPath)) return binPath
 
     // 3. Not found

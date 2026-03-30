@@ -140,6 +140,8 @@ export interface InstallContext {
   legacyConfig?: Record<string, unknown>
   dataDir: string
   log: Logger
+  /** Root of the OpenACP instance directory (e.g. ~/.openacp) */
+  instanceRoot?: string
 }
 
 // ─── Migrate Context (for boot-time migration) ───

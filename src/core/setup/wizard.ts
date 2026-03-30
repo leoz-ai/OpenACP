@@ -1,4 +1,3 @@
-import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as clack from "@clack/prompts";
@@ -214,7 +213,7 @@ export async function runSetup(
       if (channelId.startsWith('community:')) {
         const npmPackage = channelId.slice('community:'.length);
         const { execFileSync } = await import('node:child_process');
-        const pluginsDir = path.join(os.homedir(), '.openacp', 'plugins');
+        const pluginsDir = path.join(getGlobalRoot(), 'plugins');
         const nodeModulesDir = path.join(pluginsDir, 'node_modules');
 
         // Install from npm

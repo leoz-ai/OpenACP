@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import type { Config } from "./config.js";
+import { getGlobalRoot } from "../instance-context.js";
 
 export interface ConfigFieldDef {
   path: string;
@@ -21,7 +21,7 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     type: "select",
     options: (config) => {
       try {
-        const agentsPath = path.join(os.homedir(), ".openacp", "agents.json");
+        const agentsPath = path.join(getGlobalRoot(), "agents.json");
         if (fs.existsSync(agentsPath)) {
           const data = JSON.parse(fs.readFileSync(agentsPath, "utf-8"));
           return Object.keys(data.installed ?? {});

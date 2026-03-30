@@ -7,8 +7,8 @@ export class ContextManager {
   private providers: ContextProvider[] = [];
   private cache: ContextCache;
 
-  constructor() {
-    this.cache = new ContextCache(path.join(os.homedir(), ".openacp", "cache", "entire"));
+  constructor(cachePath?: string) {
+    this.cache = new ContextCache(cachePath ?? path.join(os.homedir(), ".openacp", "cache", "entire"));
   }
 
   register(provider: ContextProvider): void {
