@@ -32,10 +32,8 @@ A single object that holds all resolved paths for an instance. Created once at C
 
 ```typescript
 interface InstanceContext {
-  /** Unique slug ID (e.g. "main", "my-project", "staging-bot") */
+  /** Unique slug ID (e.g. "main", "my-project", "staging-bot") — from registry */
   id: string
-  /** Human-readable name (e.g. "Main", "My Project", "Staging Bot") */
-  name: string
   /** Instance root directory (e.g. ~/.openacp or /project/.openacp) */
   root: string
   /** Whether this is the global instance */
@@ -64,13 +62,13 @@ interface InstanceContext {
 
 #### Instance Naming
 
-Each instance has a **name** and a unique **id**:
+Each instance has a **name** (stored in its own `config.json` as `instanceName`) and a unique **id** (stored in the central registry):
 
-- **name**: Human-readable, provided by user during setup. Default: `"Main"` for global, `"openacp-<N>"` for local (where N is the next available number).
-- **id**: Auto-generated slug from name. Lowercase, hyphens, no spaces. E.g. `"My Staging Bot"` → `"my-staging-bot"`. Must be unique across all instances — if collision, append `-2`, `-3`, etc.
+- **name**: Human-readable, provided by user during setup, stored in instance's `config.json`. Default: `"Main"` for global, `"openacp-<N>"` for local. Can be changed later via `openacp config`.
+- **id**: Auto-generated slug from name at creation time. Lowercase, hyphens, no spaces. E.g. `"My Staging Bot"` → `"my-staging-bot"`. Must be unique across all instances — if collision, append `-2`, `-3`, etc. ID is immutable after creation.
 - Global instance always has id `"main"`.
 
-Used for: lookup (`openacp status --id my-staging-bot`), display, and internal keying in the registry.
+Used for: lookup (`openacp status --id my-staging-bot`), display, and keying in the registry.
 
 #### Path Resolution (CLI entry, runs once)
 
@@ -107,30 +105,34 @@ A central registry at `~/.openacp/instances.json` (always in global dir) that tr
 ```typescript
 interface InstanceRegistry {
   version: 1
-  instances: Record<string, InstanceEntry>  // key = id (slug)
+  instances: Record<string, InstanceRegistryEntry>  // key = id (slug)
 }
 
-interface InstanceEntry {
+// Minimal — just enough to locate the instance. All details read from the instance's own config/state.
+interface InstanceRegistryEntry {
   id: string               // unique slug (e.g. "main", "my-staging-bot")
-  name: string             // human-readable (e.g. "Main", "My Staging Bot")
   root: string             // full path to .openacp dir
-  isGlobal: boolean
-  pid: number | null       // null if not running
-  apiPort: number | null
-  tunnelPort: number | null
-  runMode: 'foreground' | 'daemon' | null  // how it was last started
-  channels: string[]       // e.g. ["telegram", "discord"] — for quick display
-  createdAt: string        // ISO
-  lastStartedAt: string    // ISO
 }
 ```
 
+The registry is intentionally minimal — it's just an index of known instances. All instance details (name, ports, channels, mode, PID, etc.) are read from the instance's own files:
+
+- **Name:** `<root>/config.json` → `instanceName` field
+- **PID:** `<root>/openacp.pid`
+- **API port:** `<root>/api.port`
+- **Tunnel port:** `<root>/tunnels.json`
+- **Run mode:** `<root>/config.json` → `runMode` field
+- **Channels:** `<root>/plugins.json` → check which adapter plugins are enabled
+
+This avoids stale data — `openacp status --all` reads live state from each instance directory.
+
 #### Lifecycle
 
-- **On start:** Register instance with PID + ports. PID file still written to `<root>/openacp.pid`.
-- **On stop:** Update `pid: null`, keep entry (instance still exists, just not running).
-- **On status --all:** Read registry, verify each PID is alive via `process.kill(pid, 0)`, update stale entries.
-- **Stale cleanup:** Automatic when reading registry — dead PIDs get cleared.
+- **On create:** Add entry to registry with `id` + `root`.
+- **On start:** Write PID to `<root>/openacp.pid`, write ports to `<root>/api.port` etc. Registry unchanged.
+- **On stop:** Remove PID file. Registry unchanged.
+- **On status --all:** Read registry for list of instances, then read each instance's own files (PID, config, ports) for live details. Skip entries whose `root` directory no longer exists.
+- **On delete:** Remove entry from registry + optionally remove the `.openacp/` directory.
 
 #### Singleton Check Change
 
@@ -354,9 +356,9 @@ All prompts use plain language, always show full paths so user knows exactly whe
 
 ### 7. New Code
 
-1. `InstanceContext` type (with `id`, `name`) + `resolveInstanceRoot()` + `createInstanceContext()` factory
-2. `InstanceRegistry` class (read/write `~/.openacp/instances.json`, keyed by id)
-3. Instance naming: slug generation from name, uniqueness check, auto-numbering
+1. `InstanceContext` type (with `id`) + `resolveInstanceRoot()` + `createInstanceContext()` factory
+2. `InstanceRegistry` class (minimal index: id + root path, read/write `~/.openacp/instances.json`)
+3. Instance naming: `instanceName` field in config schema, slug generation for id, uniqueness check
 4. Copy logic in setup wizard (partial setup detection + inheritance + progress display)
 5. `inheritableKeys` field in plugin definition type
 6. API server port auto-detect (tunnel already has this)
