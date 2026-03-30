@@ -53,6 +53,7 @@ interface InstanceContext {
     bin: string            // root/bin/
     cache: string          // root/cache/
     tunnels: string        // root/tunnels.json
+    agentsDir: string      // root/agents/ (binary agent installs)
   }
 }
 ```
@@ -133,12 +134,40 @@ When running multiple instances, ports will conflict if both use defaults.
 openacp --local  (or user picks "new setup here" from prompt)
   → cwd/.openacp/ does not exist
   → "Set up a new OpenACP here?"
-  → Check if global instance exists (~/.openacp/config.json)
-    → Exists: "Use settings from your main setup as a starting point?" (Y/n)
-      → Yes: clone inheritable fields → run setup for remaining fields
-      → No:  run full setup from scratch
-    → Does not exist: run full setup from scratch
+  → Check if any existing instance is available to clone from
+    → One or more exist:
+      → "Use settings from an existing setup as a starting point?"
+        → Yes: pick source instance (see Source Selection below)
+          → clone inheritable fields → run setup for remaining fields
+        → No: run full setup from scratch
+    → None exist: run full setup from scratch
 ```
+
+#### Clone Source Selection
+
+User can clone from **any existing instance**, not just global. Two ways:
+
+**Interactive (no flag):**
+```
+? Use settings from an existing setup as a starting point? (Y/n) Y
+? Which setup to copy from?
+  ● Main setup (~/.openacp)
+    ~/my-project/.openacp
+    ~/other-project/.openacp
+```
+
+Each option shows the full path so the user knows exactly where it is.
+
+**CLI flag:** `--from <path>` to skip the prompt:
+```
+openacp --local --from ~/.openacp
+openacp --local --from ~/other-project/.openacp
+openacp --dir /new/path --from ~/existing/.openacp
+```
+
+Validation: `--from` path must contain a valid `.openacp/` directory with a `config.json`. Error with clear message if not found.
+
+The list of available instances comes from the Instance Registry (`~/.openacp/instances.json`). If a registered instance's directory no longer exists, it is skipped.
 
 #### Plugin Inheritance Declaration
 
@@ -166,32 +195,36 @@ Examples:
 
 #### Clone Process
 
-1. Copy `config.json` from global → local (reset port fields to defaults for auto-detect)
+1. Copy `config.json` from source → target (reset port fields to defaults for auto-detect)
 2. Copy `plugins.json` (registry — knows which plugins are enabled)
-3. For each enabled plugin with `inheritableKeys`:
-   - Read `~/.openacp/plugins/data/<name>/settings.json`
+3. Copy `plugins/package.json` and `plugins/node_modules/` (installed community plugins — avoids re-downloading)
+4. Copy `agents.json` and `agents/` directory (installed agent definitions + binaries)
+5. Copy `bin/` directory (installed binaries like cloudflared — avoids re-downloading)
+6. For each enabled plugin with `inheritableKeys`:
+   - Read source `plugins/data/<name>/settings.json`
    - Keep only inheritable keys
-   - Write to `cwd/.openacp/plugins/data/<name>/settings.json`
-4. Run setup wizard for missing required fields (bot tokens, etc.)
+   - Write to target `plugins/data/<name>/settings.json`
+7. Run setup wizard for missing required fields (bot tokens, etc.)
    - Wizard detects partial setup → only asks for fields not yet configured
 
 #### Never Cloned
 
-Sessions, agents, logs, cache, PID, tunnel registry — each instance starts clean.
+Sessions, logs, cache, PID file, tunnel registry, api.port, api-secret — each instance starts clean with its own runtime state.
 
 ### 5. CLI Changes
 
 #### New Flags
 
 ```
-openacp [command] [--local | --global | --dir <path>]
+openacp [command] [--local | --global | --dir <path>] [--from <path>]
 ```
 
 - `--local` — use/create `.openacp/` in current directory
 - `--global` — always use `~/.openacp/`
 - `--dir <path>` — use/create `.openacp/` at specified path (creates directory if it doesn't exist)
+- `--from <path>` — when creating a new instance, copy settings from this existing instance (must contain `.openacp/config.json`)
 
-These flags apply to ALL commands: `start`, `stop`, `status`, `config`, `logs`, `plugins`, etc.
+These flags apply to ALL commands: `start`, `stop`, `status`, `config`, `logs`, `plugins`, etc. (`--from` only applies during instance creation.)
 
 #### New Subcommand
 
@@ -214,20 +247,26 @@ Output:
 
 1. `.openacp/` exists in cwd → use it
 2. Any explicit flag → follow it
-3. No local dir + no flag + global exists → prompt: "Use your main setup or create a new one here?"
+3. No local dir + no flag + global exists → prompt (shows full paths):
+   ```
+   ? How would you like to run OpenACP?
+     ● Use main setup (/Users/you/.openacp)
+       Create a new setup here (/Users/you/current-dir/.openacp)
+   ```
 4. Nothing exists → full setup wizard (current behavior)
 
 #### User-Facing Language
 
-All prompts use plain language:
+All prompts use plain language, always show full paths so user knows exactly where things are:
 
 | Internal concept | User-facing text |
 |-----------------|-----------------|
-| Global instance | "your main setup" |
-| Local instance | "a setup in this folder" |
-| Inherit | "use settings from your main setup as a starting point" |
-| Instance root | "location" |
+| Global instance | "Main setup (/full/path/.openacp)" |
+| Local instance | "Setup in this folder (/full/path/.openacp)" |
+| Clone source | "Use settings from an existing setup as a starting point" |
+| Instance root | "location" with full path shown |
 | Auto-detect | (no message, just works) |
+| CLI shortcut | Show equivalent command, e.g. "Tip: next time use `openacp --local`" |
 
 ### 6. Files to Modify
 
@@ -239,6 +278,7 @@ All prompts use plain language:
 - `SessionStore` — receive `ctx.paths.sessions`
 - `AgentStore` — receive `ctx.paths.agents`
 - `AgentCatalog` — receive `ctx.paths.registryCache`
+- `AgentInstaller` — receive `ctx.paths.agentsDir` for binary agent installs
 - `SettingsManager` — receive `ctx.paths.pluginsData` as base
 - `PluginRegistry` — receive `ctx.paths.pluginRegistry`
 
@@ -274,9 +314,10 @@ All prompts use plain language:
 3. Clone logic in setup wizard (partial setup detection + inheritance)
 4. `inheritableKeys` field in plugin definition type
 5. API server port auto-detect (tunnel already has this)
-6. `--local`, `--global`, `--dir` flag parsing in CLI entry
+6. `--local`, `--global`, `--dir`, `--from` flag parsing in CLI entry
 7. `status --all` subcommand
-8. User-facing prompt when no flag and cwd has no `.openacp/`
+8. User-facing prompt when no flag and cwd has no `.openacp/` (with full paths)
+9. Clone source selection UI (list existing instances from registry, validate `--from` path)
 
 ### 8. Backward Compatibility
 
