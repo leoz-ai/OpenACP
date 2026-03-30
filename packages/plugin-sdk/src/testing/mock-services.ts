@@ -70,10 +70,12 @@ export const mockServices = {
         return {
           storeFile() { return null },
           storeDiff() { return null },
+          storeOutput() { return null },
         }
       },
       fileUrl(id) { return `http://localhost:0/file/${id}` },
       diffUrl(id) { return `http://localhost:0/diff/${id}` },
+      outputUrl(id) { return `http://localhost:0/output/${id}` },
       ...overrides,
     }
   },
