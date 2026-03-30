@@ -622,32 +622,58 @@ export class OpenACPCore {
     const bridge = this.bridges.get(sessionId);
     if (bridge) bridge.disconnect();
 
-    // 4. Switch agent on session
-    await session.switchAgent(toAgent, async () => {
-      if (canResume) {
-        return this.agentManager.resume(toAgent, session.workingDirectory, lastEntry!.agentSessionId);
-      } else {
-        const instance = await this.agentManager.spawn(toAgent, session.workingDirectory);
-        // Inject context if context service available
-        try {
-          const contextService = this.lifecycleManager.serviceRegistry.get<ContextManager>('context');
-          if (contextService) {
-            const config = this.configManager.get();
-            const labelAgent = config.agentSwitch?.labelHistory ?? true;
-            const contextResult = await contextService.buildContext(
-              { type: 'session', value: sessionId, repoPath: session.workingDirectory },
-              { labelAgent },
-            );
-            if (contextResult?.markdown) {
-              session.setContext(contextResult.markdown);
+    // Capture pre-switch state for rollback
+    const fromAgentSessionId = session.agentSessionId;
+
+    // 4. Switch agent on session (with rollback on failure)
+    try {
+      await session.switchAgent(toAgent, async () => {
+        if (canResume) {
+          return this.agentManager.resume(toAgent, session.workingDirectory, lastEntry!.agentSessionId);
+        } else {
+          const instance = await this.agentManager.spawn(toAgent, session.workingDirectory);
+          // Inject context if context service available
+          try {
+            const contextService = this.lifecycleManager.serviceRegistry.get<ContextManager>('context');
+            if (contextService) {
+              const config = this.configManager.get();
+              const labelAgent = config.agentSwitch?.labelHistory ?? true;
+              const contextResult = await contextService.buildContext(
+                { type: 'session', value: sessionId, repoPath: session.workingDirectory },
+                { labelAgent },
+              );
+              if (contextResult?.markdown) {
+                session.setContext(contextResult.markdown);
+              }
             }
+          } catch {
+            // Context injection is best-effort
           }
-        } catch {
-          // Context injection is best-effort
+          return instance;
         }
-        return instance;
+      });
+    } catch (err) {
+      // Rollback: try to re-spawn the old agent so the session isn't left broken
+      try {
+        const oldInstance = await this.agentManager.spawn(fromAgent, session.workingDirectory);
+        // switchAgent already pushed to history, so undo it
+        session.agentSwitchHistory.pop();
+        session.agentInstance = oldInstance;
+        session.agentName = fromAgent;
+        session.agentSessionId = oldInstance.sessionId;
+        // Reconnect bridge after rollback
+        const adapter = this.adapters.get(session.channelId);
+        if (adapter) {
+          const rollbackBridge = this.createBridge(session, adapter);
+          rollbackBridge.connect();
+        }
+        log.warn({ sessionId, fromAgent, toAgent, err }, "Agent switch failed, rolled back to previous agent");
+      } catch (rollbackErr) {
+        session.fail(`Switch failed and rollback failed: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`);
+        log.error({ sessionId, fromAgent, toAgent, err, rollbackErr }, "Agent switch failed and rollback also failed");
       }
-    });
+      throw err;
+    }
 
     // 5. Reconnect bridge
     if (bridge) {

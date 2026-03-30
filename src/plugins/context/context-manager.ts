@@ -29,7 +29,7 @@ export class ContextManager {
   }
 
   async buildContext(query: ContextQuery, options?: ContextOptions): Promise<ContextResult | null> {
-    const queryKey = `${query.type}:${query.value}:${options?.limit ?? ""}:${options?.maxTokens ?? ""}`;
+    const queryKey = `${query.type}:${query.value}:${options?.limit ?? ""}:${options?.maxTokens ?? ""}:${options?.labelAgent ?? ""}`;
     const cached = this.cache.get(query.repoPath, queryKey);
     if (cached) return cached;
 

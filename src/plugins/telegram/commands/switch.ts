@@ -64,6 +64,17 @@ export async function handleSwitch(
   }
 
   // /switch <agentName> → direct switch
+  // Check if a prompt is currently being processed
+  if (session.promptRunning) {
+    const keyboard = new InlineKeyboard();
+    keyboard.text("Yes, switch now", `swc:${raw}`).text("Cancel", "swc:cancel");
+    await ctx.reply(
+      `A prompt is currently running. Switching will interrupt it.\n\nSwitch to <b>${escapeHtml(raw)}</b> anyway?`,
+      { parse_mode: "HTML", reply_markup: keyboard },
+    );
+    return;
+  }
+
   await executeSwitchAgent(ctx, core, session.id, raw);
 }
 
@@ -107,6 +118,42 @@ export function setupSwitchCallbacks(
       return;
     }
 
+    // Check if a prompt is currently being processed
+    if (session.promptRunning) {
+      const keyboard = new InlineKeyboard();
+      keyboard.text("Yes, switch now", `swc:${agentName}`).text("Cancel", "swc:cancel");
+      await ctx.reply(
+        `A prompt is currently running. Switching will interrupt it.\n\nSwitch to <b>${escapeHtml(agentName)}</b> anyway?`,
+        { parse_mode: "HTML", reply_markup: keyboard },
+      );
+      return;
+    }
+
     await executeSwitchAgent(ctx, core, session.id, agentName);
+  });
+
+  // Handle switch confirmation callbacks (when prompt was in-flight)
+  bot.callbackQuery(/^swc:/, async (ctx) => {
+    const data = ctx.callbackQuery.data!.replace("swc:", "");
+    await ctx.answerCallbackQuery();
+
+    if (data === "cancel") {
+      await ctx.editMessageText("Switch cancelled.");
+      return;
+    }
+
+    const threadId = ctx.callbackQuery.message?.message_thread_id;
+    if (!threadId) return;
+
+    const session = core.sessionManager.getSessionByThread(
+      "telegram",
+      String(threadId),
+    );
+    if (!session) {
+      await ctx.reply("No active session in this topic.");
+      return;
+    }
+
+    await executeSwitchAgent(ctx, core, session.id, data);
   });
 }
