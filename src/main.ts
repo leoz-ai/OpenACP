@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 
 import path from 'node:path'
-import os from 'node:os'
 import { ConfigManager } from './core/config/config.js'
-
-// Temporary — will be replaced by InstanceContext in Task 5
-const OPENACP_DIR = path.join(os.homedir(), '.openacp')
-const PLUGINS_DATA_DIR = path.join(OPENACP_DIR, 'plugins', 'data')
-const REGISTRY_PATH = path.join(OPENACP_DIR, 'plugins.json')
+import type { InstanceContext } from './core/instance-context.js'
+import { createInstanceContext, getGlobalRoot } from './core/instance-context.js'
 import { OpenACPCore } from './core/core.js'
 import { initLogger, shutdownLogger, cleanupOldSessionLogs, log, muteLogger, unmuteLogger } from './core/utils/log.js'
 import { corePlugins } from './plugins/core-plugins.js'
@@ -26,19 +22,26 @@ let shuttingDown = false
 export interface StartServerOptions {
   devPluginPath?: string
   noWatch?: boolean
+  instanceContext?: InstanceContext
 }
 
 export async function startServer(opts?: StartServerOptions) {
+  const ctx = opts?.instanceContext ?? createInstanceContext({
+    id: 'main',
+    root: getGlobalRoot(),
+    isGlobal: true,
+  })
+
   // 0. If running as daemon child, check state and write PID file
   if (process.argv.includes('--daemon-child')) {
-    const { writePidFile, readPidFile, getPidPath, shouldAutoStart } = await import('./cli/daemon.js')
+    const { writePidFile, readPidFile, shouldAutoStart } = await import('./cli/daemon.js')
 
     // Only auto-start if the daemon was previously running (user started it)
     if (!shouldAutoStart()) {
       process.exit(0)
     }
 
-    const pidPath = getPidPath()
+    const pidPath = ctx.paths.pid
     const existingPid = readPidFile(pidPath)
     if (existingPid !== null && existingPid !== process.pid) {
       try {
@@ -53,12 +56,12 @@ export async function startServer(opts?: StartServerOptions) {
   }
 
   // Create SettingsManager and PluginRegistry early (needed by wizard + boot)
-  const settingsManager = new SettingsManager(PLUGINS_DATA_DIR)
-  const pluginRegistry = new PluginRegistry(REGISTRY_PATH)
+  const settingsManager = new SettingsManager(ctx.paths.pluginsData)
+  const pluginRegistry = new PluginRegistry(ctx.paths.pluginRegistry)
   await pluginRegistry.load()
 
   // 1. Check config exists, run setup if not
-  const configManager = new ConfigManager()
+  const configManager = new ConfigManager(ctx.paths.config)
   const configExists = await configManager.exists()
 
   if (!configExists) {
@@ -107,7 +110,7 @@ export async function startServer(opts?: StartServerOptions) {
   )
 
   // 3. Create core
-  const core = new OpenACPCore(configManager)
+  const core = new OpenACPCore(configManager, ctx)
 
   // 3b. Create CommandRegistry and register as service
   const commandRegistry = new CommandRegistry()
@@ -150,7 +153,7 @@ export async function startServer(opts?: StartServerOptions) {
             modulePath = path.join(resolved, pkg.main || 'dist/index.js')
           } else {
             // npm package: try direct name first, then scan node_modules for matching plugin name
-            const nodeModulesDir = path.join(OPENACP_DIR, 'plugins', 'node_modules')
+            const nodeModulesDir = path.join(ctx.paths.plugins, 'node_modules')
             let pkgDir = path.join(nodeModulesDir, name)
 
             if (!fs.existsSync(path.join(pkgDir, 'package.json'))) {
@@ -321,8 +324,8 @@ export async function startServer(opts?: StartServerOptions) {
 
     // Clean up PID file if running as daemon
     if (isDaemon) {
-      const { removePidFile, getPidPath } = await import('./cli/daemon.js')
-      removePidFile(getPidPath())
+      const { removePidFile } = await import('./cli/daemon.js')
+      removePidFile(ctx.paths.pid)
     }
 
     // Self-respawn on restart
@@ -458,7 +461,7 @@ async function autoRegisterBuiltinPlugins(
           const ctx = createInstallContext({
             pluginName: plugin.name,
             settingsManager,
-            basePath: PLUGINS_DATA_DIR,
+            basePath: settingsManager.getBasePath(),
             legacyConfig,
           })
           // Override terminal to be silent

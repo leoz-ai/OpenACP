@@ -25,6 +25,7 @@ import { createChildLogger } from "./utils/log.js";
 import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import type { ContextQuery, ContextOptions, ContextResult } from "../plugins/context/context-provider.js";
+import type { InstanceContext } from "./instance-context.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -45,6 +46,7 @@ export class OpenACPCore {
   eventBus: EventBus;
   sessionFactory: SessionFactory;
   readonly lifecycleManager: LifecycleManager;
+  public readonly instanceContext?: InstanceContext;
 
   // --- Lazy getters: resolve from ServiceRegistry (populated by plugins during boot) ---
 
@@ -74,13 +76,14 @@ export class OpenACPCore {
     return this.getService<ContextManager>('context');
   }
 
-  constructor(configManager: ConfigManager) {
+  constructor(configManager: ConfigManager, ctx?: InstanceContext) {
     this.configManager = configManager;
+    this.instanceContext = ctx;
     const config = configManager.get();
     this.agentCatalog = new AgentCatalog();
     this.agentCatalog.load();
     this.agentManager = new AgentManager(this.agentCatalog);
-    const storePath = path.join(os.homedir(), ".openacp", "sessions.json");
+    const storePath = ctx?.paths.sessions ?? path.join(os.homedir(), ".openacp", "sessions.json");
     this.sessionStore = new JsonFileSessionStore(
       storePath,
       config.sessionStore.ttlDays,
@@ -108,7 +111,7 @@ export class OpenACPCore {
       sessions: this.sessionManager,
       config: this.configManager,
       core: this,
-      storagePath: path.join(os.homedir(), ".openacp", "plugins", "data"),
+      storagePath: ctx?.paths.pluginsData ?? path.join(os.homedir(), ".openacp", "plugins", "data"),
       log: createChildLogger({ module: "plugin" }),
     });
 
