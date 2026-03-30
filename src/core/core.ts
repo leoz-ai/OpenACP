@@ -34,6 +34,8 @@ export class OpenACPCore {
   sessionManager: SessionManager;
   messageTransformer: MessageTransformer;
   adapters: Map<string, IChannelAdapter> = new Map();
+  /** sessionId → SessionBridge — tracks active bridges for disconnect/reconnect during agent switch */
+  private bridges: Map<string, SessionBridge> = new Map();
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
@@ -361,6 +363,9 @@ export class OpenACPCore {
       lastActiveAt: new Date().toISOString(),
       name: session.name,
       platform,
+      firstAgent: session.firstAgent,
+      currentPromptCount: session.promptCount,
+      agentSwitchHistory: session.agentSwitchHistory,
     });
 
     log.info(
@@ -590,6 +595,90 @@ export class OpenACPCore {
     return { session, contextResult };
   }
 
+  // --- Agent Switch ---
+
+  async switchSessionAgent(sessionId: string, toAgent: string): Promise<{ resumed: boolean }> {
+    const session = this.sessionManager.getSession(sessionId);
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+
+    const fromAgent = session.agentName;
+
+    // 1. Middleware: agent:beforeSwitch (blocking)
+    const middlewareChain = this.lifecycleManager.middlewareChain;
+    const result = await middlewareChain.execute('agent:beforeSwitch', {
+      sessionId,
+      fromAgent,
+      toAgent,
+    }, async (payload) => payload);
+    if (!result) throw new Error('Agent switch blocked by middleware');
+
+    // 2. Determine resume vs new
+    const lastEntry = session.findLastSwitchEntry(toAgent);
+    const caps = getAgentCapabilities(toAgent);
+    const canResume = !!(lastEntry && caps.supportsResume && lastEntry.promptCount === 0);
+    const resumed = canResume;
+
+    // 3. Disconnect bridge
+    const bridge = this.bridges.get(sessionId);
+    if (bridge) bridge.disconnect();
+
+    // 4. Switch agent on session
+    await session.switchAgent(toAgent, async () => {
+      if (canResume) {
+        return this.agentManager.resume(toAgent, session.workingDirectory, lastEntry!.agentSessionId);
+      } else {
+        const instance = await this.agentManager.spawn(toAgent, session.workingDirectory);
+        // Inject context if context service available
+        try {
+          const contextService = this.lifecycleManager.serviceRegistry.get<ContextManager>('context');
+          if (contextService) {
+            const config = this.configManager.get();
+            const labelAgent = config.agentSwitch?.labelHistory ?? true;
+            const contextResult = await contextService.buildContext(
+              { type: 'session', value: sessionId, repoPath: session.workingDirectory },
+              { labelAgent },
+            );
+            if (contextResult?.markdown) {
+              session.setContext(contextResult.markdown);
+            }
+          }
+        } catch {
+          // Context injection is best-effort
+        }
+        return instance;
+      }
+    });
+
+    // 5. Reconnect bridge
+    if (bridge) {
+      // Re-create bridge with new agent instance wiring
+      const adapter = this.adapters.get(session.channelId);
+      if (adapter) {
+        const newBridge = this.createBridge(session, adapter);
+        newBridge.connect();
+      }
+    }
+
+    // 6. Persist
+    await this.sessionManager.patchRecord(sessionId, {
+      agentName: toAgent,
+      agentSessionId: session.agentSessionId,
+      firstAgent: session.firstAgent,
+      currentPromptCount: 0,
+      agentSwitchHistory: session.agentSwitchHistory,
+    });
+
+    // 7. Middleware: agent:afterSwitch (fire-and-forget)
+    middlewareChain.execute('agent:afterSwitch', {
+      sessionId,
+      fromAgent,
+      toAgent,
+      resumed,
+    }, async (p) => p).catch(() => {});
+
+    return { resumed };
+  }
+
   // --- Lazy Resume ---
 
   /**
@@ -659,6 +748,9 @@ export class OpenACPCore {
         });
         session.activate();
         session.dangerousMode = record.dangerousMode ?? false;
+        if (record.firstAgent) session.firstAgent = record.firstAgent;
+        if (record.agentSwitchHistory) session.agentSwitchHistory = record.agentSwitchHistory;
+        if (record.currentPromptCount != null) session.promptCount = record.currentPromptCount;
 
         log.info(
           { sessionId: session.id, threadId: message.threadId },
@@ -693,7 +785,7 @@ export class OpenACPCore {
 
   /** Create a SessionBridge for the given session and adapter */
   createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
-    return new SessionBridge(session, adapter, {
+    const bridge = new SessionBridge(session, adapter, {
       messageTransformer: this.messageTransformer,
       notificationManager: this.notificationManager,
       sessionManager: this.sessionManager,
@@ -701,5 +793,7 @@ export class OpenACPCore {
       fileService: this.fileService,
       middlewareChain: this.lifecycleManager?.middlewareChain,
     });
+    this.bridges.set(session.id, bridge);
+    return bridge;
   }
 }
