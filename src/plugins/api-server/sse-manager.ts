@@ -1,4 +1,5 @@
 import * as http from "node:http";
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { EventBus, EventBusEvents } from "../../core/event-bus.js";
 
 interface SSEResponse extends http.ServerResponse {
@@ -104,6 +105,17 @@ export class SSEManager {
         /* connection closed */
       }
     }
+  }
+
+  /**
+   * Returns a Fastify route handler that hijacks the response
+   * and delegates to the raw http SSE handler.
+   */
+  createFastifyHandler() {
+    return async (request: FastifyRequest, reply: FastifyReply) => {
+      reply.hijack();
+      this.handleRequest(request.raw, reply.raw);
+    };
   }
 
   stop(): void {

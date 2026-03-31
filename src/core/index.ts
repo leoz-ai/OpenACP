@@ -68,7 +68,9 @@ export {
 export { NotificationManager } from "../plugins/notifications/notification.js";
 export { FileService } from "../plugins/file-service/file-service.js";
 export { SecurityGuard } from "../plugins/security/security-guard.js";
-export { ApiServer, type ApiConfig } from "../plugins/api-server/api-server.js";
+export { type ApiConfig } from "../plugins/api-server/index.js";
+export { createApiServer, type ApiServerInstance, type ApiServerOptions } from "../plugins/api-server/server.js";
+export { createApiServerService, type ApiServerService } from "../plugins/api-server/service.js";
 export { SSEManager } from "../plugins/api-server/sse-manager.js";
 export { StaticServer } from "../plugins/api-server/static-server.js";
 export {

@@ -443,6 +443,7 @@ async function autoRegisterBuiltinPlugins(
     { name: '@openacp/notifications', version: '1.0.0', description: 'Cross-session notification routing' },
     { name: '@openacp/tunnel', version: '1.0.0', description: 'Expose local services via tunnel' },
     { name: '@openacp/api-server', version: '1.0.0', description: 'REST API + SSE streaming server' },
+    { name: '@openacp/sse-adapter', version: '1.0.0', description: 'SSE-based messaging adapter for app clients' },
     { name: '@openacp/telegram', version: '1.0.0', description: 'Telegram adapter with forum topics' },
   ]
 
@@ -467,6 +468,7 @@ async function autoRegisterBuiltinPlugins(
       import('./plugins/notifications/index.js'),
       import('./plugins/tunnel/index.js'),
       import('./plugins/api-server/index.js'),
+      import('./plugins/sse-adapter/index.js'),
       import('./plugins/telegram/index.js'),
     ])
 

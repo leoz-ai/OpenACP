@@ -1,30 +1,23 @@
-import type { Router } from "../router.js";
-import type { RouteDeps } from "../api-server.js";
+import type { FastifyInstance } from 'fastify';
+import type { RouteDeps } from './types.js';
 
-export function registerNotifyRoutes(router: Router, deps: RouteDeps): void {
-  router.post("/api/notify", async (req, res) => {
-    const body = await deps.readBody(req);
-    let message: string | undefined;
-    if (body) {
-      try {
-        const parsed = JSON.parse(body);
-        message = parsed.message;
-      } catch {
-        deps.sendJson(res, 400, { error: "Invalid JSON body" });
-        return;
-      }
-    }
+export async function notifyRoutes(
+  app: FastifyInstance,
+  deps: RouteDeps,
+): Promise<void> {
+  // POST /notify — send a notification to all adapters
+  app.post('/', async (request, reply) => {
+    const body = request.body as { message?: string } | undefined;
 
-    if (!message) {
-      deps.sendJson(res, 400, { error: "Missing message" });
-      return;
+    if (!body?.message) {
+      return reply.status(400).send({ error: 'Missing message' });
     }
 
     await deps.core.notificationManager.notifyAll({
-      sessionId: "system",
-      type: "completed",
-      summary: message,
+      sessionId: 'system',
+      type: 'completed',
+      summary: body.message,
     });
-    deps.sendJson(res, 200, { ok: true });
+    return { ok: true };
   });
 }
