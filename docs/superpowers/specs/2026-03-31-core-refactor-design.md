@@ -18,7 +18,17 @@ Three structural issues in the core module:
 
 ---
 
-## Phase 1: Split `core.ts` (~929 → ~400 lines)
+## Phase 1: Split `core.ts` (~929 → ~400 lines) + organize loose files
+
+### 1d. Group `instance-*` files into `core/instance/`
+
+Four instance-related files sit loose at the root of `core/`:
+- `instance-context.ts` (90 lines) — path definitions, resolve instance root
+- `instance-registry.ts` (64 lines) — registry CRUD (JSON file)
+- `instance-discovery.ts` (63 lines) — find running instances via health check
+- `instance-copy.ts` (112 lines) — clone instance config/plugins/agents
+
+All belong to the same domain: **multi-instance management**. Move into `core/instance/` with an `index.ts` re-exporting public API. Update all import paths. No logic changes.
 
 ### 1a. Extract `AgentSwitchHandler`
 
@@ -248,6 +258,6 @@ Each phase includes:
 
 | Phase | New Files | Modified Files |
 |-------|-----------|---------------|
-| 1 | `core/agent-switch-handler.ts` | `core/core.ts`, `core/sessions/session-factory.ts` |
+| 1 | `core/agent-switch-handler.ts`, `core/instance/` (4 files moved + index.ts) | `core/core.ts`, `core/sessions/session-factory.ts`, all files importing `instance-*` |
 | 2 | None | `core/sessions/session.ts`, `core/sessions/session-factory.ts`, `plugins/speech/` (middleware registration) |
 | 3 | None | `core/message-transformer.ts`, `core/core.ts`, `core/sessions/session-bridge.ts`, `core/sessions/session-factory.ts`, `plugins/tunnel/` (middleware registration) |
