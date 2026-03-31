@@ -49,10 +49,13 @@ export class TunnelRegistry {
   private registryPath: string
   private shuttingDown = false
 
-  constructor(opts: { maxUserTunnels?: number; providerOptions?: Record<string, unknown>; registryPath?: string } = {}) {
+  private binDir: string | undefined
+
+  constructor(opts: { maxUserTunnels?: number; providerOptions?: Record<string, unknown>; registryPath?: string; binDir?: string } = {}) {
     this.maxUserTunnels = opts.maxUserTunnels ?? 5
     this.providerOptions = opts.providerOptions ?? {}
     this.registryPath = opts.registryPath ?? path.join(os.homedir(), '.openacp', 'tunnels.json')
+    this.binDir = opts.binDir
   }
 
   async add(port: number, opts: {
@@ -303,7 +306,7 @@ export class TunnelRegistry {
   private createProvider(name: string): TunnelProvider {
     switch (name) {
       case 'cloudflare':
-        return new CloudflareTunnelProvider(this.providerOptions)
+        return new CloudflareTunnelProvider(this.providerOptions, this.binDir)
       case 'ngrok':
         return new NgrokTunnelProvider(this.providerOptions)
       case 'bore':
@@ -312,7 +315,7 @@ export class TunnelRegistry {
         return new TailscaleTunnelProvider(this.providerOptions)
       default:
         log.warn({ provider: name }, 'Unknown provider, falling back to cloudflare')
-        return new CloudflareTunnelProvider(this.providerOptions)
+        return new CloudflareTunnelProvider(this.providerOptions, this.binDir)
     }
   }
 

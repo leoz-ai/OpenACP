@@ -84,6 +84,7 @@ export class OpenACPCore {
     this.agentCatalog = new AgentCatalog(
       ctx ? new AgentStore(ctx.paths.agents) : undefined,
       ctx?.paths.registryCache,
+      ctx?.paths.agentsDir,
     );
     this.agentCatalog.load();
     this.agentManager = new AgentManager(this.agentCatalog);

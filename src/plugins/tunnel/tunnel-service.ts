@@ -15,13 +15,14 @@ export class TunnelService {
   private systemPort = 0
   private startError: string | undefined
 
-  constructor(config: TunnelConfig, registryPath?: string) {
+  constructor(config: TunnelConfig, registryPath?: string, binDir?: string) {
     this.config = config
     this.store = new ViewerStore(config.storeTtlMinutes)
     this.registry = new TunnelRegistry({
       maxUserTunnels: config.maxUserTunnels ?? 5,
       providerOptions: config.options,
       registryPath,
+      binDir,
     })
   }
 

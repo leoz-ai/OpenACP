@@ -6,7 +6,7 @@ async function createCatalog(instanceRoot?: string) {
     const { AgentStore } = await import("../../core/agents/agent-store.js");
     const pathMod = await import('node:path');
     const store = new AgentStore(pathMod.join(instanceRoot, 'agents.json'));
-    return new AgentCatalog(store, pathMod.join(instanceRoot, 'registry-cache.json'));
+    return new AgentCatalog(store, pathMod.join(instanceRoot, 'registry-cache.json'), pathMod.join(instanceRoot, 'agents'));
   }
   return new AgentCatalog();
 }

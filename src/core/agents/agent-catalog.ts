@@ -30,10 +30,12 @@ export class AgentCatalog {
   private store: AgentStore;
   private registryAgents: RegistryAgent[] = [];
   private cachePath: string;
+  private agentsDir: string | undefined;
 
-  constructor(store?: AgentStore, cachePath?: string) {
+  constructor(store?: AgentStore, cachePath?: string, agentsDir?: string) {
     this.store = store ?? new AgentStore();
     this.cachePath = cachePath ?? path.join(os.homedir(), ".openacp", "registry-cache.json");
+    this.agentsDir = agentsDir;
   }
 
   load(): void {
@@ -181,7 +183,7 @@ export class AgentCatalog {
       return { ok: false, agentKey, error: msg };
     }
 
-    return installAgent(agent, this.store, progress);
+    return installAgent(agent, this.store, progress, this.agentsDir);
   }
 
   async uninstall(key: string): Promise<{ ok: boolean; error?: string }> {
