@@ -76,6 +76,11 @@ describe('session routes', () => {
   beforeEach(async () => {
     app = Fastify();
     app.setErrorHandler(globalErrorHandler);
+    // Mock auth: decorate request with admin-level auth so scope checks pass
+    app.decorateRequest('auth', null, []);
+    app.addHook('onRequest', async (request) => {
+      request.auth = { type: 'secret', role: 'admin', scopes: ['*'] };
+    });
     deps = createMockDeps();
     await app.register(
       async (instance) => {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
 import { NotFoundError } from '../middleware/error-handler.js';
+import { requireScopes } from '../middleware/auth.js';
 import { createChildLogger } from '../../../core/utils/log.js';
 import {
   SessionIdParamSchema,
@@ -19,7 +20,7 @@ export async function sessionRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   // GET /sessions — list all sessions
-  app.get('/', async () => {
+  app.get('/', { preHandler: requireScopes('sessions:read') }, async () => {
     const sessions = deps.core.sessionManager.listSessions();
     return {
       sessions: sessions.map((s) => ({
@@ -41,6 +42,7 @@ export async function sessionRoutes(
   // GET /sessions/:sessionId — get session details
   app.get<{ Params: { sessionId: string } }>(
     '/:sessionId',
+    { preHandler: requireScopes('sessions:read') },
     async (request) => {
       const { sessionId } = SessionIdParamSchema.parse(request.params);
       const session = deps.core.sessionManager.getSession(
@@ -73,7 +75,7 @@ export async function sessionRoutes(
   );
 
   // POST /sessions — create a new session
-  app.post('/', async (request, reply) => {
+  app.post('/', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     const body = CreateSessionBodySchema.parse(request.body ?? {});
 
     // Check max concurrent sessions
@@ -158,6 +160,7 @@ export async function sessionRoutes(
   // POST /sessions/adopt — adopt an existing agent session
   app.post<{ Body: { agent: string; agentSessionId: string; cwd?: string; channel?: string } }>(
     '/adopt',
+    { preHandler: requireScopes('sessions:write') },
     async (request, reply) => {
       const body = AdoptSessionBodySchema.parse(request.body);
 
@@ -185,6 +188,7 @@ export async function sessionRoutes(
   // POST /sessions/:sessionId/prompt — send a prompt to a session
   app.post<{ Params: { sessionId: string } }>(
     '/:sessionId/prompt',
+    { preHandler: requireScopes('sessions:prompt') },
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -218,6 +222,7 @@ export async function sessionRoutes(
   // POST /sessions/:sessionId/permission — resolve a pending permission request
   app.post<{ Params: { sessionId: string } }>(
     '/:sessionId/permission',
+    { preHandler: requireScopes('sessions:permission') },
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -248,6 +253,7 @@ export async function sessionRoutes(
   // PATCH /sessions/:sessionId — update session (agent, voice, dangerous mode)
   app.patch<{ Params: { sessionId: string } }>(
     '/:sessionId',
+    { preHandler: requireScopes('sessions:write') },
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -288,6 +294,7 @@ export async function sessionRoutes(
   // PATCH /sessions/:sessionId/dangerous — toggle dangerous mode
   app.patch<{ Params: { sessionId: string } }>(
     '/:sessionId/dangerous',
+    { preHandler: requireScopes('sessions:write') },
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -312,6 +319,7 @@ export async function sessionRoutes(
   // POST /sessions/:sessionId/archive — archive a session
   app.post<{ Params: { sessionId: string } }>(
     '/:sessionId/archive',
+    { preHandler: requireScopes('sessions:write') },
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -327,6 +335,7 @@ export async function sessionRoutes(
   // DELETE /sessions/:sessionId — cancel a session
   app.delete<{ Params: { sessionId: string } }>(
     '/:sessionId',
+    { preHandler: requireScopes('sessions:write') },
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);

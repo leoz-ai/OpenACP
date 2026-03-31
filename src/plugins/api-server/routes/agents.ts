@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
 import { NameParamSchema } from '../schemas/common.js';
 import { NotFoundError } from '../middleware/error-handler.js';
+import { requireScopes } from '../middleware/auth.js';
 import { getAgentCapabilities } from '../../../core/agents/agent-registry.js';
 
 export async function agentRoutes(
@@ -9,7 +10,7 @@ export async function agentRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   // GET /agents — list all available agents
-  app.get('/', async () => {
+  app.get('/', { preHandler: requireScopes('agents:read') }, async () => {
     const agents = deps.core.agentManager.getAvailableAgents();
     const defaultAgent = deps.core.configManager.get().defaultAgent;
     const agentsWithCaps = agents.map((a) => ({
@@ -20,7 +21,7 @@ export async function agentRoutes(
   });
 
   // GET /agents/:name — get a single agent by name
-  app.get('/:name', async (request) => {
+  app.get('/:name', { preHandler: requireScopes('agents:read') }, async (request) => {
     const { name } = NameParamSchema.parse(request.params);
     const agent = deps.core.agentCatalog.getInstalledAgent(name);
     if (!agent) {

@@ -1,3 +1,4 @@
+import type { preHandlerHookHandler } from 'fastify';
 import type { OpenACPCore } from '../../../core/core.js';
 import type { TopicManager } from '../../telegram/topic-manager.js';
 import type { CommandRegistry } from '../../../core/command-registry.js';
@@ -12,4 +13,6 @@ export interface RouteDeps {
   startedAt: number;
   getVersion: () => string;
   commandRegistry?: CommandRegistry;
+  /** Auth pre-handler for routes registered without global auth (e.g. system routes). */
+  authPreHandler?: preHandlerHookHandler;
 }

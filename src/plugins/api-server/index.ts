@@ -223,12 +223,16 @@ function createApiServerPlugin(): OpenACPPlugin {
       const topicManager = ctx.getService<TopicManager>('topic-manager')
       const commandRegistry = ctx.getService<CommandRegistry>('command-registry')
 
+      // Build auth pre-handler for route-level auth on unauthenticated route groups
+      const routeAuthPreHandler = createAuthPreHandler(() => secret, () => jwtSecret, tokenStore)
+
       const deps: RouteDeps = {
         core,
         topicManager,
         startedAt,
         getVersion,
         commandRegistry,
+        authPreHandler: routeAuthPreHandler,
       }
 
       // Register all route plugins under /api/v1/

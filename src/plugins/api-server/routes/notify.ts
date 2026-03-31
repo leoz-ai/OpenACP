@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 
 export async function notifyRoutes(
   app: FastifyInstance,
   deps: RouteDeps,
 ): Promise<void> {
   // POST /notify — send a notification to all adapters
-  app.post('/', async (request, reply) => {
+  app.post('/', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     const body = request.body as { message?: string } | undefined;
 
     if (!body?.message) {

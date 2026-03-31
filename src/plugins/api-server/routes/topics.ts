@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 import { SessionIdParamSchema } from '../schemas/sessions.js';
 
 export async function topicRoutes(
@@ -7,7 +8,7 @@ export async function topicRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   // GET /topics — list topics with optional status filter
-  app.get<{ Querystring: { status?: string } }>('/', async (request, reply) => {
+  app.get<{ Querystring: { status?: string } }>('/', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     if (!deps.topicManager) {
       return reply
         .status(501)
@@ -22,7 +23,7 @@ export async function topicRoutes(
   });
 
   // POST /topics/cleanup — cleanup topics by status
-  app.post('/cleanup', async (request, reply) => {
+  app.post('/cleanup', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     if (!deps.topicManager) {
       return reply
         .status(501)
@@ -36,6 +37,7 @@ export async function topicRoutes(
   // DELETE /topics/:sessionId — delete a topic
   app.delete<{ Params: { sessionId: string }; Querystring: { force?: string } }>(
     '/:sessionId',
+    { preHandler: requireScopes('sessions:write') },
     async (request, reply) => {
       if (!deps.topicManager) {
         return reply
