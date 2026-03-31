@@ -1,6 +1,17 @@
 import { wantsHelp } from './helpers.js'
 
-export async function cmdAgents(args: string[]): Promise<void> {
+async function createCatalog(instanceRoot?: string) {
+  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
+  if (instanceRoot) {
+    const { AgentStore } = await import("../../core/agents/agent-store.js");
+    const pathMod = await import('node:path');
+    const store = new AgentStore(pathMod.join(instanceRoot, 'agents.json'));
+    return new AgentCatalog(store, pathMod.join(instanceRoot, 'registry-cache.json'));
+  }
+  return new AgentCatalog();
+}
+
+export async function cmdAgents(args: string[], instanceRoot?: string): Promise<void> {
   const subcommand = args[1];
 
   if (wantsHelp(args) && (!subcommand || subcommand === '--help' || subcommand === '-h')) {
@@ -30,9 +41,9 @@ export async function cmdAgents(args: string[]): Promise<void> {
 
   switch (subcommand) {
     case "install":
-      return agentsInstall(args[2], args.includes("--force"), wantsHelp(args));
+      return agentsInstall(args[2], args.includes("--force"), wantsHelp(args), instanceRoot);
     case "uninstall":
-      return agentsUninstall(args[2], wantsHelp(args));
+      return agentsUninstall(args[2], wantsHelp(args), instanceRoot);
     case "refresh":
       if (wantsHelp(args)) {
         console.log(`
@@ -46,14 +57,14 @@ bypassing the normal staleness check.
 `)
         return;
       }
-      return agentsRefresh();
+      return agentsRefresh(instanceRoot);
     case "info":
-      return agentsInfo(args[2], wantsHelp(args));
+      return agentsInfo(args[2], wantsHelp(args), instanceRoot);
     case "run":
-      return agentsRun(args[2], args.slice(3), wantsHelp(args));
+      return agentsRun(args[2], args.slice(3), wantsHelp(args), instanceRoot);
     case "list":
     case undefined:
-      return agentsList();
+      return agentsList(instanceRoot);
     default: {
       const { suggestMatch } = await import('../suggest.js');
       const agentSubcommands = ["install", "uninstall", "refresh", "info", "run", "list"];
@@ -66,9 +77,8 @@ bypassing the normal staleness check.
   }
 }
 
-async function agentsList(): Promise<void> {
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+async function agentsList(instanceRoot?: string): Promise<void> {
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
   await catalog.refreshRegistryIfStale();
 
@@ -116,7 +126,7 @@ async function agentsList(): Promise<void> {
   console.log("");
 }
 
-async function agentsInstall(nameOrId: string | undefined, force: boolean, help = false): Promise<void> {
+async function agentsInstall(nameOrId: string | undefined, force: boolean, help = false, instanceRoot?: string): Promise<void> {
   if (help || !nameOrId) {
     console.log(`
 \x1b[1mopenacp agents install\x1b[0m — Install an agent from the ACP Registry
@@ -140,8 +150,7 @@ Run 'openacp agents' to see available agents.
     return;
   }
 
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
   await catalog.refreshRegistryIfStale();
 
@@ -201,7 +210,7 @@ Run 'openacp agents' to see available agents.
   }
 }
 
-async function agentsUninstall(name: string | undefined, help = false): Promise<void> {
+async function agentsUninstall(name: string | undefined, help = false, instanceRoot?: string): Promise<void> {
   if (help || !name) {
     console.log(`
 \x1b[1mopenacp agents uninstall\x1b[0m — Remove an installed agent
@@ -218,8 +227,7 @@ async function agentsUninstall(name: string | undefined, help = false): Promise<
     return;
   }
 
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
 
   const result = await catalog.uninstall(name);
@@ -245,16 +253,15 @@ async function agentsUninstall(name: string | undefined, help = false): Promise<
   }
 }
 
-async function agentsRefresh(): Promise<void> {
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+async function agentsRefresh(instanceRoot?: string): Promise<void> {
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
   console.log("\n  Updating agent list...");
   await catalog.fetchRegistry();
   console.log("  \x1b[32m✓ Agent list updated.\x1b[0m\n");
 }
 
-async function agentsInfo(nameOrId: string | undefined, help = false): Promise<void> {
+async function agentsInfo(nameOrId: string | undefined, help = false, instanceRoot?: string): Promise<void> {
   if (help || !nameOrId) {
     console.log(`
 \x1b[1mopenacp agents info\x1b[0m — Show agent details, dependencies & setup guide
@@ -275,8 +282,7 @@ whether the agent is installed or available from the registry.
     return;
   }
 
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
 
   const { getAgentSetup } = await import("../../core/agents/agent-dependencies.js");
@@ -334,7 +340,7 @@ whether the agent is installed or available from the registry.
   console.log(`  Run 'openacp agents' to see available agents.\n`);
 }
 
-async function agentsRun(nameOrId: string | undefined, extraArgs: string[], help = false): Promise<void> {
+async function agentsRun(nameOrId: string | undefined, extraArgs: string[], help = false, instanceRoot?: string): Promise<void> {
   if (help || !nameOrId) {
     console.log(`
 \x1b[1mopenacp agents run\x1b[0m — Run agent CLI directly
@@ -357,8 +363,7 @@ ACP-specific flags are automatically stripped.
     return;
   }
 
-  const { AgentCatalog } = await import("../../core/agents/agent-catalog.js");
-  const catalog = new AgentCatalog();
+  const catalog = await createCatalog(instanceRoot);
   catalog.load();
 
   const installed = catalog.getInstalledAgent(nameOrId);

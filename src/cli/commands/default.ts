@@ -29,7 +29,8 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
   await checkAndPromptUpdate()
 
   const { ConfigManager } = await import('../../core/config/config.js')
-  const cm = new ConfigManager()
+  const configPath = path.join(root, 'config.json')
+  const cm = new ConfigManager(configPath)
 
   // If no config, run setup first
   if (!(await cm.exists())) {
@@ -128,7 +129,7 @@ async function showAlreadyRunningMenu(root: string): Promise<void> {
       key: 'l', label: 'View logs',
       action: async () => {
         const { cmdLogs } = await import('./logs.js')
-        await cmdLogs([])
+        await cmdLogs([], root)
       },
     },
   ])

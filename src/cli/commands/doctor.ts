@@ -1,6 +1,6 @@
 import { wantsHelp } from './helpers.js'
 
-export async function cmdDoctor(args: string[]): Promise<void> {
+export async function cmdDoctor(args: string[], instanceRoot?: string): Promise<void> {
   if (wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp doctor\x1b[0m — Run system diagnostics
@@ -35,7 +35,7 @@ Fixable issues can be auto-repaired when not using --dry-run.
 
   const dryRun = args.includes("--dry-run");
   const { DoctorEngine } = await import("../../core/doctor/index.js");
-  const engine = new DoctorEngine({ dryRun });
+  const engine = new DoctorEngine({ dryRun, dataDir: instanceRoot });
 
   console.log("\n🩺 OpenACP Doctor\n");
 

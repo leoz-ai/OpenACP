@@ -1,7 +1,8 @@
+import * as pathMod from 'node:path'
 import { readApiPort, apiCall } from '../api-client.js'
 import { wantsHelp, buildNestedUpdateFromPath } from './helpers.js'
 
-export async function cmdConfig(args: string[] = []): Promise<void> {
+export async function cmdConfig(args: string[] = [], instanceRoot?: string): Promise<void> {
   const subCmd = args[1] // 'set' or undefined
 
   if (wantsHelp(args) && subCmd === 'set') {
@@ -76,14 +77,14 @@ the API for live updates. When stopped, edits config file directly.
     let value: unknown = configValue
     try { value = JSON.parse(configValue) } catch { /* keep as string */ }
 
-    const port = readApiPort()
+    const port = readApiPort(undefined, instanceRoot)
     if (port !== null) {
       // Server running — use API
       const res = await apiCall(port, '/api/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: configPath, value }),
-      })
+      }, instanceRoot)
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -96,7 +97,7 @@ the API for live updates. When stopped, edits config file directly.
     } else {
       // Server not running — update file directly
       const { ConfigManager } = await import('../../core/config/config.js')
-      const cm = new ConfigManager()
+      const cm = new ConfigManager(instanceRoot ? pathMod.join(instanceRoot, 'config.json') : undefined)
       if (!(await cm.exists())) {
         console.error('No config found. Run "openacp" first to set up.')
         process.exit(1)
@@ -112,13 +113,13 @@ the API for live updates. When stopped, edits config file directly.
   // Interactive editor
   const { runConfigEditor } = await import('../../core/config/config-editor.js')
   const { ConfigManager } = await import('../../core/config/config.js')
-  const cm = new ConfigManager()
+  const cm = new ConfigManager(instanceRoot ? pathMod.join(instanceRoot, 'config.json') : undefined)
   if (!(await cm.exists())) {
     console.error('No config found. Run "openacp" first to set up.')
     process.exit(1)
   }
 
-  const port = readApiPort()
+  const port = readApiPort(undefined, instanceRoot)
   if (port !== null) {
     await runConfigEditor(cm, 'api', port)
   } else {

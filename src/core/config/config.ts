@@ -233,7 +233,7 @@ export class ConfigManager extends EventEmitter {
     const raw = JSON.parse(fs.readFileSync(this.configPath, "utf-8"));
 
     // 3.5. Auto-migrate config
-    const { changed: configUpdated } = applyMigrations(raw);
+    const { changed: configUpdated } = applyMigrations(raw, undefined, { configDir: path.dirname(this.configPath) });
     if (configUpdated) {
       fs.writeFileSync(this.configPath, JSON.stringify(raw, null, 2));
     }

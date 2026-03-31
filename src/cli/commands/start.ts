@@ -27,7 +27,7 @@ Requires an existing config — run 'openacp' first to set up.
   await checkAndPromptUpdate()
   const { startDaemon, getPidPath } = await import('../daemon.js')
   const { ConfigManager } = await import('../../core/config/config.js')
-  const cm = new ConfigManager()
+  const cm = new ConfigManager(path.join(root, 'config.json'))
   if (await cm.exists()) {
     await cm.load()
     const config = cm.get()

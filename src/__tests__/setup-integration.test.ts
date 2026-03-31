@@ -163,8 +163,10 @@ describe('runSetup integration', () => {
   })
 
   it('creates valid config file via plugin install and auto-starts', { timeout: 15000 }, async () => {
-    // text() call order (no more setupTelegram — plugin owns that):
-    // 1. setupWorkspace: workspace base dir
+    // text() call order:
+    // 1. Instance name prompt
+    mockedText.mockResolvedValueOnce('Main' as any)
+    // 2. setupWorkspace: workspace base dir
     mockedText.mockResolvedValueOnce('~/my-workspace' as any)
 
     // Confirm call order:

@@ -16,6 +16,7 @@ import type { AgentEvent, IncomingMessage } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentCatalog } from "./agents/agent-catalog.js";
+import { AgentStore } from "./agents/agent-store.js";
 import { EventBus } from "./event-bus.js";
 import { LifecycleManager } from "./plugin/lifecycle-manager.js";
 import { ServiceRegistry } from "./plugin/service-registry.js";
@@ -80,7 +81,10 @@ export class OpenACPCore {
     this.configManager = configManager;
     this.instanceContext = ctx;
     const config = configManager.get();
-    this.agentCatalog = new AgentCatalog();
+    this.agentCatalog = new AgentCatalog(
+      ctx ? new AgentStore(ctx.paths.agents) : undefined,
+      ctx?.paths.registryCache,
+    );
     this.agentCatalog.load();
     this.agentManager = new AgentManager(this.agentCatalog);
     const storePath = ctx?.paths.sessions ?? path.join(os.homedir(), ".openacp", "sessions.json");
@@ -113,6 +117,7 @@ export class OpenACPCore {
       config: this.configManager,
       core: this,
       storagePath: ctx?.paths.pluginsData ?? path.join(os.homedir(), ".openacp", "plugins", "data"),
+      instanceRoot: ctx?.root,
       log: createChildLogger({ module: "plugin" }),
     });
 

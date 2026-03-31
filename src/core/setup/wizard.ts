@@ -219,7 +219,7 @@ export async function runSetup(
       if (channelId.startsWith('official:')) {
         const npmPackage = channelId.slice('official:'.length);
         const { execFileSync } = await import('node:child_process');
-        const pluginsDir = path.join(getGlobalRoot(), 'plugins');
+        const pluginsDir = path.join(instanceRoot, 'plugins');
         const nodeModulesDir = path.join(pluginsDir, 'node_modules');
 
         // Install from npm if not already present
@@ -275,7 +275,7 @@ export async function runSetup(
       if (channelId.startsWith('community:')) {
         const npmPackage = channelId.slice('community:'.length);
         const { execFileSync } = await import('node:child_process');
-        const pluginsDir = path.join(getGlobalRoot(), 'plugins');
+        const pluginsDir = path.join(instanceRoot, 'plugins');
         const nodeModulesDir = path.join(pluginsDir, 'node_modules');
 
         // Install from npm

@@ -16,7 +16,7 @@ export class InstanceRegistry {
 
   constructor(private registryPath: string) {}
 
-  async load(): Promise<void> {
+  load(): void {
     try {
       const raw = fs.readFileSync(this.registryPath, 'utf-8')
       const parsed = JSON.parse(raw) as RegistryData
@@ -28,7 +28,7 @@ export class InstanceRegistry {
     }
   }
 
-  async save(): Promise<void> {
+  save(): void {
     const dir = path.dirname(this.registryPath)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(this.registryPath, JSON.stringify(this.data, null, 2))

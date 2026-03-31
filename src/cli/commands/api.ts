@@ -40,7 +40,7 @@ function printApiHelp(): void {
 `)
 }
 
-export async function cmdApi(args: string[]): Promise<void> {
+export async function cmdApi(args: string[], instanceRoot?: string): Promise<void> {
   const subCmd = args[1]
 
   if (wantsHelp(args) && (!subCmd || subCmd === '--help' || subCmd === '-h')) {
@@ -246,11 +246,13 @@ Shows the version of the currently running daemon process.
     return
   }
 
-  const port = readApiPort()
+  const port = readApiPort(undefined, instanceRoot)
   if (port === null) {
     console.error('OpenACP is not running. Start with `openacp start`')
     process.exit(1)
   }
+
+  const call = (urlPath: string, options?: RequestInit) => apiCall(port, urlPath, options, instanceRoot)
 
   try {
     if (subCmd === 'new') {
@@ -264,7 +266,7 @@ Shows the version of the currently running daemon process.
       if (workspace) body.workspace = workspace
       if (channel) body.channel = channel
 
-      const res = await apiCall(port, '/api/sessions', {
+      const res = await call('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -286,7 +288,7 @@ Shows the version of the currently running daemon process.
         console.error('Usage: openacp api cancel <session-id>')
         process.exit(1)
       }
-      const res = await apiCall(port, `/api/sessions/${encodeURIComponent(sessionId)}`, {
+      const res = await call(`/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
       })
       const data = await res.json() as Record<string, unknown>
@@ -297,7 +299,7 @@ Shows the version of the currently running daemon process.
       console.log(`Session ${sessionId} cancelled`)
 
     } else if (subCmd === 'status') {
-      const res = await apiCall(port, '/api/sessions')
+      const res = await call('/api/sessions')
       const data = await res.json() as { sessions: Array<{ id: string; agent: string; status: string; name: string | null }> }
       if (data.sessions.length === 0) {
         console.log('No active sessions.')
@@ -310,7 +312,7 @@ Shows the version of the currently running daemon process.
       }
 
     } else if (subCmd === 'agents') {
-      const res = await apiCall(port, '/api/agents')
+      const res = await call('/api/agents')
       const data = await res.json() as { agents: Array<{ name: string; command: string; args: string[] }>; default: string }
       console.log('Available agents:')
       for (const a of data.agents) {
@@ -322,7 +324,7 @@ Shows the version of the currently running daemon process.
       const statusIdx = args.indexOf('--status')
       const statusParam = statusIdx !== -1 ? args[statusIdx + 1] : undefined
       const query = statusParam ? `?status=${encodeURIComponent(statusParam)}` : ''
-      const res = await apiCall(port, `/api/topics${query}`)
+      const res = await call(`/api/topics${query}`)
       const data = await res.json() as { topics: Array<{ sessionId: string; topicId: number | null; name: string | null; status: string; agentName: string; lastActiveAt: string }> }
       if (data.topics.length === 0) {
         console.log('No topics found.')
@@ -343,7 +345,7 @@ Shows the version of the currently running daemon process.
       }
       const force = args.includes('--force')
       const query = force ? '?force=true' : ''
-      const res = await apiCall(port, `/api/topics/${encodeURIComponent(sessionId)}${query}`, { method: 'DELETE' })
+      const res = await call(`/api/topics/${encodeURIComponent(sessionId)}${query}`, { method: 'DELETE' })
       const data = await res.json() as Record<string, unknown>
       if (res.status === 409) {
         const session = data.session as Record<string, unknown> | undefined
@@ -362,7 +364,7 @@ Shows the version of the currently running daemon process.
       const statusParam = statusIdx !== -1 ? args[statusIdx + 1] : undefined
       const body: Record<string, unknown> = {}
       if (statusParam) body.statuses = statusParam.split(',')
-      const res = await apiCall(port, '/api/topics/cleanup', {
+      const res = await call('/api/topics/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -388,7 +390,7 @@ Shows the version of the currently running daemon process.
         console.error('Usage: openacp api send <session-id> <prompt>')
         process.exit(1)
       }
-      const res = await apiCall(port, `/api/sessions/${encodeURIComponent(sessionId)}/prompt`, {
+      const res = await call(`/api/sessions/${encodeURIComponent(sessionId)}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -406,7 +408,7 @@ Shows the version of the currently running daemon process.
         console.error('Usage: openacp api session <session-id>')
         process.exit(1)
       }
-      const res = await apiCall(port, `/api/sessions/${encodeURIComponent(sessionId)}`)
+      const res = await call(`/api/sessions/${encodeURIComponent(sessionId)}`)
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -437,7 +439,7 @@ Shows the version of the currently running daemon process.
         console.error('Usage: openacp api dangerous <session-id> [on|off]')
         process.exit(1)
       }
-      const res = await apiCall(port, `/api/sessions/${encodeURIComponent(sessionId)}/dangerous`, {
+      const res = await call(`/api/sessions/${encodeURIComponent(sessionId)}/dangerous`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: toggle === 'on' }),
@@ -451,7 +453,7 @@ Shows the version of the currently running daemon process.
       console.log(`Dangerous mode ${state} for session ${sessionId}`)
 
     } else if (subCmd === 'health') {
-      const res = await apiCall(port, '/api/health')
+      const res = await call('/api/health')
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -476,7 +478,7 @@ Shows the version of the currently running daemon process.
       console.log(`Tunnel   : ${tunnelStr}`)
 
     } else if (subCmd === 'restart') {
-      const res = await apiCall(port, '/api/restart', { method: 'POST' })
+      const res = await call('/api/restart', { method: 'POST' })
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -488,7 +490,7 @@ Shows the version of the currently running daemon process.
       console.warn('⚠️  Deprecated: use "openacp config" or "openacp config set" instead.')
       const subSubCmd = args[2]
       if (!subSubCmd) {
-        const res = await apiCall(port, '/api/config')
+        const res = await call('/api/config')
         const data = await res.json() as Record<string, unknown>
         if (!res.ok) {
           console.error(`Error: ${data.error}`)
@@ -508,7 +510,7 @@ Shows the version of the currently running daemon process.
         } catch {
           // keep as string
         }
-        const res = await apiCall(port, '/api/config', {
+        const res = await call('/api/config', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: configPath, value }),
@@ -530,7 +532,7 @@ Shows the version of the currently running daemon process.
       }
 
     } else if (subCmd === 'adapters') {
-      const res = await apiCall(port, '/api/adapters')
+      const res = await call('/api/adapters')
       const data = await res.json() as { adapters: Array<{ name: string; type: string }> }
       if (!res.ok) {
         console.error(`Error: ${(data as Record<string, unknown>).error}`)
@@ -542,7 +544,7 @@ Shows the version of the currently running daemon process.
       }
 
     } else if (subCmd === 'tunnel') {
-      const res = await apiCall(port, '/api/tunnel')
+      const res = await call('/api/tunnel')
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -561,7 +563,7 @@ Shows the version of the currently running daemon process.
         console.error('Usage: openacp api notify <message>')
         process.exit(1)
       }
-      const res = await apiCall(port, '/api/notify', {
+      const res = await call('/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
@@ -574,7 +576,7 @@ Shows the version of the currently running daemon process.
       console.log('Notification sent to all channels.')
 
     } else if (subCmd === 'version') {
-      const res = await apiCall(port, '/api/version')
+      const res = await call('/api/version')
       const data = await res.json() as Record<string, unknown>
       if (!res.ok) {
         console.error(`Error: ${data.error}`)
@@ -598,7 +600,7 @@ Shows the version of the currently running daemon process.
   } catch (err) {
     if (err instanceof TypeError && (err.cause as Record<string, unknown> | undefined)?.code === 'ECONNREFUSED') {
       console.error('OpenACP is not running (stale port file)')
-      removeStalePortFile()
+      removeStalePortFile(undefined, instanceRoot)
       process.exit(1)
     }
     throw err

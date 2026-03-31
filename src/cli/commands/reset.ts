@@ -8,7 +8,7 @@ export async function cmdReset(args: string[] = [], instanceRoot?: string): Prom
 \x1b[1mUsage:\x1b[0m
   openacp reset
 
-Deletes all OpenACP data (~/.openacp) and allows you to
+Deletes all OpenACP data in the instance directory and allows you to
 start fresh with the setup wizard. The daemon must be stopped first.
 
 \x1b[1m\x1b[31mThis is destructive\x1b[0m — config, plugins, agent data will be removed.
@@ -28,7 +28,7 @@ start fresh with the setup wizard. The daemon must be stopped first.
 
   const clack = await import('@clack/prompts')
   const yes = await clack.confirm({
-    message: 'This will delete all OpenACP data (~/.openacp). You will need to set up again. Continue?',
+    message: `This will delete all OpenACP data (${root}). You will need to set up again. Continue?`,
     initialValue: false,
   })
   if (clack.isCancel(yes) || !yes) {

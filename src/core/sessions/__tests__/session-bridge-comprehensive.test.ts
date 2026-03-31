@@ -55,6 +55,7 @@ function createMockDeps(overrides: Record<string, unknown> = {}) {
     } as unknown as NotificationManager,
     sessionManager: {
       patchRecord: vi.fn().mockResolvedValue(undefined),
+      getSessionRecord: vi.fn().mockReturnValue(undefined),
     } as unknown as SessionManager,
     eventBus: {
       emit: vi.fn(),
@@ -285,7 +286,7 @@ describe("SessionBridge — EventBus integration", () => {
     );
   });
 
-  it("emits session:updated on named event", () => {
+  it("emits session:updated on named event", async () => {
     const agent = createMockAgentInstance();
     const session = createSession(agent);
     const adapter = createMockAdapter();
@@ -296,13 +297,15 @@ describe("SessionBridge — EventBus integration", () => {
 
     session.emit("named", "Test Name");
 
-    expect((deps.eventBus as any).emit).toHaveBeenCalledWith(
-      "session:updated",
-      expect.objectContaining({
-        sessionId: session.id,
-        name: "Test Name",
-      }),
-    );
+    await vi.waitFor(() => {
+      expect((deps.eventBus as any).emit).toHaveBeenCalledWith(
+        "session:updated",
+        expect.objectContaining({
+          sessionId: session.id,
+          name: "Test Name",
+        }),
+      );
+    });
   });
 
   it("emits permission:request to eventBus", async () => {

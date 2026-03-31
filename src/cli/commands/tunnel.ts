@@ -1,12 +1,14 @@
 import { readApiPort, apiCall } from '../api-client.js'
 
-export async function cmdTunnel(args: string[]): Promise<void> {
+export async function cmdTunnel(args: string[], instanceRoot?: string): Promise<void> {
   const subCmd = args[1]
-  const port = readApiPort()
+  const port = readApiPort(undefined, instanceRoot)
   if (port === null) {
     console.error('OpenACP is not running. Start with `openacp start`')
     process.exit(1)
   }
+
+  const call = (urlPath: string, options?: RequestInit) => apiCall(port, urlPath, options, instanceRoot)
 
   try {
     if (subCmd === 'add') {
@@ -24,7 +26,7 @@ export async function cmdTunnel(args: string[]): Promise<void> {
       if (label) body.label = label
       if (sessionId) body.sessionId = sessionId
 
-      const res = await apiCall(port, '/api/tunnel', {
+      const res = await call('/api/tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -37,7 +39,7 @@ export async function cmdTunnel(args: string[]): Promise<void> {
       console.log(`Tunnel active: port ${data.port} → ${data.publicUrl}`)
 
     } else if (subCmd === 'list') {
-      const res = await apiCall(port, '/api/tunnel/list')
+      const res = await call('/api/tunnel/list')
       const data = await res.json() as Array<Record<string, unknown>>
       if (data.length === 0) {
         console.log('No active tunnels.')
@@ -57,7 +59,7 @@ export async function cmdTunnel(args: string[]): Promise<void> {
         console.error('Usage: openacp tunnel stop <port>')
         process.exit(1)
       }
-      const res = await apiCall(port, `/api/tunnel/${tunnelPort}`, { method: 'DELETE' })
+      const res = await call(`/api/tunnel/${tunnelPort}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json() as Record<string, unknown>
         console.error(`Error: ${data.error}`)
@@ -66,7 +68,7 @@ export async function cmdTunnel(args: string[]): Promise<void> {
       console.log(`Tunnel stopped: port ${tunnelPort}`)
 
     } else if (subCmd === 'stop-all') {
-      const res = await apiCall(port, '/api/tunnel', { method: 'DELETE' })
+      const res = await call('/api/tunnel', { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json() as Record<string, unknown>
         console.error(`Error: ${data.error}`)
