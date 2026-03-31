@@ -3,6 +3,7 @@ import { printHelp } from './help.js'
 import path from 'node:path'
 import os from 'node:os'
 import { createInstanceContext, getGlobalRoot } from '../../core/instance-context.js'
+import { printInstanceHint } from '../instance-hint.js'
 
 export async function cmdDefault(command: string | undefined, instanceRoot?: string): Promise<void> {
   const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
@@ -16,6 +17,7 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
     const topLevelCommands = [
       'start', 'stop', 'status', 'logs', 'config', 'reset', 'update',
       'install', 'uninstall', 'plugins', 'plugin', 'api', 'adopt', 'integrate', 'doctor', 'agents', 'onboard',
+      'attach',
     ]
     const suggestion = suggestMatch(command, topLevelCommands)
     console.error(`Unknown command: ${command}`)
@@ -45,19 +47,29 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
   await cm.load()
   const config = cm.get()
 
+  // Check if daemon is already running before trying to start
   if (!forceForeground && config.runMode === 'daemon') {
-    const { startDaemon, getPidPath } = await import('../daemon.js')
-    const result = startDaemon(getPidPath(root), config.logging.logDir, root)
+    const { isProcessRunning, getPidPath, startDaemon } = await import('../daemon.js')
+    const pidPath = getPidPath(root)
+
+    if (isProcessRunning(pidPath)) {
+      await showAlreadyRunningMenu(root)
+      return
+    }
+
+    const result = startDaemon(pidPath, config.logging.logDir, root)
     if ('error' in result) {
       console.error(result.error)
       process.exit(1)
     }
+    printInstanceHint(root)
     console.log(`OpenACP daemon started (PID ${result.pid})`)
     return
   }
 
   const { markRunning } = await import('../daemon.js')
   markRunning(root)
+  printInstanceHint(root)
   const { startServer } = await import('../../main.js')
   const ctx = createInstanceContext({
     id: 'default',
@@ -65,4 +77,64 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
     isGlobal: root === getGlobalRoot(),
   })
   await startServer({ instanceContext: ctx })
+}
+
+async function showAlreadyRunningMenu(root: string): Promise<void> {
+  const { formatInstanceStatus } = await import('./status.js')
+
+  console.log('')
+  console.log('\x1b[1mOpenACP is already running\x1b[0m')
+  console.log('')
+
+  const status = formatInstanceStatus(root)
+  if (status) {
+    for (const line of status.lines) {
+      console.log(line)
+    }
+    console.log('')
+  }
+
+  // TTY: interactive menu
+  const { showInteractiveMenu } = await import('../interactive-menu.js')
+
+  const shown = await showInteractiveMenu([
+    {
+      key: 'r', label: 'Restart',
+      action: async () => {
+        const { cmdRestart } = await import('./restart.js')
+        await cmdRestart([], root)
+      },
+    },
+    {
+      key: 'f', label: 'Restart in foreground',
+      action: async () => {
+        const { cmdRestart } = await import('./restart.js')
+        await cmdRestart(['--foreground'], root)
+      },
+    },
+    {
+      key: 's', label: 'Stop',
+      action: async () => {
+        const { cmdStop } = await import('./stop.js')
+        await cmdStop([], root)
+      },
+    },
+    {
+      key: 'l', label: 'View logs',
+      action: async () => {
+        const { cmdLogs } = await import('./logs.js')
+        await cmdLogs([])
+      },
+    },
+    {
+      key: 'q', label: 'Quit',
+      action: () => { /* exit naturally */ },
+    },
+  ])
+
+  // Non-TTY: print suggestions and exit
+  if (!shown) {
+    console.log('  Use: openacp restart | openacp stop | openacp logs')
+    console.log('')
+  }
 }
