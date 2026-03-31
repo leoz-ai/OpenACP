@@ -116,6 +116,11 @@ export class TokenStore {
     }
   }
 
+  /** Wait for any in-flight save to complete */
+  async flush(): Promise<void> {
+    if (this.savePromise) await this.savePromise;
+  }
+
   destroy(): void {
     if (this.lastUsedSaveTimer) {
       clearTimeout(this.lastUsedSaveTimer);

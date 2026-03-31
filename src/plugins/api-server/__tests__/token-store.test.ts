@@ -15,6 +15,8 @@ describe('TokenStore', () => {
   });
 
   afterEach(async () => {
+    store.destroy();
+    await store.flush();
     await rm(tmpDir, { recursive: true, force: true });
   });
 
