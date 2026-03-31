@@ -139,3 +139,22 @@ export function readInstanceInfo(root: string): InstanceInfo {
 
   return result
 }
+
+export function formatInstanceStatus(root: string): { info: InstanceInfo; lines: string[] } | null {
+  const info = readInstanceInfo(root)
+  if (!info.pid) return null
+
+  const displayRoot = root.replace(os.homedir(), '~')
+  const isGlobal = root === path.join(os.homedir(), '.openacp')
+  const label = isGlobal ? 'global' : 'local'
+
+  const lines: string[] = []
+  lines.push(`  PID:       ${info.pid}`)
+  lines.push(`  Instance:  ${displayRoot} (${label})`)
+  lines.push(`  Mode:      ${info.runMode ?? 'unknown'}`)
+  if (info.channels.length > 0) lines.push(`  Channels:  ${info.channels.join(', ')}`)
+  if (info.apiPort) lines.push(`  API:       port ${info.apiPort}`)
+  if (info.tunnelPort) lines.push(`  Tunnel:    port ${info.tunnelPort}`)
+
+  return { info, lines }
+}
