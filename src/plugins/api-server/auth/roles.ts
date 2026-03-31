@@ -2,7 +2,7 @@ export const ROLES = {
   admin: ['*'],
   operator: [
     'sessions:read', 'sessions:write', 'sessions:prompt', 'sessions:permission',
-    'agents:read', 'commands:execute', 'system:health',
+    'agents:read', 'commands:execute', 'system:health', 'config:read',
   ],
   viewer: ['sessions:read', 'agents:read', 'system:health'],
 } as const;

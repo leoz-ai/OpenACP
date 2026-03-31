@@ -1,16 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 
 /**
  * System routes for health, version, restart, and adapters.
- * These complement the basic /health and /version in server.ts
- * by adding richer system information and admin operations.
+ *
+ * This route group is registered with { auth: false } so health can be public.
+ * Individual sensitive routes add auth + scope checks via preHandler.
  */
 export async function systemRoutes(
   app: FastifyInstance,
   deps: RouteDeps,
 ): Promise<void> {
+  const authPreHandler = deps.authPreHandler;
+
   // GET /system/health — detailed health info including sessions, adapters, tunnel
+  // Public: no auth required
   app.get('/health', async () => {
     const activeSessions = deps.core.sessionManager.listSessions();
     const allRecords = deps.core.sessionManager.listRecords();
@@ -39,13 +44,17 @@ export async function systemRoutes(
     };
   });
 
-  // GET /system/version — get version
-  app.get('/version', async () => {
+  // GET /system/version — get version (requires auth + system:health scope)
+  app.get('/version', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:health')],
+  }, async () => {
     return { version: deps.getVersion() };
   });
 
-  // POST /system/restart — request a graceful restart
-  app.post('/restart', async (_request, reply) => {
+  // POST /system/restart — request a graceful restart (requires auth + system:admin scope)
+  app.post('/restart', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:admin')],
+  }, async (_request, reply) => {
     if (!deps.core.requestRestart) {
       return reply.status(501).send({ error: 'Restart not available' });
     }
@@ -56,8 +65,10 @@ export async function systemRoutes(
     return response;
   });
 
-  // GET /system/adapters — list connected adapters
-  app.get('/adapters', async () => {
+  // GET /system/adapters — list connected adapters (requires auth + system:health scope)
+  app.get('/adapters', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:health')],
+  }, async () => {
     const adapters = Array.from(deps.core.adapters.entries()).map(
       ([name]) => ({
         name,

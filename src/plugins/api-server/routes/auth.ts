@@ -4,7 +4,7 @@ import { signToken, verifyForRefresh } from '../auth/jwt.js';
 import { parseDuration, type TokenStore } from '../auth/token-store.js';
 import { getRoleScopes } from '../auth/roles.js';
 import { AuthError, NotFoundError } from '../middleware/error-handler.js';
-import { requireRole } from '../middleware/auth.js';
+import { requireScopes } from '../middleware/auth.js';
 
 export interface AuthRouteDeps {
   tokenStore: TokenStore;
@@ -51,7 +51,7 @@ export async function authRoutes(
 
   // GET /tokens — list active tokens
   app.get('/tokens', {
-    preHandler: [requireRole('admin')],
+    preHandler: [requireScopes('auth:manage')],
   }, async () => {
     const tokens = tokenStore.list();
     return {
@@ -69,7 +69,7 @@ export async function authRoutes(
 
   // DELETE /tokens/:id — revoke a token
   app.delete('/tokens/:id', {
-    preHandler: [requireRole('admin')],
+    preHandler: [requireScopes('auth:manage')],
   }, async (request) => {
     const { id } = RevokeTokenParamSchema.parse(request.params);
     const stored = tokenStore.get(id);

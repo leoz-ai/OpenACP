@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 
 export async function tunnelRoutes(
   app: FastifyInstance,
   deps: RouteDeps,
 ): Promise<void> {
   // GET /tunnel — get tunnel status
-  app.get('/', async () => {
+  app.get('/', { preHandler: requireScopes('system:health') }, async () => {
     const tunnel = deps.core.tunnelService;
     if (tunnel) {
       return {
@@ -19,7 +20,7 @@ export async function tunnelRoutes(
   });
 
   // GET /tunnel/list — list all active tunnels
-  app.get('/list', async () => {
+  app.get('/list', { preHandler: requireScopes('system:health') }, async () => {
     const tunnel = deps.core.tunnelService;
     if (!tunnel) {
       return [];
@@ -28,7 +29,7 @@ export async function tunnelRoutes(
   });
 
   // POST /tunnel — add a new tunnel
-  app.post('/', async (request, reply) => {
+  app.post('/', { preHandler: requireScopes('system:admin') }, async (request, reply) => {
     const tunnel = deps.core.tunnelService;
     if (!tunnel) {
       return reply
@@ -61,7 +62,7 @@ export async function tunnelRoutes(
   });
 
   // DELETE /tunnel/:port — stop a specific tunnel
-  app.delete<{ Params: { port: string } }>('/:port', async (request, reply) => {
+  app.delete<{ Params: { port: string } }>('/:port', { preHandler: requireScopes('system:admin') }, async (request, reply) => {
     const tunnel = deps.core.tunnelService;
     if (!tunnel) {
       return reply
@@ -80,7 +81,7 @@ export async function tunnelRoutes(
   });
 
   // DELETE /tunnel — stop all user tunnels
-  app.delete('/', async (_request, reply) => {
+  app.delete('/', { preHandler: requireScopes('system:admin') }, async (_request, reply) => {
     const tunnel = deps.core.tunnelService;
     if (!tunnel) {
       return reply

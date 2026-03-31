@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 import { ExecuteCommandBodySchema } from '../schemas/commands.js';
 
 export async function commandRoutes(
@@ -7,7 +8,7 @@ export async function commandRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   // GET /commands — list all registered commands
-  app.get('/', async () => {
+  app.get('/', { preHandler: requireScopes('commands:execute') }, async () => {
     if (!deps.commandRegistry) {
       return { commands: [] };
     }
@@ -22,7 +23,7 @@ export async function commandRoutes(
   });
 
   // POST /commands/execute — execute a command
-  app.post('/execute', async (request, reply) => {
+  app.post('/execute', { preHandler: requireScopes('commands:execute') }, async (request, reply) => {
     if (!deps.commandRegistry) {
       return reply.status(501).send({ error: 'Command registry not available' });
     }

@@ -89,6 +89,7 @@ function createApiServerPlugin(): OpenACPPlugin {
   let portFilePath = ''
   let actualPort = 0
   let cleanupInterval: ReturnType<typeof setInterval> | null = null
+  let tokenStoreRef: import('./auth/token-store.js').TokenStore | null = null
 
   return {
     name: '@openacp/api-server',
@@ -191,6 +192,7 @@ function createApiServerPlugin(): OpenACPPlugin {
       const { TokenStore } = await import('./auth/token-store.js')
       const tokenStore = new TokenStore(tokensFilePath)
       await tokenStore.load()
+      tokenStoreRef = tokenStore
 
       // Lazy import to avoid loading Fastify unless needed
       const { createApiServer } = await import('./server.js')
@@ -223,12 +225,16 @@ function createApiServerPlugin(): OpenACPPlugin {
       const topicManager = ctx.getService<TopicManager>('topic-manager')
       const commandRegistry = ctx.getService<CommandRegistry>('command-registry')
 
+      // Build auth pre-handler for route-level auth on unauthenticated route groups
+      const routeAuthPreHandler = createAuthPreHandler(() => secret, () => jwtSecret, tokenStore)
+
       const deps: RouteDeps = {
         core,
         topicManager,
         startedAt,
         getVersion,
         commandRegistry,
+        authPreHandler: routeAuthPreHandler,
       }
 
       // Register all route plugins under /api/v1/
@@ -330,6 +336,10 @@ function createApiServerPlugin(): OpenACPPlugin {
       if (cleanupInterval) {
         clearInterval(cleanupInterval)
         cleanupInterval = null
+      }
+      if (tokenStoreRef) {
+        tokenStoreRef.destroy()
+        tokenStoreRef = null
       }
       if (server) {
         await server.stop()

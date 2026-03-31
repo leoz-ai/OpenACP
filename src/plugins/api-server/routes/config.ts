@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 import { UpdateConfigBodySchema } from '../schemas/config.js';
 
 const SENSITIVE_KEYS = [
@@ -37,7 +38,7 @@ export async function configRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   // GET /config/editable — list safe-to-edit config fields
-  app.get('/editable', async () => {
+  app.get('/editable', { preHandler: requireScopes('config:read') }, async () => {
     const { getSafeFields, resolveOptions, getConfigValue } = await import(
       '../../../core/config/config-registry.js'
     );
@@ -58,20 +59,20 @@ export async function configRoutes(
   });
 
   // GET /config/schema — get the config JSON schema
-  app.get('/schema', async () => {
+  app.get('/schema', { preHandler: requireScopes('config:read') }, async () => {
     const { zodToJsonSchema } = await import('zod-to-json-schema');
     const { ConfigSchema } = await import('../../../core/config/config.js');
     return zodToJsonSchema(ConfigSchema, 'OpenACPConfig');
   });
 
   // GET /config — get full config (redacted)
-  app.get('/', async () => {
+  app.get('/', { preHandler: requireScopes('config:read') }, async () => {
     const config = deps.core.configManager.get();
     return { config: redactConfig(config) };
   });
 
   // PATCH /config — update a config field
-  app.patch('/', async (request, reply) => {
+  app.patch('/', { preHandler: requireScopes('config:write') }, async (request, reply) => {
     const body = UpdateConfigBodySchema.parse(request.body);
     const configPath = body.path;
     const value = body.value;

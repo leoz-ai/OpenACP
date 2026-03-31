@@ -8,24 +8,43 @@ export interface SSEConnection {
   response: ServerResponse;
   connectedAt: Date;
   lastEventId?: string;
+  backpressured?: boolean;
 }
 
 export class ConnectionManager {
   private connections = new Map<string, SSEConnection>();
   private sessionIndex = new Map<string, Set<string>>();
+  private maxConnectionsPerSession: number;
+  private maxTotalConnections: number;
+
+  constructor(opts?: { maxPerSession?: number; maxTotal?: number }) {
+    this.maxConnectionsPerSession = opts?.maxPerSession ?? 10;
+    this.maxTotalConnections = opts?.maxTotal ?? 100;
+  }
 
   addConnection(sessionId: string, tokenId: string, response: ServerResponse): SSEConnection {
+    // Enforce global connection limit
+    if (this.connections.size >= this.maxTotalConnections) {
+      throw new Error('Maximum total connections reached');
+    }
+
+    // Enforce per-session connection limit
+    const sessionConns = this.sessionIndex.get(sessionId);
+    if (sessionConns && sessionConns.size >= this.maxConnectionsPerSession) {
+      throw new Error('Maximum connections per session reached');
+    }
+
     const id = `conn_${randomBytes(8).toString('hex')}`;
     const connection: SSEConnection = { id, sessionId, tokenId, response, connectedAt: new Date() };
 
     this.connections.set(id, connection);
 
-    let sessionConns = this.sessionIndex.get(sessionId);
-    if (!sessionConns) {
-      sessionConns = new Set();
-      this.sessionIndex.set(sessionId, sessionConns);
+    let sessionConnsSet = this.sessionIndex.get(sessionId);
+    if (!sessionConnsSet) {
+      sessionConnsSet = new Set();
+      this.sessionIndex.set(sessionId, sessionConnsSet);
     }
-    sessionConns.add(id);
+    sessionConnsSet.add(id);
 
     response.on('close', () => this.removeConnection(id));
 
@@ -53,8 +72,22 @@ export class ConnectionManager {
 
   broadcast(sessionId: string, serializedEvent: string): void {
     for (const conn of this.getConnectionsBySession(sessionId)) {
-      if (!conn.response.writableEnded) {
-        try { conn.response.write(serializedEvent); } catch { /* closed */ }
+      if (conn.response.writableEnded) continue;
+      try {
+        const ok = conn.response.write(serializedEvent);
+        if (!ok) {
+          if (conn.backpressured) {
+            // Still backpressured from previous write — disconnect to prevent OOM
+            conn.response.end();
+            this.removeConnection(conn.id);
+          } else {
+            conn.backpressured = true;
+            conn.response.once('drain', () => { conn.backpressured = false; });
+          }
+        }
+      } catch {
+        // Connection broken — clean up
+        this.removeConnection(conn.id);
       }
     }
   }
