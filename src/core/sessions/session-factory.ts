@@ -34,6 +34,7 @@ export class SessionFactory {
     private sessionManager: SessionManager,
     private speechServiceAccessor: SpeechService | (() => SpeechService),
     private eventBus: EventBus,
+    private instanceRoot?: string,
   ) {}
 
   private get speechService(): SpeechService {
@@ -65,16 +66,80 @@ export class SessionFactory {
     }
 
     // 1. Spawn or resume agent
-    const agentInstance = createParams.resumeAgentSessionId
-      ? await this.agentManager.resume(
-          createParams.agentName,
-          createParams.workingDirectory,
-          createParams.resumeAgentSessionId,
-        )
-      : await this.agentManager.spawn(
-          createParams.agentName,
-          createParams.workingDirectory,
+    let agentInstance;
+    try {
+      agentInstance = createParams.resumeAgentSessionId
+        ? await this.agentManager.resume(
+            createParams.agentName,
+            createParams.workingDirectory,
+            createParams.resumeAgentSessionId,
+          )
+        : await this.agentManager.spawn(
+            createParams.agentName,
+            createParams.workingDirectory,
+          );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : String(err);
+
+      // Emit a structured guidance error so adapters (Telegram, SSE UI) can show clear next steps.
+      // We intentionally avoid leaking internal paths — instead, we point users at the openacp wrapper.
+      const guidanceLines = [
+        `❌ Failed to start agent "${createParams.agentName}": ${message}`,
+        "",
+        "Run the agent CLI once in a terminal for this OpenACP instance to complete login or setup.",
+      ];
+      if (this.instanceRoot) {
+        guidanceLines.push(
+          "",
+          "Copy and run this command in your terminal:",
+          `  cd "${this.instanceRoot}" && openacp agents run ${createParams.agentName}`,
         );
+      } else {
+        guidanceLines.push(
+          "",
+          "Copy and run this command in your terminal (same project where you started OpenACP):",
+          `  openacp agents run ${createParams.agentName}`,
+        );
+      }
+      guidanceLines.push(
+        "",
+        "After setup completes, retry creating the session here.",
+      );
+
+      const guidance: AgentEvent = {
+        type: "system_message",
+        message: guidanceLines.join("\n"),
+      };
+
+      // Create a lightweight "failed" session context so UIs listening on the event bus
+      // still receive a message in the right channel/thread.
+      const failedSession = new Session({
+        id: createParams.existingSessionId,
+        channelId: createParams.channelId,
+        agentName: createParams.agentName,
+        workingDirectory: createParams.workingDirectory,
+        // Dummy agent instance — will never be prompted
+        agentInstance: {
+          sessionId: "",
+          prompt: async () => {},
+          cancel: async () => {},
+          destroy: async () => {},
+          on: () => {},
+          off: () => {},
+        } as any,
+        speechService: this.speechService,
+      });
+      this.sessionManager.registerSession(failedSession);
+      failedSession.emit("agent_event", guidance);
+      this.eventBus.emit("agent:event", {
+        sessionId: failedSession.id,
+        event: guidance,
+      });
+
+      // Re-throw so callers still see the failure
+      throw err;
+    }
 
     // Wire middleware chain to agent instance for FS/terminal hooks
     agentInstance.middlewareChain = this.middlewareChain;

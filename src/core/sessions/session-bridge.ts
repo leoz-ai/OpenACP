@@ -405,14 +405,18 @@ export class SessionBridge {
     };
     this.session.on("status_change", this.statusChangeHandler);
 
-    // Persist and relay name changes
-    this.namedHandler = (name: string) => {
-      this.deps.sessionManager.patchRecord(this.session.id, { name });
+    // Persist and relay name changes — only rename thread once per session.
+    this.namedHandler = async (name: string) => {
+      const record = this.deps.sessionManager.getSessionRecord(this.session.id);
+      const alreadyNamed = !!record?.name;
+      await this.deps.sessionManager.patchRecord(this.session.id, { name });
       this.deps.eventBus?.emit("session:updated", {
         sessionId: this.session.id,
         name,
       });
-      this.adapter.renameSessionThread(this.session.id, name);
+      if (!alreadyNamed) {
+        await this.adapter.renameSessionThread(this.session.id, name);
+      }
     };
     this.session.on("named", this.namedHandler);
 

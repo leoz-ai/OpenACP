@@ -52,6 +52,16 @@ export interface EventBusEvents {
 
   // Usage tracking (consumed by usage plugin)
   "usage:recorded": (data: UsageRecordEvent) => void;
+
+  // Agent switch lifecycle (used by UI & dashboards)
+  "session:agentSwitch": (data: {
+    sessionId: string;
+    fromAgent: string;
+    toAgent: string;
+    status: "starting" | "succeeded" | "failed";
+    resumed?: boolean;
+    error?: string;
+  }) => void;
 }
 
 export class EventBus extends TypedEmitter<EventBusEvents> {}

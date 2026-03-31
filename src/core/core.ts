@@ -12,7 +12,7 @@ import type { FileServiceInterface } from "./plugin/types.js";
 import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
 import type { SecurityGuard } from "../plugins/security/security-guard.js";
 import { SessionFactory } from "./sessions/session-factory.js";
-import type { IncomingMessage } from "./types.js";
+import type { AgentEvent, IncomingMessage } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentCatalog } from "./agents/agent-catalog.js";
@@ -100,6 +100,7 @@ export class OpenACPCore {
       this.sessionManager,
       () => this.speechService,
       this.eventBus,
+      ctx?.root,
     );
 
     // Initialize plugin lifecycle manager (before setting middlewareChain on factory)
@@ -637,6 +638,23 @@ export class OpenACPCore {
     const canResume = !!(lastEntry && caps.supportsResume && lastEntry.promptCount === 0);
     const resumed = canResume;
 
+    // Emit "starting" events so UI can reflect long-running switches
+    const startEvent: AgentEvent = {
+      type: "system_message",
+      message: `Switching from ${fromAgent} to ${toAgent}...`,
+    };
+    session.emit("agent_event", startEvent);
+    this.eventBus.emit("agent:event", {
+      sessionId,
+      event: startEvent,
+    });
+    this.eventBus.emit("session:agentSwitch", {
+      sessionId,
+      fromAgent,
+      toAgent,
+      status: "starting",
+    });
+
     // 3. Disconnect bridge
     const bridge = this.bridges.get(sessionId);
     if (bridge) bridge.disconnect();
@@ -682,7 +700,48 @@ export class OpenACPCore {
           return instance;
         }
       });
+
+      // On success, emit structured + system_message events
+      const successEvent: AgentEvent = {
+        type: "system_message",
+        message: resumed
+          ? `Switched to ${toAgent} (resumed previous session).`
+          : `Switched to ${toAgent} (new session).`,
+      };
+      session.emit("agent_event", successEvent);
+      this.eventBus.emit("agent:event", {
+        sessionId,
+        event: successEvent,
+      });
+      this.eventBus.emit("session:agentSwitch", {
+        sessionId,
+        fromAgent,
+        toAgent,
+        status: "succeeded",
+        resumed,
+      });
     } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : String(err);
+
+      // Emit failure events before attempting rollback so UI can show error state
+      const failedEvent: AgentEvent = {
+        type: "system_message",
+        message: `Failed to switch to ${toAgent}: ${errorMessage}`,
+      };
+      session.emit("agent_event", failedEvent);
+      this.eventBus.emit("agent:event", {
+        sessionId,
+        event: failedEvent,
+      });
+      this.eventBus.emit("session:agentSwitch", {
+        sessionId,
+        fromAgent,
+        toAgent,
+        status: "failed",
+        error: errorMessage,
+      });
+
       // Rollback: try to restore the old agent so the session isn't left broken
       try {
         let rollbackInstance;

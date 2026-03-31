@@ -100,3 +100,4 @@ Configure via `~/.openacp/config.json` or the `/settings` command.
 - Only agents that are installed and ready can be switched to. Use `/agents` to check what is installed.
 - The original session thread or topic is preserved across all switches.
 - Switching does not cancel an in-progress prompt. If the current agent is actively running, cancel it first with `/cancel` before switching.
+- When a switch is in progress, OpenACP emits a "Switching from A to B..." system message and `session:agentSwitch` events (`starting` / `succeeded` / `failed`) so UIs can show loading and error states while the switch is running.
