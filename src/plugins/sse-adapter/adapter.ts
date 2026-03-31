@@ -7,6 +7,7 @@ import {
   serializeOutgoingMessage,
   serializePermissionRequest,
   serializeHeartbeat,
+  serializeSSE,
 } from './event-serializer.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -67,15 +68,13 @@ export class SSEAdapter implements IChannelAdapter {
   }
 
   async sendNotification(notification: NotificationMessage): Promise<void> {
-    // Notifications include a sessionId — broadcast to that session's connections if any exist
+    // Notifications include a sessionId — buffer and broadcast to that session's connections
     if (notification.sessionId) {
-      const connections = this.connectionManager.getConnectionsBySession(notification.sessionId);
-      if (connections.length > 0) {
-        const eventId = generateEventId();
-        const { serializeSSE } = await import('./event-serializer.js');
-        const serialized = serializeSSE('notification', eventId, notification);
-        this.connectionManager.broadcast(notification.sessionId, serialized);
-      }
+      const eventId = generateEventId();
+      const serialized = serializeSSE('notification', eventId, notification);
+      // Always buffer so reconnecting clients can receive missed notifications
+      this.eventBuffer.push(notification.sessionId, { id: eventId, data: serialized });
+      this.connectionManager.broadcast(notification.sessionId, serialized);
     }
   }
 

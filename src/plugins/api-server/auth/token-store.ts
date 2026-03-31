@@ -22,18 +22,27 @@ export function parseDuration(duration: string): number {
 
 export class TokenStore {
   private tokens = new Map<string, StoredToken>();
+  private savePromise: Promise<void> | null = null;
+  private savePending = false;
 
   constructor(private filePath: string) {}
 
   async load(): Promise<void> {
     try {
       const data = await readFile(this.filePath, 'utf-8');
-      const parsed = JSON.parse(data) as { tokens: StoredToken[] };
+      let parsed: { tokens: StoredToken[] };
+      try {
+        parsed = JSON.parse(data) as { tokens: StoredToken[] };
+      } catch {
+        console.warn(`[TokenStore] Failed to parse ${this.filePath} — retaining existing tokens`);
+        return;
+      }
       this.tokens.clear();
       for (const token of parsed.tokens) {
         this.tokens.set(token.id, token);
       }
     } catch {
+      // File does not exist yet — start with empty store
       this.tokens.clear();
     }
   }
@@ -41,6 +50,22 @@ export class TokenStore {
   async save(): Promise<void> {
     const data = { tokens: Array.from(this.tokens.values()) };
     await writeFile(this.filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  private scheduleSave(): void {
+    if (this.savePromise) {
+      this.savePending = true;
+      return;
+    }
+    this.savePromise = this.save()
+      .catch(() => {})
+      .finally(() => {
+        this.savePromise = null;
+        if (this.savePending) {
+          this.savePending = false;
+          this.scheduleSave();
+        }
+      });
   }
 
   create(opts: CreateTokenOpts): StoredToken {
@@ -55,7 +80,7 @@ export class TokenStore {
       revoked: false,
     };
     this.tokens.set(token.id, token);
-    this.save().catch(() => {});
+    this.scheduleSave();
     return token;
   }
 
@@ -67,7 +92,7 @@ export class TokenStore {
     const token = this.tokens.get(id);
     if (token) {
       token.revoked = true;
-      this.save().catch(() => {});
+      this.scheduleSave();
     }
   }
 
@@ -89,6 +114,6 @@ export class TokenStore {
         this.tokens.delete(id);
       }
     }
-    this.save().catch(() => {});
+    this.scheduleSave();
   }
 }

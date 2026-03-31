@@ -62,6 +62,12 @@ describe('SSE Routes', () => {
 
     app = Fastify();
     app.setErrorHandler(globalErrorHandler);
+
+    // Attach a wildcard auth context to every request so requireScopes passes in tests
+    app.addHook('onRequest', async (request) => {
+      (request as any).auth = { tokenId: 'test-token', role: 'admin', scopes: ['*'] };
+    });
+
     await app.register(async (instance) => {
       await sseRoutes(instance, deps);
     });

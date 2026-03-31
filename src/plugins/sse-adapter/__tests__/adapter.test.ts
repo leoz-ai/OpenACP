@@ -91,10 +91,7 @@ describe('SSEAdapter', () => {
   });
 
   describe('sendNotification', () => {
-    it('broadcasts notification to session connections', async () => {
-      const mockConn = { response: { writableEnded: false, write: vi.fn() } };
-      (connMgr.getConnectionsBySession as any).mockReturnValue([mockConn]);
-
+    it('buffers and broadcasts notification to session connections', async () => {
       const notification: NotificationMessage = {
         sessionId: 'sess-1',
         type: 'completed',
@@ -102,10 +99,15 @@ describe('SSEAdapter', () => {
       };
       await adapter.sendNotification(notification);
 
+      expect(eventBuf.push).toHaveBeenCalledOnce();
+      expect(eventBuf.push).toHaveBeenCalledWith('sess-1', expect.objectContaining({
+        id: expect.stringContaining('evt_'),
+      }));
       expect(connMgr.broadcast).toHaveBeenCalledOnce();
+      expect(connMgr.broadcast).toHaveBeenCalledWith('sess-1', expect.stringContaining('event: notification'));
     });
 
-    it('does nothing when no session connections exist', async () => {
+    it('buffers and broadcasts even when no session connections exist', async () => {
       (connMgr.getConnectionsBySession as any).mockReturnValue([]);
 
       const notification: NotificationMessage = {
@@ -115,7 +117,14 @@ describe('SSEAdapter', () => {
       };
       await adapter.sendNotification(notification);
 
-      expect(connMgr.broadcast).not.toHaveBeenCalled();
+      // Notification must be buffered so reconnecting clients receive missed events
+      expect(eventBuf.push).toHaveBeenCalledOnce();
+      expect(eventBuf.push).toHaveBeenCalledWith('sess-1', expect.objectContaining({
+        id: expect.stringContaining('evt_'),
+      }));
+      // broadcast is still called (no-op if no connections are listening)
+      expect(connMgr.broadcast).toHaveBeenCalledOnce();
+      expect(connMgr.broadcast).toHaveBeenCalledWith('sess-1', expect.stringContaining('event: notification'));
     });
   });
 
