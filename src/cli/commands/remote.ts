@@ -1,4 +1,7 @@
 import { readApiPort, readApiSecret, apiCall } from '../api-client.js'
+import { InstanceRegistry } from '../../core/instance-registry.js'
+import path from 'node:path'
+import os from 'node:os'
 import qrcode from 'qrcode-terminal'
 
 export async function cmdRemote(args: string[], instanceRoot?: string): Promise<void> {
@@ -7,13 +10,28 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
   const expire = extractFlag(args, '--expire') ?? '24h'
   const scopesRaw = extractFlag(args, '--scopes')
   const name = extractFlag(args, '--name')
+  const instanceId = extractFlag(args, '--instance')
   const noTunnel = args.includes('--no-tunnel')
   const noQr = args.includes('--no-qr')
 
   const scopes = scopesRaw ? scopesRaw.split(',').map((s) => s.trim()) : undefined
 
+  // Resolve instance root from --instance flag
+  let resolvedInstanceRoot = instanceRoot
+  if (instanceId) {
+    const registryPath = path.join(os.homedir(), '.openacp', 'instances.json')
+    const registry = new InstanceRegistry(registryPath)
+    await registry.load()
+    const entry = registry.get(instanceId)
+    if (!entry) {
+      console.error(`Instance "${instanceId}" not found. Run "openacp status" to see running instances.`)
+      process.exit(1)
+    }
+    resolvedInstanceRoot = entry.root
+  }
+
   // Check if API server is running
-  const port = readApiPort(undefined, instanceRoot)
+  const port = readApiPort(undefined, resolvedInstanceRoot)
   if (port === null) {
     console.error('OpenACP is not running. Start with `openacp start`')
     process.exit(1)
@@ -21,7 +39,7 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
 
   // Verify health
   try {
-    const healthRes = await apiCall(port, '/api/v1/system/health', undefined, instanceRoot)
+    const healthRes = await apiCall(port, '/api/v1/system/health', undefined, resolvedInstanceRoot)
     if (!healthRes.ok) {
       console.error('API server is not responding. Try restarting with `openacp restart`')
       process.exit(1)
@@ -32,7 +50,7 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
   }
 
   // Read api-secret for auth
-  const secret = readApiSecret(undefined, instanceRoot)
+  const secret = readApiSecret(undefined, resolvedInstanceRoot)
   if (!secret) {
     console.error('Cannot read API secret. Make sure OpenACP is running with the API server enabled.')
     process.exit(1)
@@ -57,7 +75,7 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }, instanceRoot)
+    }, resolvedInstanceRoot)
 
     if (!res.ok) {
       const err = await res.json() as Record<string, unknown>
@@ -75,7 +93,7 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
   let tunnelUrl: string | null = null
   if (!noTunnel) {
     try {
-      const tunnelRes = await apiCall(port, '/api/v1/tunnel', undefined, instanceRoot)
+      const tunnelRes = await apiCall(port, '/api/v1/tunnel', undefined, resolvedInstanceRoot)
       if (tunnelRes.ok) {
         const data = await tunnelRes.json() as { enabled: boolean; url?: string }
         if (data.enabled && data.url) {
@@ -94,8 +112,8 @@ export async function cmdRemote(args: string[], instanceRoot?: string): Promise<
   const localLink = `${localUrl}?${tokenParam}`
   const tunnelLink = tunnelUrl ? `${tunnelUrl}?${tokenParam}` : null
   const appLink = tunnelUrl
-    ? `openacp://connect?server=${encodeURIComponent(tunnelUrl)}&${tokenParam}`
-    : `openacp://connect?server=${encodeURIComponent(localUrl)}&${tokenParam}`
+    ? `openacp://connect?host=${encodeURIComponent(tunnelUrl)}&${tokenParam}&port=${port}`
+    : `openacp://connect?host=${encodeURIComponent('127.0.0.1')}&${tokenParam}&port=${port}`
 
   // Display output
   const width = 64

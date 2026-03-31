@@ -18,9 +18,10 @@ export async function authRoutes(
   const { tokenStore, getJwtSecret } = deps;
 
   // POST /tokens — generate a new JWT (secret token auth only)
-  app.post('/tokens', {
-    preHandler: [requireRole('admin')],
-  }, async (request) => {
+  app.post('/tokens', async (request) => {
+    if (request.auth.type !== 'secret') {
+      throw new AuthError('FORBIDDEN', 'Only secret token can create new tokens', 403);
+    }
     const body = CreateTokenBodySchema.parse(request.body);
     const stored = tokenStore.create({
       role: body.role,

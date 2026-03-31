@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
+import { NameParamSchema } from '../schemas/common.js';
+import { NotFoundError } from '../middleware/error-handler.js';
 import { getAgentCapabilities } from '../../../core/agents/agent-registry.js';
 
 export async function agentRoutes(
@@ -15,5 +17,19 @@ export async function agentRoutes(
       capabilities: getAgentCapabilities(a.name),
     }));
     return { agents: agentsWithCaps, default: defaultAgent };
+  });
+
+  // GET /agents/:name — get a single agent by name
+  app.get('/:name', async (request) => {
+    const { name } = NameParamSchema.parse(request.params);
+    const agent = deps.core.agentCatalog.getInstalledAgent(name);
+    if (!agent) {
+      throw new NotFoundError('AGENT_NOT_FOUND', `Agent "${name}" not found`);
+    }
+    return {
+      ...agent,
+      key: name,
+      capabilities: getAgentCapabilities(name),
+    };
   });
 }

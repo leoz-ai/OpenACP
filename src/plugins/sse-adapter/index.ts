@@ -7,6 +7,9 @@ import { EventBuffer } from './event-buffer.js';
 import { SSEAdapter } from './adapter.js';
 import { sseRoutes } from './routes.js';
 
+let _adapter: SSEAdapter | null = null;
+let _connectionManager: ConnectionManager | null = null;
+
 const plugin: OpenACPPlugin = {
   name: '@openacp/sse-adapter',
   version: '1.0.0',
@@ -31,6 +34,9 @@ const plugin: OpenACPPlugin = {
     const eventBuffer = new EventBuffer(100);
     const adapter = new SSEAdapter(connectionManager, eventBuffer);
 
+    _adapter = adapter;
+    _connectionManager = connectionManager;
+
     // Register adapter as a service so main.ts wires it into core
     ctx.registerService('adapter:sse', adapter);
 
@@ -38,7 +44,7 @@ const plugin: OpenACPPlugin = {
     const commandRegistry = ctx.getService<CommandRegistry>('command-registry');
 
     // Register SSE routes on the api-server
-    apiServer.registerPlugin('/sse', async (app) => {
+    apiServer.registerPlugin('/api/v1/sse', async (app) => {
       await sseRoutes(app, {
         core,
         connectionManager,
@@ -51,7 +57,14 @@ const plugin: OpenACPPlugin = {
   },
 
   async teardown() {
-    // Adapter stop is handled by core.stop() which calls adapter.stop()
+    if (_adapter) {
+      await _adapter.stop();
+      _adapter = null;
+    }
+    if (_connectionManager) {
+      _connectionManager.cleanup();
+      _connectionManager = null;
+    }
   },
 };
 

@@ -9,6 +9,7 @@ import {
   PromptBodySchema,
   PermissionResponseBodySchema,
   DangerousModeBodySchema,
+  UpdateSessionBodySchema,
 } from '../schemas/sessions.js';
 
 const log = createChildLogger({ module: 'api-server' });
@@ -241,6 +242,46 @@ export async function sessionRoutes(
 
       session.permissionGate.resolve(body.optionId);
       return { ok: true };
+    },
+  );
+
+  // PATCH /sessions/:sessionId — update session (agent, voice, dangerous mode)
+  app.patch<{ Params: { sessionId: string } }>(
+    '/:sessionId',
+    async (request) => {
+      const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
+      const sessionId = decodeURIComponent(rawId);
+      const session = deps.core.sessionManager.getSession(sessionId);
+      if (!session) {
+        throw new NotFoundError(
+          'SESSION_NOT_FOUND',
+          `Session "${sessionId}" not found`,
+        );
+      }
+
+      const body = UpdateSessionBodySchema.parse(request.body);
+      const changes: Record<string, unknown> = {};
+
+      if (body.agentName !== undefined) {
+        const result = await deps.core.switchSessionAgent(sessionId, body.agentName);
+        changes.agentName = body.agentName;
+        changes.resumed = result.resumed;
+      }
+
+      if (body.voiceMode !== undefined) {
+        session.setVoiceMode(body.voiceMode);
+        changes.voiceMode = body.voiceMode;
+      }
+
+      if (body.dangerousMode !== undefined) {
+        session.dangerousMode = body.dangerousMode;
+        await deps.core.sessionManager.patchRecord(sessionId, {
+          dangerousMode: body.dangerousMode,
+        });
+        changes.dangerousMode = body.dangerousMode;
+      }
+
+      return { ok: true, ...changes };
     },
   );
 

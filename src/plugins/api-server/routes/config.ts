@@ -57,6 +57,13 @@ export async function configRoutes(
     return { fields };
   });
 
+  // GET /config/schema — get the config JSON schema
+  app.get('/schema', async () => {
+    const { zodToJsonSchema } = await import('zod-to-json-schema');
+    const { ConfigSchema } = await import('../../../core/config/config.js');
+    return zodToJsonSchema(ConfigSchema, 'OpenACPConfig');
+  });
+
   // GET /config — get full config (redacted)
   app.get('/', async () => {
     const config = deps.core.configManager.get();

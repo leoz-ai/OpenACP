@@ -33,6 +33,12 @@ export const DangerousModeBodySchema = z.object({
   enabled: z.boolean(),
 });
 
+export const UpdateSessionBodySchema = z.object({
+  agentName: z.string().min(1).optional(),
+  voiceMode: z.enum(['off', 'next', 'on']).optional(),
+  dangerousMode: z.boolean().optional(),
+});
+
 export const SessionIdParamSchema = z.object({
   sessionId: z.string().min(1),
 });
