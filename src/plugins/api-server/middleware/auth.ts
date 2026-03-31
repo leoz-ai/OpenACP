@@ -1,6 +1,9 @@
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import { AuthError } from './error-handler.js';
+import { verifyToken } from '../auth/jwt.js';
+import { getRoleScopes } from '../auth/roles.js';
+import type { TokenStore } from '../auth/token-store.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -13,7 +16,11 @@ declare module 'fastify' {
   }
 }
 
-export function createAuthPreHandler(getSecret: () => string): preHandlerHookHandler {
+export function createAuthPreHandler(
+  getSecret: () => string,
+  getJwtSecret: () => string,
+  tokenStore: TokenStore,
+): preHandlerHookHandler {
   return async function authPreHandler(request: FastifyRequest, _reply: FastifyReply) {
     const authHeader = request.headers.authorization;
     const queryToken = (request.query as Record<string, string>)?.token;
@@ -23,8 +30,8 @@ export function createAuthPreHandler(getSecret: () => string): preHandlerHookHan
       throw new AuthError('UNAUTHORIZED', 'Missing authentication token');
     }
 
+    // 1. Check secret token (timing-safe compare) — full admin access
     const secret = getSecret();
-
     if (token.length === secret.length) {
       const tokenBuf = Buffer.from(token);
       const secretBuf = Buffer.from(secret);
@@ -34,8 +41,33 @@ export function createAuthPreHandler(getSecret: () => string): preHandlerHookHan
       }
     }
 
-    // JWT check — stub for Plan 2. For now, reject non-secret tokens.
-    throw new AuthError('UNAUTHORIZED', 'Invalid authentication token');
+    // 2. Try JWT verification
+    let payload;
+    try {
+      const jwtSecret = getJwtSecret();
+      payload = verifyToken(token, jwtSecret);
+    } catch {
+      throw new AuthError('UNAUTHORIZED', 'Invalid authentication token');
+    }
+
+    // 3. Check if token is revoked in TokenStore
+    const stored = tokenStore.get(payload.sub);
+    if (!stored || stored.revoked) {
+      throw new AuthError('UNAUTHORIZED', 'Token has been revoked');
+    }
+
+    // 4. Update lastUsedAt
+    tokenStore.updateLastUsed(payload.sub);
+
+    // 5. Resolve scopes from token override or role defaults
+    const scopes = payload.scopes ?? getRoleScopes(payload.role);
+
+    request.auth = {
+      type: 'jwt',
+      tokenId: payload.sub,
+      role: payload.role,
+      scopes,
+    };
   };
 }
 
