@@ -341,7 +341,7 @@ export async function runSetup(
     let autoStart = false;
     if (!opts?.skipRunMode) {
       currentStep++;
-      const result = await setupRunMode({ stepNum: currentStep, totalSteps });
+      const result = await setupRunMode({ stepNum: currentStep, totalSteps, instanceRoot });
       runMode = result.runMode;
       autoStart = result.autoStart;
     }
@@ -361,7 +361,7 @@ export async function runSetup(
       security,
       logging: {
         level: "info",
-        logDir: "~/.openacp/logs",
+        logDir: path.join(instanceRoot, "logs"),
         maxFileSize: "10m",
         maxFiles: 7,
         sessionLogRetentionDays: 30,
