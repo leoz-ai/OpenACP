@@ -78,9 +78,25 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
 
     async start() {
       await app.ready();
-      const address = await app.listen({ port: options.port, host: options.host });
-      const url = new URL(address);
-      return { port: Number(url.port), host: url.hostname };
+
+      // Auto-detect available port: retry +1 up to 10 times on EADDRINUSE
+      const maxRetries = 10;
+      let port = options.port;
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const address = await app.listen({ port, host: options.host });
+          const url = new URL(address);
+          return { port: Number(url.port), host: url.hostname };
+        } catch (err: any) {
+          if (err?.code === 'EADDRINUSE' && attempt < maxRetries) {
+            port++;
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw new Error(`All ports ${options.port}-${port} in use`);
     },
 
     async stop() {

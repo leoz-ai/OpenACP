@@ -223,7 +223,7 @@ describe("ApiServer", () => {
     server = null;
   });
 
-  it("throws when port is in use (EADDRINUSE)", async () => {
+  it("retries next port when configured port is in use (EADDRINUSE)", async () => {
     const blocker = net.createServer();
     const blockerPort = await new Promise<number>((resolve) => {
       blocker.listen(0, "127.0.0.1", () => {
@@ -232,7 +232,10 @@ describe("ApiServer", () => {
     });
 
     try {
-      await expect(startServer(blockerPort)).rejects.toThrow();
+      const port = await startServer(blockerPort);
+      // Should have found a different port (blockerPort + N)
+      expect(port).toBeGreaterThan(0);
+      expect(port).not.toBe(blockerPort);
     } finally {
       blocker.close();
     }
