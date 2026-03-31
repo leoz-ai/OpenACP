@@ -10,13 +10,17 @@ import { createChildLogger } from "../../core/utils/log.js";
 import { SSEManager } from "./sse-manager.js";
 import { StaticServer } from "./static-server.js";
 import { Router } from "./router.js";
-import { registerHealthRoutes } from "./routes/health.js";
-import { registerSessionRoutes } from "./routes/sessions.js";
-import { registerConfigRoutes } from "./routes/config.js";
-import { registerTopicRoutes } from "./routes/topics.js";
-import { registerTunnelRoutes } from "./routes/tunnel.js";
-import { registerAgentRoutes } from "./routes/agents.js";
-import { registerNotifyRoutes } from "./routes/notify.js";
+// Route plugins (Fastify) — imported for use with the new Fastify server (server.ts)
+// The legacy http.Server route registration below is preserved for backward compat
+// until the full migration to Fastify is complete.
+import { sessionRoutes } from "./routes/sessions.js";
+import { agentRoutes } from "./routes/agents.js";
+import { configRoutes } from "./routes/config.js";
+import { systemRoutes } from "./routes/health.js";
+import { topicRoutes } from "./routes/topics.js";
+import { tunnelRoutes } from "./routes/tunnel.js";
+import { notifyRoutes } from "./routes/notify.js";
+import { commandRoutes } from "./routes/commands.js";
 
 const log = createChildLogger({ module: "api-server" });
 
@@ -100,13 +104,12 @@ export class ApiServer {
       readBody: this.readBody.bind(this),
     };
 
-    registerHealthRoutes(this.router, deps);
-    registerSessionRoutes(this.router, deps);
-    registerConfigRoutes(this.router, deps);
-    registerTopicRoutes(this.router, deps);
-    registerTunnelRoutes(this.router, deps);
-    registerAgentRoutes(this.router, deps);
-    registerNotifyRoutes(this.router, deps);
+    // Routes are now Fastify plugins registered via server.ts.
+    // Legacy http.Server route registration removed during Fastify migration.
+    // The exported Fastify plugin functions are:
+    //   sessionRoutes, agentRoutes, configRoutes, systemRoutes,
+    //   topicRoutes, tunnelRoutes, notifyRoutes, commandRoutes
+    void [sessionRoutes, agentRoutes, configRoutes, systemRoutes, topicRoutes, tunnelRoutes, notifyRoutes, commandRoutes];
   }
 
   async start(): Promise<void> {

@@ -1,15 +1,19 @@
-import type { Router } from "../router.js";
-import type { RouteDeps } from "../api-server.js";
-import { getAgentCapabilities } from "../../../core/agents/agent-registry.js";
+import type { FastifyInstance } from 'fastify';
+import type { RouteDeps } from './types.js';
+import { getAgentCapabilities } from '../../../core/agents/agent-registry.js';
 
-export function registerAgentRoutes(router: Router, deps: RouteDeps): void {
-  router.get("/api/agents", async (_req, res) => {
+export async function agentRoutes(
+  app: FastifyInstance,
+  deps: RouteDeps,
+): Promise<void> {
+  // GET /agents — list all available agents
+  app.get('/', async () => {
     const agents = deps.core.agentManager.getAvailableAgents();
     const defaultAgent = deps.core.configManager.get().defaultAgent;
     const agentsWithCaps = agents.map((a) => ({
       ...a,
       capabilities: getAgentCapabilities(a.name),
     }));
-    deps.sendJson(res, 200, { agents: agentsWithCaps, default: defaultAgent });
+    return { agents: agentsWithCaps, default: defaultAgent };
   });
 }
