@@ -23,13 +23,16 @@ describe('createApiServer', () => {
     expect(address.port).toBeGreaterThan(0);
   });
 
-  it('registers health endpoint without auth', async () => {
+  it('registers a plugin without auth and serves it', async () => {
     server = await createApiServer({ port: 0, host: '127.0.0.1', getSecret: () => 'test-secret' });
+    server.registerPlugin('/api/v1/health', async (app) => {
+      app.get('/', async () => ({ status: 'ok' }));
+    }, { auth: false });
     await server.start();
 
     const response = await server.app.inject({
       method: 'GET',
-      url: '/api/v1/system/health',
+      url: '/api/v1/health',
     });
 
     expect(response.statusCode).toBe(200);
