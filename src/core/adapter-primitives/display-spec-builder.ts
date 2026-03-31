@@ -14,6 +14,7 @@ export interface ToolDisplaySpec {
   title: string;
   description: string | null;
   command: string | null;
+  inputContent: string | null;
   outputSummary: string | null;
   outputContent: string | null;
   diffStats: { added: number; removed: number } | null;
@@ -47,24 +48,33 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function buildTitle(entry: ToolEntry): string {
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+}
+
+function buildTitle(entry: ToolEntry, kind: string): string {
   // Explicit overrides take highest priority
   if (entry.displayTitle) return entry.displayTitle;
   if (entry.displaySummary) return entry.displaySummary;
 
   const input = asRecord(entry.rawInput);
-  const kind = entry.kind;
 
   if (kind === "read") {
     const filePath = typeof input.file_path === "string" ? input.file_path : null;
     if (filePath) {
-      const start = typeof input.start_line === "number" ? input.start_line : null;
-      const end = typeof input.end_line === "number" ? input.end_line : null;
-      if (start !== null && end !== null) return `${filePath}:${start}-${end}`;
-      if (start !== null) return `${filePath}:${start}`;
+      // start_line/end_line style
+      const startLine = typeof input.start_line === "number" ? input.start_line : null;
+      const endLine = typeof input.end_line === "number" ? input.end_line : null;
+      if (startLine !== null && endLine !== null) return `${filePath} (lines ${startLine}–${endLine})`;
+      if (startLine !== null) return `${filePath} (from line ${startLine})`;
+      // offset/limit style (Claude Code Read tool)
+      const offset = typeof input.offset === "number" ? input.offset : null;
+      const limit = typeof input.limit === "number" ? input.limit : null;
+      if (offset !== null && limit !== null) return `${filePath} (lines ${offset}–${offset + limit - 1})`;
+      if (offset !== null) return `${filePath} (from line ${offset})`;
       return filePath;
     }
-    return entry.name;
+    return capitalize(entry.name);
   }
 
   if (kind === "edit" || kind === "write" || kind === "delete") {
@@ -75,7 +85,7 @@ function buildTitle(entry: ToolEntry): string {
           ? input.path
           : null;
     if (filePath) return filePath;
-    return entry.name;
+    return capitalize(entry.name);
   }
 
   if (EXECUTE_KINDS.has(kind)) {
@@ -83,7 +93,17 @@ function buildTitle(entry: ToolEntry): string {
     if (description) return description;
     const command = typeof input.command === "string" ? input.command : null;
     if (command) return command.length > 60 ? command.slice(0, 57) + "..." : command;
-    return entry.name;
+    return capitalize(entry.name);
+  }
+
+  if (kind === "agent") {
+    const skill = typeof input.skill === "string" ? input.skill : null;
+    const description = typeof input.description === "string" ? input.description : null;
+    const subtype = typeof input.subagent_type === "string" ? input.subagent_type : null;
+    if (skill) return skill;
+    if (description) return description.length > 60 ? description.slice(0, 57) + "..." : description;
+    if (subtype) return subtype;
+    return capitalize(entry.name);
   }
 
   if (kind === "search") {
@@ -93,8 +113,20 @@ function buildTitle(entry: ToolEntry): string {
         : typeof input.query === "string"
           ? input.query
           : null;
-    if (pattern) return `${entry.name} "${pattern}"`;
-    return entry.name;
+    if (pattern) {
+      let title = `${capitalize(entry.name)} "${pattern}"`;
+      const glob = typeof input.glob === "string" ? input.glob : null;
+      const type = typeof input.type === "string" ? input.type : null;
+      if (glob) title += ` (glob: ${glob})`;
+      else if (type) title += ` (type: ${type})`;
+      return title;
+    }
+    return capitalize(entry.name);
+  }
+
+  // Show skill name for Skill tool calls (e.g. Claude Code's Skill tool)
+  if (entry.name.toLowerCase() === "skill" && typeof input.skill === "string" && input.skill) {
+    return input.skill;
   }
 
   return entry.name;
@@ -124,8 +156,9 @@ export class DisplaySpecBuilder {
     mode: OutputMode,
     sessionContext?: { id: string; workingDirectory: string },
   ): ToolDisplaySpec {
-    const icon = KIND_ICONS[entry.kind] ?? KIND_ICONS["other"] ?? "🛠️";
-    const title = buildTitle(entry);
+    const effectiveKind = entry.displayKind ?? entry.kind;
+    const icon = KIND_ICONS[effectiveKind] ?? KIND_ICONS["other"] ?? "🛠️";
+    const title = buildTitle(entry, effectiveKind);
     const isHidden = entry.isNoise && mode !== "high";
 
     // Fields that are always null on low
@@ -138,18 +171,20 @@ export class DisplaySpecBuilder {
     const descLower = rawDescription?.toLowerCase();
     const description =
       includeMeta && rawDescription && rawDescription !== title
-        && descLower !== entry.kind && descLower !== entry.name.toLowerCase()
+        && descLower !== effectiveKind && descLower !== entry.name.toLowerCase()
         ? rawDescription : null;
 
     // Deduplicate: skip command if title was derived from it
     const rawCommand =
-      EXECUTE_KINDS.has(entry.kind) && typeof input.command === "string"
+      EXECUTE_KINDS.has(effectiveKind) && typeof input.command === "string"
         ? input.command
         : null;
     const command =
       includeMeta && rawCommand && !isTitleFromCommand(title, rawCommand)
         ? rawCommand
         : null;
+
+    const inputContent: string | null = null;
 
     const content = entry.content;
 
@@ -165,7 +200,9 @@ export class DisplaySpecBuilder {
         content.split("\n").length > INLINE_MAX_LINES || content.length > INLINE_MAX_CHARS;
 
       if (isLong) {
-        if (this.tunnelService && sessionContext) {
+        const publicUrl = this.tunnelService?.getPublicUrl();
+        const hasPublicTunnel = !!publicUrl && !publicUrl.startsWith("http://localhost") && !publicUrl.startsWith("http://127.0.0.1");
+        if (this.tunnelService && sessionContext && hasPublicTunnel) {
           const label =
             typeof input.command === "string" ? input.command : entry.name;
           const id = this.tunnelService.getStore().storeOutput(sessionContext.id, label, content);
@@ -184,11 +221,12 @@ export class DisplaySpecBuilder {
 
     return {
       id: entry.id,
-      kind: entry.kind,
+      kind: effectiveKind,
       icon,
       title,
       description,
       command,
+      inputContent,
       outputSummary,
       outputContent,
       diffStats,

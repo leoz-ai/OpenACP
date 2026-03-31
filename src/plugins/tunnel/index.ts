@@ -131,6 +131,10 @@ function createTunnelPlugin(): OpenACPPlugin {
 
     async setup(ctx) {
       const config = ctx.pluginConfig as Record<string, unknown>
+      if (!config.enabled) {
+        ctx.log.info('Tunnel disabled')
+        return
+      }
       if (!config.provider) {
         ctx.log.info('Tunnel disabled (no provider configured)')
         return
