@@ -1,13 +1,20 @@
 import type { CommandRegistry } from '../command-registry.js'
 import type { CommandResponse } from '../plugin/types.js'
+import type { OpenACPCore } from '../core.js'
 
 export function registerAdminCommands(registry: CommandRegistry, _core: unknown): void {
+  const core = _core as OpenACPCore;
   registry.register({
     name: 'restart',
     description: 'Restart the server',
     category: 'system',
-    handler: async () => {
-      return { type: 'silent' } satisfies CommandResponse
+    handler: async (args) => {
+      const assistant = core.assistantManager?.get(args.channelId)
+      if (assistant && !args.sessionId) {
+        await assistant.enqueuePrompt('User wants to restart OpenACP. Ask for confirmation before restarting.')
+        return { type: 'delegated' } satisfies CommandResponse
+      }
+      return { type: 'text', text: 'Use /restart in the Assistant topic, or run `openacp api restart` in terminal.' } satisfies CommandResponse
     },
   })
 

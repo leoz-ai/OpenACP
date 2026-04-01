@@ -54,6 +54,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   promptCount: number = 0;
   firstAgent: string;
   agentSwitchHistory: AgentSwitchEntry[] = [];
+  isAssistant: boolean = false;
   log: Logger;
   middlewareChain?: MiddlewareChain;
 
@@ -69,6 +70,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     workingDirectory: string;
     agentInstance: AgentInstance;
     speechService?: SpeechService;
+    isAssistant?: boolean;
   }) {
     super();
     this.id = opts.id || nanoid(12);
@@ -78,6 +80,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.workingDirectory = opts.workingDirectory;
     this.agentInstance = opts.agentInstance;
     this.speechService = opts.speechService;
+    this.isAssistant = opts.isAssistant ?? false;
     this.log = createSessionLogger(this.id, moduleLog);
     this.log.info({ agentName: this.agentName }, "Session created");
 

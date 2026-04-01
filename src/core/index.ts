@@ -42,6 +42,8 @@ export {
 } from "./sessions/session-factory.js";
 export { OpenACPCore } from "./core.js";
 export { EventBus, type EventBusEvents } from "./event-bus.js";
+export { MenuRegistry, type MenuItem } from './menu-registry.js';
+export { AssistantRegistry, AssistantManager, type AssistantSection, type AssistantCommand } from './assistant/index.js';
 export { CommandRegistry } from "./command-registry.js";
 export { DoctorEngine, type DoctorReport, type PendingFix } from "./doctor/index.js";
 export {

@@ -161,6 +161,21 @@ export type CommandResponse =
   | { type: 'confirm'; question: string; onYes: string; onNo: string }
   | { type: 'error'; message: string }
   | { type: 'silent' }
+  | { type: 'delegated' }
+
+// ─── Menu Types ───
+
+export interface MenuItem {
+  id: string
+  label: string
+  priority: number
+  group?: string
+  action:
+    | { type: 'command'; command: string }
+    | { type: 'delegate'; prompt: string }
+    | { type: 'callback'; callbackData: string }
+  visible?: () => boolean
+}
 
 export interface MenuOption {
   label: string
@@ -261,6 +276,14 @@ export interface PluginContext {
   getService<T>(name: string): T | undefined
   /** Register slash command. Requires 'commands:register'. */
   registerCommand(def: CommandDef): void
+  /** Register a menu item. Requires 'commands:register'. */
+  registerMenuItem(item: MenuItem): void
+  /** Unregister a menu item by id. Requires 'commands:register'. */
+  unregisterMenuItem(id: string): void
+  /** Register an assistant section. Requires 'commands:register'. */
+  registerAssistantSection(section: import('../assistant/assistant-registry.js').AssistantSection): void
+  /** Unregister an assistant section by id. Requires 'commands:register'. */
+  unregisterAssistantSection(id: string): void
   /** Plugin-scoped storage. Requires 'storage:read' and/or 'storage:write'. */
   storage: PluginStorage
   /** Plugin-scoped logger. Always available (no permission needed). */

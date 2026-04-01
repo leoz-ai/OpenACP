@@ -11,7 +11,11 @@ import type {
   EventBus,
   Logger,
   OutgoingMessage,
+  MenuItem,
 } from './types.js'
+import type { MenuRegistry } from '../menu-registry.js'
+import type { AssistantSection } from '../assistant/assistant-registry.js'
+import type { AssistantRegistry } from '../assistant/assistant-registry.js'
 import { ServiceRegistry } from './service-registry.js'
 import { MiddlewareChain } from './middleware-chain.js'
 import { ErrorTracker } from './error-tracker.js'
@@ -158,6 +162,34 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
       if (router) {
         await router.send(_sessionId, _content)
       }
+    },
+
+    registerMenuItem(item: MenuItem): void {
+      requirePermission(permissions, 'commands:register', 'registerMenuItem()')
+      const menuRegistry = serviceRegistry.get('menu-registry') as MenuRegistry | undefined
+      if (!menuRegistry) return
+      menuRegistry.register({ ...item, id: `${pluginName}:${item.id}` })
+    },
+
+    unregisterMenuItem(id: string): void {
+      requirePermission(permissions, 'commands:register', 'unregisterMenuItem()')
+      const menuRegistry = serviceRegistry.get('menu-registry') as MenuRegistry | undefined
+      if (!menuRegistry) return
+      menuRegistry.unregister(`${pluginName}:${id}`)
+    },
+
+    registerAssistantSection(section: AssistantSection): void {
+      requirePermission(permissions, 'commands:register', 'registerAssistantSection()')
+      const assistantRegistry = serviceRegistry.get('assistant-registry') as AssistantRegistry | undefined
+      if (!assistantRegistry) return
+      assistantRegistry.register({ ...section, id: `${pluginName}:${section.id}` })
+    },
+
+    unregisterAssistantSection(id: string): void {
+      requirePermission(permissions, 'commands:register', 'unregisterAssistantSection()')
+      const assistantRegistry = serviceRegistry.get('assistant-registry') as AssistantRegistry | undefined
+      if (!assistantRegistry) return
+      assistantRegistry.unregister(`${pluginName}:${id}`)
     },
 
     get sessions() {
