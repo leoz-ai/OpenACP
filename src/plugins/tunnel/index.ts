@@ -135,7 +135,9 @@ function createTunnelPlugin(): OpenACPPlugin {
 
     async setup(ctx) {
       const config = ctx.pluginConfig as Record<string, unknown>
-      if (!config.enabled) {
+      // Default enabled to true — settings created via copyInstance omit this key
+      const enabled = 'enabled' in config ? config.enabled : true
+      if (!enabled) {
         ctx.log.info('Tunnel disabled')
         return
       }
