@@ -1,5 +1,5 @@
 import { createChildLogger } from '../utils/log.js'
-import { ASSISTANT_PREAMBLE, ASSISTANT_GUIDELINES } from './prompt-constants.js'
+import { ASSISTANT_PREAMBLE, buildAssistantGuidelines } from './prompt-constants.js'
 
 const log = createChildLogger({ module: 'assistant-registry' })
 
@@ -18,6 +18,12 @@ export interface AssistantSection {
 
 export class AssistantRegistry {
   private sections = new Map<string, AssistantSection>()
+  private _instanceRoot: string = ''
+
+  /** Set the instance root path used in assistant guidelines */
+  setInstanceRoot(root: string): void {
+    this._instanceRoot = root
+  }
 
   register(section: AssistantSection): void {
     if (this.sections.has(section.id)) {
@@ -48,7 +54,7 @@ export class AssistantRegistry {
       }
     }
 
-    parts.push(ASSISTANT_GUIDELINES)
+    parts.push(buildAssistantGuidelines(this._instanceRoot))
     return parts.join('\n\n')
   }
 }

@@ -179,6 +179,11 @@ export class OpenACPCore {
     // Register core menu items
     registerCoreMenuItems(this.menuRegistry);
 
+    // Set instance root for assistant CLI guidelines
+    if (ctx?.root) {
+      this.assistantRegistry.setInstanceRoot(ctx.root);
+    }
+
     // Register core assistant sections
     this.assistantRegistry.register(createSessionsSection(this));
     this.assistantRegistry.register(createAgentsSection(this as any));
