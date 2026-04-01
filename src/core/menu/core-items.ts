@@ -48,14 +48,14 @@ export function registerCoreMenuItems(registry: MenuRegistry): void {
     label: '🔄 Restart',
     priority: 40,
     group: 'system',
-    action: { type: 'delegate', prompt: 'User wants to restart OpenACP. Ask for confirmation before restarting.' },
+    action: { type: 'command', command: '/restart' },
   })
   registry.register({
     id: 'core:update',
     label: '⬆️ Update',
     priority: 41,
     group: 'system',
-    action: { type: 'delegate', prompt: 'User wants to update OpenACP to latest version. Ask for confirmation.' },
+    action: { type: 'command', command: '/update' },
   })
   registry.register({
     id: 'core:help',

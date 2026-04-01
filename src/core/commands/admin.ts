@@ -9,12 +9,14 @@ export function registerAdminCommands(registry: CommandRegistry, _core: unknown)
     description: 'Restart the server',
     category: 'system',
     handler: async (args) => {
-      const assistant = core.assistantManager?.get(args.channelId)
-      if (assistant && !args.sessionId) {
-        await assistant.enqueuePrompt('User wants to restart OpenACP. Ask for confirmation before restarting.')
-        return { type: 'delegated' } satisfies CommandResponse
+      if (!core.requestRestart) {
+        return { type: 'error', message: 'Restart is not available (no restart handler registered).' } satisfies CommandResponse
       }
-      return { type: 'text', text: 'Use /restart in the Assistant topic, or run `openacp api restart` in terminal.' } satisfies CommandResponse
+      // Reply first, then restart after a short delay
+      setTimeout(async () => {
+        await core.requestRestart!()
+      }, 500)
+      return { type: 'text', text: '🔄 <b>Restarting OpenACP...</b>\nRebuilding and restarting. Be back shortly.' } satisfies CommandResponse
     },
   })
 
@@ -22,8 +24,11 @@ export function registerAdminCommands(registry: CommandRegistry, _core: unknown)
     name: 'update',
     description: 'Check for and apply updates',
     category: 'system',
-    handler: async () => {
-      return { type: 'text', text: 'Checking for updates...' } satisfies CommandResponse
+    handler: async (args) => {
+      if (!core.requestRestart) {
+        return { type: 'error', message: 'Update is not available (no restart handler registered).' } satisfies CommandResponse
+      }
+      return { type: 'text', text: '⬆️ Checking for updates...\nUse the Telegram /update command for the full update flow.' } satisfies CommandResponse
     },
   })
 
