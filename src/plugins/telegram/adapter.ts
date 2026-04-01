@@ -334,10 +334,10 @@ export class TelegramAdapter extends MessagingAdapter {
       try {
         const sessionId =
           topicId != null
-            ? (this.core.sessionManager.getSessionByThread(
+            ? ((await this.core.getOrResumeSession(
                 "telegram",
                 String(topicId),
-              )?.id ?? null)
+              ))?.id ?? null)
             : null;
 
         const response = await registry.execute(text, {
@@ -390,10 +390,10 @@ export class TelegramAdapter extends MessagingAdapter {
       try {
         const sessionId =
           topicId != null
-            ? (this.core.sessionManager.getSessionByThread(
+            ? ((await this.core.getOrResumeSession(
                 "telegram",
                 String(topicId),
-              )?.id ?? null)
+              ))?.id ?? null)
             : null;
 
         const response = await registry.execute(command, {
@@ -486,7 +486,7 @@ export class TelegramAdapter extends MessagingAdapter {
         return;
       }
 
-      const session = this.core.sessionManager.getSessionByThread(
+      const session = await this.core.getOrResumeSession(
         "telegram",
         String(threadId),
       );
@@ -816,10 +816,10 @@ export class TelegramAdapter extends MessagingAdapter {
       }
 
       // Session topic → forward to core
-      const sessionId = this.core.sessionManager.getSessionByThread(
+      const sessionId = (await this.core.getOrResumeSession(
         "telegram",
         String(threadId),
-      )?.id;
+      ))?.id;
       if (sessionId) {
         this.getTracer(sessionId)?.log("telegram", { action: "incoming:message", sessionId, userId: String(ctx.from?.id), text: ctx.message?.text });
         await this.draftManager.finalize(sessionId, this.assistantSession?.id);
@@ -1415,11 +1415,11 @@ export class TelegramAdapter extends MessagingAdapter {
     await this.skillManager.send(sessionId, threadId, commands);
   }
 
-  private resolveSessionId(threadId: number): string | undefined {
-    return this.core.sessionManager.getSessionByThread(
+  private async resolveSessionId(threadId: number): Promise<string | undefined> {
+    return (await this.core.getOrResumeSession(
       "telegram",
       String(threadId),
-    )?.id;
+    ))?.id;
   }
 
   private async downloadTelegramFile(
@@ -1453,7 +1453,7 @@ export class TelegramAdapter extends MessagingAdapter {
 
     let buffer = downloaded.buffer;
     let originalFilePath: string | undefined;
-    const sessionId = this.resolveSessionId(threadId) || "unknown";
+    const sessionId = (await this.resolveSessionId(threadId)) || "unknown";
 
     if (convertOggToWav) {
       // Save original OGG for STT (smaller, API-compatible)
@@ -1499,7 +1499,7 @@ export class TelegramAdapter extends MessagingAdapter {
     }
 
     // Session topic
-    const sid = this.resolveSessionId(threadId);
+    const sid = await this.resolveSessionId(threadId);
     if (sid) await this.draftManager.finalize(sid, this.assistantSession?.id);
     this.core
       .handleMessage({

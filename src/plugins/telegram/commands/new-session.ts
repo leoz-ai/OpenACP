@@ -229,7 +229,7 @@ export async function handleNewChat(
   }
 
   // Resolve agent config from existing session/record BEFORE spawning
-  const currentSession = core.sessionManager.getSessionByThread(
+  const currentSession = await core.getOrResumeSession(
     "telegram",
     String(threadId),
   );

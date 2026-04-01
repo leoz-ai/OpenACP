@@ -100,6 +100,7 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
           return { port: Number(url.port), host: url.hostname };
         } catch (err: any) {
           if (err?.code === 'EADDRINUSE' && attempt < maxRetries && port < 65535) {
+            console.log(`[api-server] Port ${port} in use, trying ${port + 1}...`);
             port++;
             continue;
           }

@@ -111,7 +111,7 @@ export async function handleEnableDangerous(
     });
     return;
   }
-  const session = core.sessionManager.getSessionByThread(
+  const session = await core.getOrResumeSession(
     "telegram",
     String(threadId),
   );
@@ -165,7 +165,7 @@ export async function handleDisableDangerous(
     });
     return;
   }
-  const session = core.sessionManager.getSessionByThread(
+  const session = await core.getOrResumeSession(
     "telegram",
     String(threadId),
   );
@@ -369,7 +369,7 @@ export async function handleOutputMode(
       return;
     }
 
-    const session = core.sessionManager.getSessionByThread(
+    const session = await core.getOrResumeSession(
       "telegram",
       String(threadId),
     );

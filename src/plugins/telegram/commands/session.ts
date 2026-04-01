@@ -49,7 +49,7 @@ export async function handleCancel(
 export async function handleStatus(ctx: Context, core: OpenACPCore): Promise<void> {
   const threadId = ctx.message?.message_thread_id;
   if (threadId) {
-    const session = core.sessionManager.getSessionByThread(
+    const session = await core.getOrResumeSession(
       "telegram",
       String(threadId),
     );

@@ -176,6 +176,11 @@ function createApiServerPlugin(): OpenACPPlugin {
         host: (config.host as string) ?? '127.0.0.1',
       }
 
+      log.info(
+        { port: apiConfig.port, host: apiConfig.host, instanceRoot },
+        'API server plugin setup — config loaded',
+      )
+
       portFilePath = path.join(instanceRoot, 'api.port')
       const secretFilePath = path.join(instanceRoot, 'api-secret')
       const jwtSecretFilePath = path.join(instanceRoot, 'jwt-secret')
@@ -309,6 +314,10 @@ function createApiServerPlugin(): OpenACPPlugin {
 
       // Start on system:ready
       ctx.on('system:ready', async () => {
+        log.info(
+          { configPort: apiConfig.port, configHost: apiConfig.host },
+          'API server starting...',
+        )
         try {
           const addr = await server!.start()
           actualPort = addr.port
@@ -317,8 +326,10 @@ function createApiServerPlugin(): OpenACPPlugin {
           sseManager.setup()
 
           log.info(
-            { host: addr.host, port: addr.port },
-            'API server listening',
+            { host: addr.host, port: addr.port, portFile: portFilePath },
+            'API server listening on http://%s:%d',
+            addr.host,
+            addr.port,
           )
 
           if (apiConfig.host !== '127.0.0.1' && apiConfig.host !== 'localhost') {
@@ -327,7 +338,7 @@ function createApiServerPlugin(): OpenACPPlugin {
             )
           }
         } catch (err) {
-          ctx.log.error(`API server failed to start: ${err}`)
+          log.error({ err, configPort: apiConfig.port, configHost: apiConfig.host }, 'API server failed to start')
         }
       })
     },

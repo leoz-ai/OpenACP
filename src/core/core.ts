@@ -304,6 +304,13 @@ export class OpenACPCore {
         { channelId: message.channelId, threadId: message.threadId },
         "No session found for thread (in-memory miss + lazy resume returned null)",
       );
+      const adapter = this.adapters.get(message.channelId);
+      if (adapter) {
+        await adapter.sendMessage(message.threadId, {
+          type: "error",
+          text: "⚠️ No active session in this topic. Use /new to start one.",
+        });
+      }
       return;
     }
 
