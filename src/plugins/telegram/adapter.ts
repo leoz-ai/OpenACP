@@ -1283,6 +1283,31 @@ export class TelegramAdapter extends MessagingAdapter {
     );
   }
 
+  async sendInitialControlMessage(sessionId: string): Promise<void> {
+    const session = this.core.sessionManager.getSession(sessionId);
+    if (!session) return;
+    const threadId = Number(session.threadId);
+    if (!threadId || isNaN(threadId)) return;
+
+    try {
+      const text = buildSessionStatusText(session, '✅ <b>Session started</b>');
+      const keyboard = buildSessionControlKeyboard(sessionId, false, false);
+      const msg = await this.sendQueue.enqueue(
+        () => this.bot.api.sendMessage(this.telegramConfig.chatId, text, {
+          message_thread_id: threadId,
+          parse_mode: 'HTML',
+          reply_markup: keyboard,
+        }),
+        { type: 'other' },
+      );
+      if (msg) {
+        this.storeControlMsgId(sessionId, msg.message_id);
+      }
+    } catch (err) {
+      log.warn({ err, sessionId }, 'Failed to send initial control message');
+    }
+  }
+
   async renameSessionThread(sessionId: string, newName: string): Promise<void> {
     this.getTracer(sessionId)?.log("telegram", { action: "thread:rename", sessionId, newName });
     const session = this.core.sessionManager.getSession(sessionId);

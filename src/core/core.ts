@@ -421,6 +421,12 @@ export class OpenACPCore {
       adapter.flushPendingSkillCommands?.(session.id).catch((err) => {
         log.warn({ err, sessionId: session.id }, "Failed to flush pending skill commands");
       });
+      // Send initial control message (status + buttons) for new threads
+      if (params.createThread) {
+        adapter.sendInitialControlMessage?.(session.id).catch((err) => {
+          log.warn({ err, sessionId: session.id }, "Failed to send initial control message");
+        });
+      }
     }
 
     // 6b. Wire usage tracking and tunnel cleanup
