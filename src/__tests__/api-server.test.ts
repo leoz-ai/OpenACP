@@ -368,7 +368,7 @@ describe("ApiServer", () => {
         name: "Fix bug",
         workingDirectory: "/tmp/a",
         createdAt: new Date("2026-01-01T00:00:00Z"),
-        dangerousMode: false,
+        clientOverrides: { bypassPermissions: false },
         queueDepth: 0,
         promptRunning: false,
       },
@@ -379,7 +379,7 @@ describe("ApiServer", () => {
         name: undefined,
         workingDirectory: "/tmp/b",
         createdAt: new Date("2026-01-02T00:00:00Z"),
-        dangerousMode: false,
+        clientOverrides: { bypassPermissions: false },
         queueDepth: 0,
         promptRunning: false,
       },
@@ -416,7 +416,7 @@ describe("ApiServer", () => {
         name: "Test",
         workingDirectory: "/tmp",
         createdAt: created,
-        dangerousMode: true,
+        clientOverrides: { bypassPermissions: true },
         queueDepth: 2,
         promptRunning: true,
       },
@@ -722,7 +722,7 @@ describe("ApiServer", () => {
       name: "Fix bug",
       workingDirectory: "/tmp/ws",
       createdAt,
-      dangerousMode: false,
+      clientOverrides: { bypassPermissions: false },
       queueDepth: 2,
       promptRunning: true,
       threadId: "thread-1",
@@ -758,7 +758,7 @@ describe("ApiServer", () => {
   });
 
   it("PATCH /api/sessions/:id/dangerous toggles dangerous mode", async () => {
-    const mockSession = { id: "abc123", dangerousMode: false };
+    const mockSession = { id: "abc123", clientOverrides: { bypassPermissions: false } };
     mockCore.sessionManager.getSession.mockReturnValueOnce(mockSession);
     const port = await startServer();
 
@@ -772,14 +772,14 @@ describe("ApiServer", () => {
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(data.dangerousMode).toBe(true);
-    expect(mockSession.dangerousMode).toBe(true);
+    expect(mockSession.clientOverrides.bypassPermissions).toBe(true);
     expect(mockCore.sessionManager.patchRecord).toHaveBeenCalledWith("abc123", {
-      dangerousMode: true,
+      clientOverrides: { bypassPermissions: true },
     });
   });
 
   it("PATCH /api/sessions/:id/dangerous returns 400 for missing enabled", async () => {
-    const mockSession = { id: "abc123", dangerousMode: false };
+    const mockSession = { id: "abc123", clientOverrides: { bypassPermissions: false } };
     mockCore.sessionManager.getSession.mockReturnValueOnce(mockSession);
     const port = await startServer();
 
