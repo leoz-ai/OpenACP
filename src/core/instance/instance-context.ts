@@ -81,6 +81,8 @@ export function resolveInstanceRoot(opts: ResolveOpts): string | null {
   if (opts.global) return path.join(os.homedir(), '.openacp')
   const localRoot = path.join(cwd, '.openacp')
   if (fs.existsSync(localRoot)) return localRoot
+  // Inherit instance root from parent process (e.g. restart respawn)
+  if (process.env.OPENACP_INSTANCE_ROOT) return process.env.OPENACP_INSTANCE_ROOT
   return null
 }
 

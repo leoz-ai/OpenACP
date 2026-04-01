@@ -230,8 +230,8 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
           return {
             type: 'text',
             text: wantOn
-              ? '☠️ **Bypass enabled** — all permission requests will be auto-approved. The agent can run any action without asking.'
-              : '🔐 **Bypass disabled** — you will be asked to approve risky actions.',
+              ? '☠️ **Bypass Permissions enabled** — all permission requests will be auto-approved. The agent can run any action without asking.'
+              : '🔐 **Bypass Permissions disabled** — you will be asked to approve risky actions.',
           } satisfies CommandResponse
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -248,8 +248,8 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
       return {
         type: 'text',
         text: wantOn
-          ? '☠️ **Bypass enabled** (client-side) — all permission requests will be auto-approved.\n\n_Note: This agent doesn\'t natively support bypass mode, so OpenACP will auto-approve on your behalf._'
-          : '🔐 **Bypass disabled** — you will be asked to approve risky actions.',
+          ? '☠️ **Bypass Permissions enabled** (client-side) — all permission requests will be auto-approved.\n\n_Note: This agent doesn\'t natively support bypass mode, so OpenACP will auto-approve on your behalf._'
+          : '🔐 **Bypass Permissions disabled** — you will be asked to approve risky actions.',
       } satisfies CommandResponse
     },
   })

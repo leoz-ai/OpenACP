@@ -331,6 +331,14 @@ export async function startServer(opts?: StartServerOptions) {
 
     // Self-respawn on restart
     if (exitCode === RESTART_EXIT_CODE) {
+      // Dev loop: persist instance root so the shell script can pass it to the next run
+      if (process.env.OPENACP_DEV_LOOP) {
+        const fsMod = await import('node:fs')
+        const osMod = await import('node:os')
+        const pathMod = await import('node:path')
+        fsMod.writeFileSync(pathMod.join(osMod.tmpdir(), 'openacp-dev-loop-root'), ctx.root, 'utf-8')
+      }
+
       if (isDaemon) {
         // Daemon mode: spawn detached child writing to log file
         const { spawn: spawnChild } = await import('node:child_process')
@@ -348,7 +356,7 @@ export async function startServer(opts?: StartServerOptions) {
         const child = spawnChild(process.execPath, [cliPath, '--daemon-child'], {
           detached: true,
           stdio: ['ignore', out, err],
-          env: { ...process.env, OPENACP_SKIP_UPDATE_CHECK: '1' },
+          env: { ...process.env, OPENACP_SKIP_UPDATE_CHECK: '1', OPENACP_INSTANCE_ROOT: ctx.root },
         })
         fs.closeSync(out)
         fs.closeSync(err)
@@ -359,7 +367,7 @@ export async function startServer(opts?: StartServerOptions) {
         const { spawn: spawnChild } = await import('node:child_process')
         const child = spawnChild(process.execPath, process.argv.slice(1), {
           stdio: 'inherit',
-          env: { ...process.env, OPENACP_SKIP_UPDATE_CHECK: '1' },
+          env: { ...process.env, OPENACP_SKIP_UPDATE_CHECK: '1', OPENACP_INSTANCE_ROOT: ctx.root },
         })
         await shutdownLogger()
         child.on('exit', (code) => process.exit(code ?? 0))
