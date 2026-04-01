@@ -169,6 +169,8 @@ export class TunnelRegistry {
       const entry = await this.add(port, opts, false)
       entry.retryCount = retryCount
     } catch (err) {
+      if (this.shuttingDown) return
+
       log.error({ port, err: (err as Error).message, retry: retryCount }, 'Tunnel retry failed')
 
       // Re-insert as failed with incremented retry count for next onExit cycle
