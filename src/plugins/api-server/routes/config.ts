@@ -79,8 +79,7 @@ export async function configRoutes(
 
     // Block prototype pollution
     const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-    const parts = configPath.split('.');
-    if (parts.some((p) => BLOCKED_KEYS.has(p))) {
+    if (configPath.split('.').some((p) => BLOCKED_KEYS.has(p))) {
       return reply.status(400).send({ error: 'Invalid config path' });
     }
 
@@ -95,52 +94,7 @@ export async function configRoutes(
       });
     }
 
-    // Pre-validate by cloning config and applying the change
-    const currentConfig = deps.core.configManager.get();
-    const cloned = structuredClone(currentConfig) as Record<string, unknown>;
-    let target: Record<string, unknown> = cloned;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (
-        target[part] &&
-        typeof target[part] === 'object' &&
-        !Array.isArray(target[part])
-      ) {
-        target = target[part] as Record<string, unknown>;
-      } else if (target[part] === undefined || target[part] === null) {
-        target[part] = {};
-        target = target[part] as Record<string, unknown>;
-      } else {
-        return reply.status(400).send({ error: 'Invalid config path' });
-      }
-    }
-
-    const lastKey = parts[parts.length - 1];
-    target[lastKey] = value;
-
-    // Validate with Zod
-    const { ConfigSchema } = await import('../../../core/config/config.js');
-    const result = ConfigSchema.safeParse(cloned);
-    if (!result.success) {
-      return reply.status(400).send({
-        error: 'Validation failed',
-        details: result.error.issues.map((i) => ({
-          path: i.path.join('.'),
-          message: i.message,
-        })),
-      });
-    }
-
-    // Convert dot-path to nested object for save
-    const updates: Record<string, unknown> = {};
-    let updateTarget = updates;
-    for (let i = 0; i < parts.length - 1; i++) {
-      updateTarget[parts[i]] = {};
-      updateTarget = updateTarget[parts[i]] as Record<string, unknown>;
-    }
-    updateTarget[lastKey] = value;
-
-    await deps.core.configManager.save(updates, configPath);
+    await deps.core.configManager.setPath(configPath, value);
 
     const { isHotReloadable } = await import(
       '../../../core/config/config-registry.js'

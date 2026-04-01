@@ -287,6 +287,30 @@ export class ConfigManager extends EventEmitter {
     }
   }
 
+  /**
+   * Set a single config value by dot-path (e.g. "security.maxConcurrentSessions").
+   * Builds the nested update object, validates, and saves.
+   * Throws if the path contains blocked keys or the value fails Zod validation.
+   */
+  async setPath(dotPath: string, value: unknown): Promise<void> {
+    const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+    const parts = dotPath.split('.');
+    if (parts.some((p) => BLOCKED_KEYS.has(p))) {
+      throw new Error(`Invalid config path: ${dotPath}`);
+    }
+
+    // Build nested updates object from dot-path
+    const updates: Record<string, unknown> = {};
+    let target = updates;
+    for (let i = 0; i < parts.length - 1; i++) {
+      target[parts[i]!] = {};
+      target = target[parts[i]!] as Record<string, unknown>;
+    }
+    target[parts[parts.length - 1]!] = value;
+
+    await this.save(updates, dotPath);
+  }
+
   resolveWorkspace(input?: string): string {
     if (!input) {
       const resolved = expandHome(this.config.workspace.baseDir);

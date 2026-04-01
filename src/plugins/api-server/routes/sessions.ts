@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
 import { NotFoundError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
-import { createChildLogger } from '../../../core/utils/log.js';
 import {
   SessionIdParamSchema,
   ConfigIdParamSchema,
@@ -15,9 +14,7 @@ import {
   SetConfigOptionBodySchema,
   SetClientOverridesBodySchema,
 } from '../schemas/sessions.js';
-import type { ConfigOption } from '../../../core/types.js';
 
-const log = createChildLogger({ module: 'api-server' });
 
 export async function sessionRoutes(
   app: FastifyInstance,
@@ -135,36 +132,6 @@ export async function sessionRoutes(
       createThread: !!adapter,
       initialName: `🔄 ${resolvedAgent} — New Session`,
     });
-
-    // If no adapter wired events (headless), auto-approve only explicit allow options.
-    // Permissions without an isAllow option are NOT auto-approved — they will time out
-    // naturally, preventing silent approval of potentially destructive actions.
-    if (!adapter) {
-      session.agentInstance.onPermissionRequest = async (permRequest) => {
-        const allowOption = permRequest.options.find((o) => o.isAllow);
-        if (!allowOption) {
-          // No safe allow option found — do not auto-approve; let the permission gate time out
-          log.warn(
-            {
-              sessionId: session.id,
-              permissionId: permRequest.id,
-              description: permRequest.description,
-            },
-            'Headless session has no allow option for permission request — skipping auto-approve, will time out',
-          );
-          return new Promise<string>(() => {}); // never resolves; gate will time out
-        }
-        log.warn(
-          {
-            sessionId: session.id,
-            permissionId: permRequest.id,
-            option: allowOption.id,
-          },
-          `Auto-approving permission "${permRequest.description}" for headless session ${session.id} — no adapter connected`,
-        );
-        return allowOption.id;
-      };
-    }
 
     return {
       sessionId: session.id,
@@ -374,14 +341,7 @@ export async function sessionRoutes(
 
       const body = SetConfigOptionBodySchema.parse(request.body);
 
-      const response = await session.agentInstance.setConfigOption(configId, {
-        type: 'select',
-        value: body.value,
-      });
-
-      if (response.configOptions) {
-        await session.updateConfigOptions(response.configOptions as ConfigOption[]);
-      }
+      await session.setConfigOption(configId, { type: 'select', value: body.value });
 
       await deps.core.sessionManager.patchRecord(sessionId, {
         acpState: session.toAcpStateSnapshot(),

@@ -421,9 +421,35 @@ export class OpenACPCore {
       adapter.flushPendingSkillCommands?.(session.id).catch((err) => {
         log.warn({ err, sessionId: session.id }, "Failed to flush pending skill commands");
       });
+      // Notify adapter that session is fully ready (sends initial/control messages)
+      if (params.createThread) {
+        adapter.onSessionCreated?.(session.id).catch((err) => {
+          log.warn({ err, sessionId: session.id }, "onSessionCreated hook failed");
+        });
+      }
     }
 
-    // 6b. Wire usage tracking and tunnel cleanup
+    // 6b. Headless sessions (no adapter): auto-approve safe permissions so agents don't hang.
+    // Permissions without an explicit allow option are NOT auto-approved — they will time out.
+    if (!adapter) {
+      session.agentInstance.onPermissionRequest = async (permRequest) => {
+        const allowOption = permRequest.options.find((o) => o.isAllow);
+        if (!allowOption) {
+          log.warn(
+            { sessionId: session.id, permissionId: permRequest.id, description: permRequest.description },
+            "Headless session has no allow option for permission request — skipping auto-approve, will time out",
+          );
+          return new Promise<string>(() => {}); // never resolves; gate will time out
+        }
+        log.warn(
+          { sessionId: session.id, permissionId: permRequest.id, option: allowOption.id },
+          `Auto-approving permission "${permRequest.description}" for headless session — no adapter connected`,
+        );
+        return allowOption.id;
+      };
+    }
+
+    // 6c. Wire usage tracking and tunnel cleanup
     this.sessionFactory.wireSideEffects(session, {
       eventBus: this.eventBus,
       notificationManager: this.notificationManager,

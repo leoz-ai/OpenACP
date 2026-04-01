@@ -1283,6 +1283,42 @@ export class TelegramAdapter extends MessagingAdapter {
     );
   }
 
+  async onSessionCreated(sessionId: string): Promise<void> {
+    const session = this.core.sessionManager.getSession(sessionId);
+    if (!session) return;
+    const threadId = Number(session.threadId);
+    if (!threadId || isNaN(threadId)) return;
+
+    // Skip assistant session — it manages its own welcome message
+    if (sessionId === this.core.assistantManager?.get('telegram')?.id) return;
+
+    // Send "Setting up..." initial message
+    await this.sendQueue.enqueue(() =>
+      this.bot.api.sendMessage(
+        this.telegramConfig.chatId,
+        `⏳ Setting up session, please wait...`,
+        { message_thread_id: threadId, parse_mode: "HTML" },
+      ),
+    );
+
+    // Send control message with keyboard and store its ID
+    const controlMsg = await this.sendQueue.enqueue(() =>
+      this.bot.api.sendMessage(
+        this.telegramConfig.chatId,
+        buildSessionStatusText(session, `✅ <b>Session started</b>`),
+        {
+          message_thread_id: threadId,
+          parse_mode: "HTML",
+          reply_markup: buildSessionControlKeyboard(sessionId, isBypassActive(session), session.voiceMode === "on"),
+        },
+      ),
+    );
+
+    if (controlMsg) {
+      this.storeControlMsgId(sessionId, controlMsg.message_id);
+    }
+  }
+
   async renameSessionThread(sessionId: string, newName: string): Promise<void> {
     this.getTracer(sessionId)?.log("telegram", { action: "thread:rename", sessionId, newName });
     const session = this.core.sessionManager.getSession(sessionId);

@@ -431,6 +431,14 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.emit("named", name);
   }
 
+  /** Send a config option change to the agent and update local state from the response. */
+  async setConfigOption(configId: string, value: import("../types.js").SetConfigOptionValue): Promise<void> {
+    const response = await this.agentInstance.setConfigOption(configId, value);
+    if (response.configOptions) {
+      await this.updateConfigOptions(response.configOptions as ConfigOption[]);
+    }
+  }
+
   async updateConfigOptions(options: ConfigOption[]): Promise<void> {
     // Hook: config:beforeChange — await-able, can block
     if (this.middlewareChain) {
