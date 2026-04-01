@@ -181,7 +181,7 @@ export class OpenACPCore {
 
     // Set instance root for assistant CLI guidelines
     if (ctx?.root) {
-      this.assistantRegistry.setInstanceRoot(ctx.root);
+      this.assistantRegistry.setInstanceRoot(path.dirname(ctx.root));
     }
 
     // Register core assistant sections
