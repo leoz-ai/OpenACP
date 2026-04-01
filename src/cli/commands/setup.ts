@@ -46,7 +46,6 @@ export async function cmdSetup(args: string[], instanceRoot: string): Promise<vo
 
   const config = {
     ...existing,
-    channels: (existing.channels as Record<string, unknown>) ?? {},
     defaultAgent,
     workspace: { baseDir: workspace },
     runMode,

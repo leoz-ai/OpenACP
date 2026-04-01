@@ -27,6 +27,7 @@ describe('cmdSetup', () => {
     expect(config.workspace.baseDir).toBe('/tmp/my-workspace');
     expect(config.defaultAgent).toBe('claude-code');
     expect(config.runMode).toBe('daemon');
+    expect(config.autoStart).toBe(false);
   });
 
   it('uses first agent when comma-separated agents passed', async () => {
