@@ -14,7 +14,7 @@ function createTunnelPlugin(): OpenACPPlugin {
     description: 'Expose local services to internet via tunnel providers',
     essential: false,
     pluginDependencies: { '@openacp/api-server': '*' },
-    permissions: ['services:register', 'kernel:access', 'commands:register', 'events:read'],
+    permissions: ['services:register', 'services:use', 'kernel:access', 'commands:register', 'events:read'],
 
     async install(ctx: InstallContext) {
       const { terminal, settings, legacyConfig } = ctx
@@ -172,9 +172,9 @@ function createTunnelPlugin(): OpenACPPlugin {
         ctx.log.warn('API server not available — viewer links will be unavailable')
       }
 
-      // Defer tunnel start until system:ready — API server is guaranteed to be listening by then
-      ctx.on('system:ready', async () => {
-        const apiPort = apiServer?.getPort() ?? 0
+      // Start tunnel only after API server is actually listening
+      ctx.on('api-server:started', async (data: unknown) => {
+        const apiPort = (data as { port: number }).port
         const publicUrl = await tunnelSvc.start(apiPort)
         ctx.log.info(`Tunnel ready: ${publicUrl}`)
       })

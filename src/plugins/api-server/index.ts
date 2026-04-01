@@ -96,7 +96,7 @@ function createApiServerPlugin(): OpenACPPlugin {
     version: '1.0.0',
     description: 'REST API + SSE streaming server',
     essential: false,
-    permissions: ['services:register', 'services:use', 'kernel:access', 'events:read'],
+    permissions: ['services:register', 'services:use', 'kernel:access', 'events:read', 'events:emit'],
 
     async install(ctx: InstallContext) {
       const { settings, legacyConfig, terminal } = ctx
@@ -172,11 +172,10 @@ function createApiServerPlugin(): OpenACPPlugin {
       const core = ctx.core as OpenACPCore
 
       const apiConfig: ApiConfig = {
-        port: (config.port as number) ?? 0,
+        port: (config.port as number) ?? 21420,
         host: (config.host as string) ?? '127.0.0.1',
       }
 
-      console.log(`[api-server] setup() called — port=${apiConfig.port}, host=${apiConfig.host}, instanceRoot=${instanceRoot}`)
       log.info(
         { port: apiConfig.port, host: apiConfig.host, instanceRoot },
         'API server plugin setup — config loaded',
@@ -351,7 +350,6 @@ function createApiServerPlugin(): OpenACPPlugin {
 
       // Start on system:ready
       ctx.on('system:ready', async () => {
-        console.log(`[api-server] system:ready fired — starting server on ${apiConfig.host}:${apiConfig.port}`)
         log.info(
           { configPort: apiConfig.port, configHost: apiConfig.host },
           'API server starting...',
@@ -375,6 +373,8 @@ function createApiServerPlugin(): OpenACPPlugin {
               'API server binding to non-localhost. Ensure api-secret file is secured.',
             )
           }
+
+          ctx.emit('api-server:started', { port: actualPort })
         } catch (err) {
           log.error({ err, configPort: apiConfig.port, configHost: apiConfig.host }, 'API server failed to start')
         }
