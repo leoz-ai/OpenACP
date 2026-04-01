@@ -30,6 +30,7 @@ import {
   cmdDev,
   cmdAttach,
   cmdRemote,
+  cmdSetup,
 } from './cli/commands/index.js'
 import { resolveInstanceRoot } from './core/instance/instance-context.js'
 
@@ -155,6 +156,7 @@ async function main() {
     'onboard': (r) => cmdOnboard(r),
     'attach': (r) => cmdAttach(args, r),
     'remote': (r) => cmdRemote(args, r),
+    'setup': (r) => cmdSetup(args, r),
   }
 
   const handler = command ? instanceCommands[command] : undefined

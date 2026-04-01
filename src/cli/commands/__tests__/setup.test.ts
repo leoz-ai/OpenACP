@@ -1,0 +1,75 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+describe('cmdSetup', () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('writes config.json with correct fields when all flags provided', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-setup-test-'));
+
+    const { cmdSetup } = await import('../setup.js');
+    await cmdSetup(
+      ['--workspace', '/tmp/my-workspace', '--agent', 'claude-code', '--run-mode', 'daemon'],
+      tmpDir,
+    );
+
+    const configPath = path.join(tmpDir, 'config.json');
+    expect(fs.existsSync(configPath)).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.workspace.baseDir).toBe('/tmp/my-workspace');
+    expect(config.defaultAgent).toBe('claude-code');
+    expect(config.runMode).toBe('daemon');
+  });
+
+  it('uses first agent when comma-separated agents passed', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-setup-test-'));
+
+    const { cmdSetup } = await import('../setup.js');
+    await cmdSetup(['--workspace', '/tmp/ws', '--agent', 'claude-code,gemini'], tmpDir);
+
+    const config = JSON.parse(fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8'));
+    expect(config.defaultAgent).toBe('claude-code');
+  });
+
+  it('outputs JSON result when --json flag is passed', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-setup-test-'));
+    let output = '';
+    vi.spyOn(console, 'log').mockImplementation((s: string) => { output += s; });
+
+    const { cmdSetup } = await import('../setup.js');
+    await cmdSetup(
+      ['--workspace', '/tmp/ws', '--agent', 'claude-code', '--json'],
+      tmpDir,
+    );
+
+    const result = JSON.parse(output);
+    expect(result.success).toBe(true);
+    expect(result.configPath).toContain('config.json');
+  });
+
+  it('exits with code 1 when --workspace is missing', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-setup-test-'));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit called'); }) as any);
+
+    const { cmdSetup } = await import('../setup.js');
+    await expect(cmdSetup(['--agent', 'claude-code'], tmpDir)).rejects.toThrow('process.exit called');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('exits with code 1 when --agent is missing', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-setup-test-'));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit called'); }) as any);
+
+    const { cmdSetup } = await import('../setup.js');
+    await expect(cmdSetup(['--workspace', '/tmp/ws'], tmpDir)).rejects.toThrow('process.exit called');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});
