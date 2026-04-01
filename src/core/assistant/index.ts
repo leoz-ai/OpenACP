@@ -1,4 +1,5 @@
 export { AssistantRegistry, type AssistantSection, type AssistantCommand } from './assistant-registry.js'
+export { AssistantManager } from './assistant-manager.js'
 export { ASSISTANT_PREAMBLE, ASSISTANT_GUIDELINES } from './prompt-constants.js'
 export { createSessionsSection } from './sections/sessions.js'
 export { createAgentsSection } from './sections/agents.js'
