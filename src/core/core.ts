@@ -20,6 +20,10 @@ import { AgentCatalog } from "./agents/agent-catalog.js";
 import { AgentStore } from "./agents/agent-store.js";
 import { EventBus } from "./event-bus.js";
 import { LifecycleManager } from "./plugin/lifecycle-manager.js";
+import { MenuRegistry } from './menu-registry.js';
+import { AssistantRegistry, AssistantManager } from './assistant/index.js';
+import { registerCoreMenuItems } from './menu/core-items.js';
+import { createSessionsSection, createAgentsSection, createConfigSection, createSystemSection } from './assistant/index.js';
 import { ServiceRegistry } from "./plugin/service-registry.js";
 import { MiddlewareChain } from "./plugin/middleware-chain.js";
 import { ErrorTracker } from "./plugin/error-tracker.js";
@@ -47,6 +51,9 @@ export class OpenACPCore {
   readonly lifecycleManager: LifecycleManager;
   private agentSwitchHandler: AgentSwitchHandler;
   public readonly instanceContext?: InstanceContext;
+  readonly menuRegistry = new MenuRegistry();
+  readonly assistantRegistry = new AssistantRegistry();
+  assistantManager!: AssistantManager;
 
   // --- Lazy getters: resolve from ServiceRegistry (populated by plugins during boot) ---
 
@@ -168,6 +175,22 @@ export class OpenACPCore {
         }
       },
     );
+
+    // Register core menu items
+    registerCoreMenuItems(this.menuRegistry);
+
+    // Register core assistant sections
+    this.assistantRegistry.register(createSessionsSection(this));
+    this.assistantRegistry.register(createAgentsSection(this as any));
+    this.assistantRegistry.register(createConfigSection(this as any));
+    this.assistantRegistry.register(createSystemSection());
+
+    // Create assistant manager
+    this.assistantManager = new AssistantManager(this as any, this.assistantRegistry);
+
+    // Register registries as services for plugin access
+    this.lifecycleManager.serviceRegistry.register('menu-registry', this.menuRegistry, 'core');
+    this.lifecycleManager.serviceRegistry.register('assistant-registry', this.assistantRegistry, 'core');
   }
 
   get tunnelService(): TunnelService | undefined {
@@ -578,6 +601,14 @@ export class OpenACPCore {
   }
 
   // --- Event Wiring ---
+
+  /** Connect a session bridge for the given session (used by AssistantManager) */
+  connectSessionBridge(session: Session): void {
+    const adapter = this.adapters.get(session.channelId);
+    if (!adapter) return;
+    const bridge = this.createBridge(session, adapter);
+    bridge.connect();
+  }
 
   /** Create a SessionBridge for the given session and adapter */
   createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
