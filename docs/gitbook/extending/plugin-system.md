@@ -1,6 +1,6 @@
-# Plugin System
+# Plugin System Overview
 
-> **Note:** OpenACP has been refactored to a microkernel plugin architecture. This page provides a quick overview. For the full guide, see [Architecture > Plugin System](../architecture/plugin-system.md).
+> **Note:** This page provides a quick overview of plugin management from a user's perspective. For the full technical deep dive into the plugin infrastructure, see [Architecture > Plugin System](../architecture/plugin-system.md).
 
 ---
 

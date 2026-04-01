@@ -15,21 +15,16 @@ If you have multiple agents installed, an inline keyboard lets you pick one. You
 
 ## Session lifecycle
 
-Sessions move through a defined set of states:
+A session goes through several stages during its life:
 
-```
-initializing → active → finished
-                      ↘ cancelled
-                      ↘ error → active (recoverable)
-```
+1. **Starting up** — The session is being created and the AI agent is warming up. This usually takes a few seconds.
+2. **Active** — The session is ready. You can send messages and the agent will respond. This is where you spend most of your time.
+3. **Done** — The agent finished its work. The session topic stays open for reference.
 
-| State | Meaning |
-|---|---|
-| `initializing` | Session is starting; agent subprocess is warming up |
-| `active` | Ready for prompts; agent is processing or waiting |
-| `error` | An error occurred; may be recoverable |
-| `cancelled` | Prompt was aborted; session is still alive |
-| `finished` | Session ended normally |
+Sometimes things go differently:
+
+- **Error** — Something went wrong, but you can usually recover by sending another message. OpenACP will try to reconnect the agent automatically.
+- **Cancelled** — You stopped the session with `/cancel`. The session topic stays open and you can start a new one.
 
 Use `/status` inside a session topic to see the current state.
 
@@ -53,13 +48,13 @@ Sessions have an inactivity timeout (default: 60 minutes). If no prompt is sent 
 
 Sessions that are `finished` or have been idle since a restart can often be resumed by simply sending a message in the existing topic or thread. OpenACP will reconnect to the agent process if possible.
 
-Sessions that were evicted from memory (e.g., after a server restart or memory pressure) are automatically resumed when you send a command or message to their topic. This happens transparently — you do not need to manually restart the session. The session record is loaded from the store and the agent reconnects.
+Sessions that went offline (e.g., after a server restart) are automatically resumed when you send a message to their topic. This happens transparently — you do not need to manually restart the session.
 
 For richer resume with full conversation history, use `/resume` (Telegram only). This loads context from Entire checkpoints or OpenACP's built-in history recorder — previous sessions' work is injected into the new session's context window. See the `/resume` section in [Chat Commands](chat-commands.md) for query formats.
 
-## Session config options
+## Session settings
 
-Agents can declare configurable options (modes, models, toggles) via the ACP protocol. These appear in OpenACP as session-level settings that you can change mid-conversation:
+Some agents let you change settings mid-conversation — like switching between different modes or models:
 
 ```
 /mode                          # show available modes (e.g., code, architect)
@@ -68,7 +63,7 @@ Agents can declare configurable options (modes, models, toggles) via the ACP pro
 /dangerous                     # toggle bypass permissions
 ```
 
-When the agent pushes config updates (e.g., available modes change based on context), the session reflects the new options automatically. Config changes fire the `config:beforeChange` middleware hook, allowing plugins to intercept or modify the change.
+Available options depend on the agent you are using. When an agent updates its available options, the session reflects the changes automatically.
 
 ## Cancelling a prompt
 

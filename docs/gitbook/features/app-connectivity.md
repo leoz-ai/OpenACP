@@ -2,21 +2,19 @@
 
 ## What it is
 
-App connectivity lets desktop and web clients discover and connect to a running OpenACP instance — both locally (same machine) and remotely (via tunnel). This enables future GUI apps, web dashboards, and mobile clients to interact with your OpenACP server.
+App connectivity lets desktop and web clients connect to a running OpenACP instance — both on the same machine and remotely (via tunnel). This enables GUI apps, web dashboards, and mobile clients to interact with your OpenACP server.
 
 ---
 
-## Local discovery
+## Connecting from the same machine
 
-Apps running on the same machine can discover OpenACP instances by reading the instance registry at `~/.openacp/instances.json`. Each entry contains the instance root path, and the API port is found in `<instance-root>/api.port`.
-
-No authentication prompts are needed for local connections — the app reads `<instance-root>/api-secret` directly (file permissions restrict access to the current user).
+Apps running on the same machine can discover and connect to OpenACP automatically. No setup is needed — the app reads credentials from a local file that only your user account can access.
 
 ---
 
-## Remote access
+## Connecting remotely (phone, another computer)
 
-For remote connections (different machine, phone, or shared with a teammate), use `openacp remote`:
+For remote connections, run:
 
 ```bash
 openacp remote
@@ -24,45 +22,31 @@ openacp remote
 
 This displays:
 
-- **Local URL** — `http://127.0.0.1:<port>` (same machine only)
+- **Local URL** — for same-machine access
 - **Tunnel URL** — public HTTPS URL via your configured tunnel provider
-- **App link** — `openacp://` custom scheme URL for native apps
-- **QR code** — scan from your phone to connect
+- **QR code** — scan from your phone to connect instantly
 
-### One-time access codes
+Each link contains a **one-time access code** that expires after 30 minutes. This means:
+- The link only works once — sharing it twice does not work
+- No long-lived secrets appear in browser history or chat logs
+- The code is exchanged for a secure token on first use
 
-Remote links use single-use access codes instead of embedding secrets in the URL. When you run `openacp remote`:
-
-1. A short-lived code is generated (valid for 30 minutes, single use).
-2. The link includes `?code=<code>` as a query parameter.
-3. When the app opens the link, it exchanges the code for a JWT access token via `POST /api/v1/auth/exchange`.
-4. The code is consumed on first use — sharing the link twice does not work.
-
-This prevents long-lived secrets from appearing in browser history, chat logs, or clipboard managers.
-
-### Tunnel auto-start
-
-If `tunnel.enabled` is `true` in your config, the tunnel starts automatically on server boot. The `openacp remote` command uses the existing tunnel URL. If the tunnel is not enabled, `openacp remote` shows only the local URL.
-
----
-
-## Authentication flow
-
-1. **`openacp remote`** generates a one-time code using the local API secret.
-2. **App receives the link** and calls `POST /api/v1/auth/exchange` with the code.
-3. **Server returns a JWT** with the appropriate role and scopes.
-4. **App uses the JWT** for all subsequent API requests (`Authorization: Bearer <jwt>`).
-5. **JWT refresh** — tokens can be refreshed within a 7-day window, even after expiration.
-
-See [Security](../self-hosting/security.md) for details on roles, scopes, and token management.
+If `tunnel.enabled` is `true` in your config, the tunnel starts automatically and `openacp remote` uses the existing tunnel URL.
 
 ---
 
 ## Connection methods
 
-| Method | Use case | Auth |
-|--------|----------|------|
-| Local file discovery | Desktop apps on same machine | Reads `api-secret` file directly |
-| `openacp remote` link | Share with phone/teammate | One-time code → JWT |
-| QR code | Mobile app quick connect | Same as remote link |
-| `openacp://` scheme | Native app deep link | Embedded code parameter |
+| Method | Best for | How it works |
+|--------|----------|--------------|
+| Local auto-discovery | Desktop apps on the same machine | App reads credentials from a local file |
+| `openacp remote` link | Sharing with your phone or a teammate | One-time code, exchanged for a secure token |
+| QR code | Quick mobile app setup | Same as remote link, but you scan instead of copy-paste |
+
+---
+
+## Technical details
+
+- Local discovery uses the instance registry at `~/.openacp/instances.json`. The API port is read from `<instance-root>/api.port` and authentication uses `<instance-root>/api-secret` directly.
+- Remote access codes are generated via `POST /api/v1/auth/codes` and exchanged for JWT tokens via `POST /api/v1/auth/exchange`. JWTs can be refreshed within a 7-day window.
+- See [Security](../self-hosting/security.md) for details on roles, scopes, and token management.

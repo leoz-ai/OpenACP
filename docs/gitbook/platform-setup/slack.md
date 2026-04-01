@@ -143,7 +143,6 @@ Edit `~/.openacp/config.json` and add the Slack section (see the [full configura
   "channels": {
     "slack": {
       "enabled": true,
-      "adapter": "slack",
       "botToken": "xoxb-...",
       "appToken": "xapp-1-...",
       "signingSecret": "abcd1234efgh5678ijkl9012",
@@ -158,7 +157,6 @@ Edit `~/.openacp/config.json` and add the Slack section (see the [full configura
 | Field | Description |
 |-------|-------------|
 | `enabled` | Set to `true` to activate the Slack adapter |
-| `adapter` | Must be `"slack"` |
 | `botToken` | Bot User OAuth Token from Step 4 (starts with `xoxb-`) |
 | `appToken` | App-Level Token from Step 2 (starts with `xapp-1-`) |
 | `signingSecret` | Signing Secret from Step 7 |

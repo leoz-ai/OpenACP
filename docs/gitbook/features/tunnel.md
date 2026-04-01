@@ -106,33 +106,24 @@ Inside Telegram or Discord, if you have the agent integration installed, the age
 
 ## File viewer
 
-The file viewer routes are served directly by the API server — there is no separate viewer process. When an agent reads, edits, or writes a file, OpenACP registers that file or diff in the viewer store and generates a clickable link via the tunnel.
+When an agent reads, edits, or writes a file, OpenACP can generate a clickable link that opens the content in a web-based viewer with syntax highlighting and side-by-side diff view. This is especially useful when reviewing changes from your phone.
 
-- **File view** — renders file content with Monaco editor syntax highlighting. Supported languages include TypeScript, JavaScript, Python, Rust, Go, Java, Kotlin, Ruby, PHP, C/C++, C#, Swift, Bash, JSON, YAML, TOML, XML, HTML, CSS, SCSS, SQL, Markdown, Dockerfile, HCL, Vue, and Svelte.
-- **Diff view** — renders a side-by-side diff of old vs. new content.
-- **Output view** — large tool output that does not fit inline is stored in the viewer and linked from the tool card.
+The viewer supports dozens of languages including TypeScript, JavaScript, Python, Rust, Go, Java, and many more. Large tool output that does not fit inline in chat is also viewable through these links.
 
-The viewer enforces a 1 MB per-entry size limit and rejects file paths that fall outside the session's working directory (path traversal protection). Entries expire automatically after `storeTtlMinutes` (default 60 minutes).
+Viewer links expire automatically after the configured `storeTtlMinutes` (default 60 minutes).
 
 ---
 
-## Per-user tunnel limits
+## Limits and auto-recovery
 
-Each user or session can open up to `maxUserTunnels` tunnels simultaneously (default 5). This prevents runaway tunnel creation. Tunnels created by a session are tracked and can be stopped when the session ends via `stopBySession`.
-
----
-
-## Auto-start and keepalive
-
-When `tunnel.enabled` is `true`, the tunnel starts automatically when the OpenACP server boots. No manual `/tunnel start` is needed.
-
-A keepalive loop pings the tunnel URL every 30 seconds via HTTP. If three consecutive pings fail, the tunnel is considered dead and is automatically restarted. This ensures long-running deployments recover from transient provider outages without manual intervention.
+- Each user or session can open up to `maxUserTunnels` tunnels simultaneously (default 5).
+- When `tunnel.enabled` is `true`, the tunnel starts automatically on server boot — no manual start needed.
+- If the tunnel connection drops, OpenACP automatically detects the failure and restarts the tunnel within about 90 seconds.
 
 ---
 
 ## Security
 
-- **Path validation**: The viewer validates every file path against the session's `workingDirectory`. Files outside that directory are rejected.
-- **TTL**: Viewer entries expire after `storeTtlMinutes`. Expired entries are cleaned up every 5 minutes.
-- **Tunnel timeouts**: If a provider process does not establish a tunnel within 30 seconds, it is killed and an error is returned.
-- **One-time access codes**: When connecting apps remotely, `openacp remote` generates a single-use access code (valid for 30 minutes) instead of embedding secrets directly in the URL. The app exchanges the code for a JWT on first use. See [App Connectivity](app-connectivity.md) for details.
+- Files outside the session's working directory cannot be viewed — path access is restricted to prevent unauthorized file access.
+- Viewer entries expire automatically and are cleaned up periodically.
+- When connecting apps remotely, `openacp remote` generates a single-use access code instead of embedding secrets in the URL. See [App Connectivity](app-connectivity.md) for details.
