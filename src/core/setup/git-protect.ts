@@ -39,7 +39,7 @@ function ensureGitignore(projectDir: string): void {
 
 function ensureClaudeMd(projectDir: string): void {
   const claudeMdPath = path.join(projectDir, 'CLAUDE.md')
-  const marker = '.openacp/'
+  const marker = '## Local OpenACP Workspace'
 
   if (fs.existsSync(claudeMdPath)) {
     const content = fs.readFileSync(claudeMdPath, 'utf-8')
