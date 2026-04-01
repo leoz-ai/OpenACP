@@ -610,8 +610,13 @@ export class OpenACPCore {
     bridge.connect();
   }
 
-  /** Create a SessionBridge for the given session and adapter */
+  /** Create a SessionBridge for the given session and adapter.
+   *  Disconnects any existing bridge for the same session first. */
   createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
+    const existing = this.bridges.get(session.id);
+    if (existing) {
+      existing.disconnect();
+    }
     const bridge = new SessionBridge(session, adapter, {
       messageTransformer: this.messageTransformer,
       notificationManager: this.notificationManager,
