@@ -140,7 +140,7 @@ describe("SessionBridge auto-approve", () => {
         category: "mode",
         type: "select",
         currentValue: "bypassPermissions",
-        options: [{ value: "bypassPermissions", label: "Bypass" }],
+        options: [{ value: "bypassPermissions", name: "Bypass" }],
       },
     ]);
     const request = makePermissionRequest("Delete important file");
@@ -159,7 +159,7 @@ describe("SessionBridge auto-approve", () => {
         category: "mode",
         type: "select",
         currentValue: "dangerous_mode",
-        options: [{ value: "dangerous_mode", label: "Dangerous" }],
+        options: [{ value: "dangerous_mode", name: "Dangerous" }],
       },
     ]);
     const request = makePermissionRequest("Execute something risky");
@@ -180,7 +180,7 @@ describe("SessionBridge auto-approve", () => {
         category: "mode",
         type: "select",
         currentValue: "code",
-        options: [{ value: "code", label: "Code" }],
+        options: [{ value: "code", name: "Code" }],
       },
     ]);
     const request = makePermissionRequest("Delete file");
@@ -220,7 +220,7 @@ describe("SessionBridge auto-approve", () => {
         category: "mode",
         type: "select",
         currentValue: "auto_accept",
-        options: [{ value: "auto_accept", label: "Auto Accept" }],
+        options: [{ value: "auto_accept", name: "Auto Accept" }],
       },
     ]);
     const request = makePermissionRequest("Delete something");
@@ -298,7 +298,7 @@ describe("SessionBridge auto-approve", () => {
           category: "mode",
           type: "select",
           currentValue: kw,
-          options: [{ value: kw, label: kw }],
+          options: [{ value: kw, name: kw }],
         },
       ]);
 

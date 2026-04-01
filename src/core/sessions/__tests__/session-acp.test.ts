@@ -47,8 +47,8 @@ describe('Session ACP state', () => {
         type: 'select',
         currentValue: 'code',
         options: [
-          { value: 'code', label: 'Code' },
-          { value: 'architect', label: 'Architect' },
+          { value: 'code', name: 'Code' },
+          { value: 'architect', name: 'Architect' },
         ],
       },
       {
@@ -56,7 +56,7 @@ describe('Session ACP state', () => {
         name: 'Model',
         type: 'select',
         currentValue: 'sonnet',
-        options: [{ value: 'sonnet', label: 'Sonnet' }],
+        options: [{ value: 'sonnet', name: 'Sonnet' }],
       },
     ]
 
@@ -75,7 +75,7 @@ describe('Session ACP state', () => {
         category: 'mode',
         type: 'select',
         currentValue: 'code',
-        options: [{ value: 'code', label: 'Code' }],
+        options: [{ value: 'code', name: 'Code' }],
       },
     ]
     session.setInitialConfigOptions(configOptions)
@@ -110,7 +110,7 @@ describe('Session ACP state', () => {
         name: 'Model',
         type: 'select',
         currentValue: 'sonnet',
-        options: [{ value: 'sonnet', label: 'Sonnet' }],
+        options: [{ value: 'sonnet', name: 'Sonnet' }],
       },
     ]
     session.setInitialConfigOptions(configOptions)
@@ -134,7 +134,7 @@ describe('Session ACP state', () => {
         name: 'Model',
         type: 'select',
         currentValue: 'sonnet',
-        options: [{ value: 'sonnet', label: 'Sonnet' }],
+        options: [{ value: 'sonnet', name: 'Sonnet' }],
       },
     ]
     session.setInitialConfigOptions(configOptions)

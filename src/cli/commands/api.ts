@@ -640,10 +640,10 @@ Shows the version of the currently running daemon process.
               if (options && options.length > 0) {
                 const choices = options.flatMap((o) => {
                   if ('group' in o) {
-                    const groupOpts = o.options as Array<{ value: string; label: string }> | undefined
-                    return groupOpts?.map((c) => `${c.value} (${c.label})`) ?? []
+                    const groupOpts = o.options as Array<{ value: string; name: string }> | undefined
+                    return groupOpts?.map((c) => `${c.value} (${c.name})`) ?? []
                   }
-                  return [`${o.value} (${o.label})`]
+                  return [`${o.value} (${o.name})`]
                 })
                 console.log(`    choices: ${choices.join(', ')}`)
               }

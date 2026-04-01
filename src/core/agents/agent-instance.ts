@@ -131,6 +131,7 @@ interface SdkConfigOptionUpdate {
   _meta?: Record<string, unknown>;
 }
 
+
 interface SdkUserMessageChunk {
   sessionUpdate: 'user_message_chunk';
   content: { type: string; text?: string };

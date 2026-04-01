@@ -11,9 +11,9 @@ const modeOption: ConfigOption = {
   category: 'mode',
   currentValue: 'code',
   options: [
-    { value: 'code', label: 'Code', description: 'Full tool access' },
-    { value: 'architect', label: 'Architect', description: 'Read-only planning' },
-    { value: 'bypassPermissions', label: 'Bypass Permissions', description: 'Skip all permission prompts' },
+    { value: 'code', name: 'Code', description: 'Full tool access' },
+    { value: 'architect', name: 'Architect', description: 'Read-only planning' },
+    { value: 'bypassPermissions', name: 'Bypass Permissions', description: 'Skip all permission prompts' },
   ],
 }
 
@@ -24,8 +24,8 @@ const modelOption: ConfigOption = {
   category: 'model',
   currentValue: 'sonnet',
   options: [
-    { value: 'sonnet', label: 'Sonnet', description: 'Fast and capable' },
-    { value: 'opus', label: 'Opus', description: 'Most intelligent' },
+    { value: 'sonnet', name: 'Sonnet', description: 'Fast and capable' },
+    { value: 'opus', name: 'Opus', description: 'Most intelligent' },
   ],
 }
 
@@ -36,9 +36,9 @@ const thoughtOption: ConfigOption = {
   category: 'thought_level',
   currentValue: 'normal',
   options: [
-    { value: 'none', label: 'None' },
-    { value: 'normal', label: 'Normal' },
-    { value: 'extended', label: 'Extended' },
+    { value: 'none', name: 'None' },
+    { value: 'normal', name: 'Normal' },
+    { value: 'extended', name: 'Extended' },
   ],
 }
 
@@ -402,8 +402,8 @@ describe('Config Commands', () => {
         category: 'mode',
         currentValue: 'code',
         options: [
-          { value: 'code', label: 'Code' },
-          { value: 'architect', label: 'Architect' },
+          { value: 'code', name: 'Code' },
+          { value: 'architect', name: 'Architect' },
         ],
       }
 
@@ -589,11 +589,11 @@ describe('Config Commands', () => {
             group: 'Standard',
             name: 'Standard Modes',
             options: [
-              { value: 'code', label: 'Code' },
-              { value: 'architect', label: 'Architect' },
+              { value: 'code', name: 'Code' },
+              { value: 'architect', name: 'Architect' },
             ],
           },
-          { value: 'custom', label: 'Custom' },
+          { value: 'custom', name: 'Custom' },
         ],
       }
       session = mockSession([groupedMode])

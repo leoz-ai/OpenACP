@@ -293,7 +293,7 @@ export interface SessionModeState {
 // Config Options (matches ACP SDK SessionConfigOption)
 export interface ConfigSelectChoice {
   value: string;
-  label: string;
+  name: string;
   description?: string;
 }
 

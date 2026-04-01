@@ -60,7 +60,7 @@ function registerCategoryCommand(
           type: 'menu',
           title: configOption.name,
           options: choices.map(c => ({
-            label: c.value === configOption.currentValue ? `✅ ${c.label}` : c.label,
+            label: c.value === configOption.currentValue ? `✅ ${c.name}` : c.name,
             command: `/${commandName} ${c.value}`,
             hint: c.description,
           })),
@@ -93,7 +93,7 @@ function registerCategoryCommand(
           // Skip middleware hook on update — already validated above
           session.configOptions = response.configOptions as ConfigOption[]
         }
-        return { type: 'text', text: `${configOption.name} set to ${match.label}.` } satisfies CommandResponse
+        return { type: 'text', text: `${configOption.name} set to ${match.name}.` } satisfies CommandResponse
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         return { type: 'error', message: `⚠️ Failed to set ${commandName}: ${msg}` } satisfies CommandResponse

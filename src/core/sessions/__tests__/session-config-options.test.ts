@@ -34,8 +34,8 @@ const sampleSelectOption: ConfigOption = {
   category: 'mode',
   currentValue: 'code',
   options: [
-    { value: 'code', label: 'Code' },
-    { value: 'architect', label: 'Architect' },
+    { value: 'code', name: 'Code' },
+    { value: 'architect', name: 'Architect' },
   ],
 }
 
@@ -46,8 +46,8 @@ const sampleModelOption: ConfigOption = {
   category: 'model',
   currentValue: 'sonnet',
   options: [
-    { value: 'sonnet', label: 'Sonnet' },
-    { value: 'opus', label: 'Opus' },
+    { value: 'sonnet', name: 'Sonnet' },
+    { value: 'opus', name: 'Opus' },
   ],
 }
 
