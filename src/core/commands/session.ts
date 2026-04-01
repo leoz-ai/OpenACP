@@ -99,7 +99,12 @@ export function registerSessionCommands(registry: CommandRegistry, _core: unknow
       if (!args.sessionId) return { type: 'text', text: 'Use /newchat inside a session topic.' }
       const session = core.sessionManager.getSession(args.sessionId)
       if (!session) return { type: 'error', message: 'No session in this topic.' }
-      const newSession = await core.handleNewSession(args.channelId, session.agentName, session.workingDirectory)
+      const newSession = await core.handleNewSession(
+        args.channelId,
+        session.agentName,
+        session.workingDirectory,
+        { createThread: true },
+      )
       return { type: 'text', text: `✅ New chat created: ${newSession.name || newSession.id}` }
     },
   })
