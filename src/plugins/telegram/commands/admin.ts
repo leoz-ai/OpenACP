@@ -43,7 +43,7 @@ export function setupDangerousModeCallbacks(bot: Bot, core: OpenACPCore): void {
 
       const registry = core.lifecycleManager?.serviceRegistry?.get<CommandRegistry>("command-registry");
       if (registry) {
-        await registry.execute(wantOn ? "/bypass on" : "/bypass off", {
+        await registry.execute(wantOn ? "/bypass_permissions on" : "/bypass_permissions off", {
           raw: wantOn ? "on" : "off",
           sessionId,
           channelId: "telegram",

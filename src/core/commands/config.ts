@@ -149,11 +149,11 @@ function registerCategoryCommand(
   })
 }
 
-// ── /bypass command ───────────────────────────────────────────────
+// ── /bypass_permissions command ───────────────────────────────────────────────
 
 function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore): void {
   registry.register({
-    name: 'bypass',
+    name: 'bypass_permissions',
     description: 'Auto-approve all permission requests (skip confirmation prompts)',
     usage: '[on|off]',
     category: 'system',
@@ -189,18 +189,18 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
           return {
             type: 'menu',
             title: '☠️ Bypass is ON — all permissions are auto-approved',
-            options: [{ label: '🔐 Turn off bypass', command: '/bypass off' }],
+            options: [{ label: '🔐 Turn off bypass', command: '/bypass_permissions off' }],
           } satisfies CommandResponse
         }
         return {
           type: 'menu',
           title: '🔐 Bypass is OFF — you will be asked before risky actions',
-          options: [{ label: '☠️ Turn on bypass', command: '/bypass on' }],
+          options: [{ label: '☠️ Turn on bypass', command: '/bypass_permissions on' }],
         } satisfies CommandResponse
       }
 
       if (raw !== 'on' && raw !== 'off') {
-        return { type: 'error', message: 'Use **/bypass on** or **/bypass off**.' } satisfies CommandResponse
+        return { type: 'error', message: 'Use **/bypass_permissions on** or **/bypass_permissions off**.' } satisfies CommandResponse
       }
 
       const wantOn = raw === 'on'

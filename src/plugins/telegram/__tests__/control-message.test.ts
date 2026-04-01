@@ -477,7 +477,7 @@ describe("session:configChanged event emission", () => {
     const registry = new CommandRegistry();
     registerConfigCommands(registry, core);
 
-    await registry.execute("/bypass on", {
+    await registry.execute("/bypass_permissions on", {
       sessionId: "test-session",
       channelId: "telegram",
       userId: "user-1",

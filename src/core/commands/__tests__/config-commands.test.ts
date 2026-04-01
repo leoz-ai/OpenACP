@@ -389,9 +389,9 @@ describe('Config Commands', () => {
   })
 
   // =============================================
-  // /bypass (formerly /dangerous)
+  // /bypass_permissions (formerly /dangerous)
   // =============================================
-  describe('/bypass', () => {
+  describe('/bypass_permissions', () => {
     describe('agent has mode config with bypass value', () => {
       beforeEach(async () => {
         session = mockSession([modeOption])
@@ -401,8 +401,8 @@ describe('Config Commands', () => {
         registerConfigCommands(registry, core)
       })
 
-      it('/bypass on switches to bypass mode', async () => {
-        const res = await registry.execute('/bypass on', baseArgs('test-session'))
+      it('/bypass_permissions on switches to bypass mode', async () => {
+        const res = await registry.execute('/bypass_permissions on', baseArgs('test-session'))
         expect(res.type).toBe('text')
         expect(session.agentInstance.setConfigOption).toHaveBeenCalledWith(
           'mode',
@@ -410,13 +410,13 @@ describe('Config Commands', () => {
         )
       })
 
-      it('/bypass off switches back to non-bypass default', async () => {
+      it('/bypass_permissions off switches back to non-bypass default', async () => {
         // Current value is code (non-bypass), but let's set it to bypass first
         session.getConfigByCategory.mockReturnValue({
           ...modeOption,
           currentValue: 'bypassPermissions',
         })
-        const res = await registry.execute('/bypass off', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions off', baseArgs('test-session'))
         expect(res.type).toBe('text')
         // Should set to first non-bypass option
         expect(session.agentInstance.setConfigOption).toHaveBeenCalledWith(
@@ -425,36 +425,36 @@ describe('Config Commands', () => {
         )
       })
 
-      it('/bypass with no args shows current status as off with toggle menu', async () => {
-        const res = await registry.execute('/bypass', baseArgs('test-session'))
+      it('/bypass_permissions with no args shows current status as off with toggle menu', async () => {
+        const res = await registry.execute('/bypass_permissions', baseArgs('test-session'))
         expect(res.type).toBe('menu')
         if (res.type === 'menu') {
           // Current mode is 'code' (non-bypass), so bypass is off
           expect(res.title).toContain('OFF')
           // Should show option to turn on
-          expect(res.options.some(o => o.command === '/bypass on')).toBe(true)
+          expect(res.options.some(o => o.command === '/bypass_permissions on')).toBe(true)
         }
       })
 
-      it('/bypass with no args shows current status as on when bypass active', async () => {
+      it('/bypass_permissions with no args shows current status as on when bypass active', async () => {
         session.getConfigByCategory.mockReturnValue({
           ...modeOption,
           currentValue: 'bypassPermissions',
         })
-        const res = await registry.execute('/bypass', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions', baseArgs('test-session'))
         expect(res.type).toBe('menu')
         if (res.type === 'menu') {
           expect(res.title).toContain('ON')
-          expect(res.options.some(o => o.command === '/bypass off')).toBe(true)
+          expect(res.options.some(o => o.command === '/bypass_permissions off')).toBe(true)
         }
       })
 
-      it('/bypass on when already bypassing returns "already enabled" text', async () => {
+      it('/bypass_permissions on when already bypassing returns "already enabled" text', async () => {
         session.getConfigByCategory.mockReturnValue({
           ...modeOption,
           currentValue: 'bypassPermissions',
         })
-        const res = await registry.execute('/bypass on', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions on', baseArgs('test-session'))
         expect(res.type).toBe('text')
         if (res.type === 'text') {
           expect(res.text).toContain('already')
@@ -462,9 +462,9 @@ describe('Config Commands', () => {
         expect(session.agentInstance.setConfigOption).not.toHaveBeenCalled()
       })
 
-      it('/bypass off when already off returns "already disabled" text', async () => {
+      it('/bypass_permissions off when already off returns "already disabled" text', async () => {
         // current is 'code' (non-bypass), so bypass is already off
-        const res = await registry.execute('/bypass off', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions off', baseArgs('test-session'))
         expect(res.type).toBe('text')
         if (res.type === 'text') {
           expect(res.text).toContain('already')
@@ -494,22 +494,22 @@ describe('Config Commands', () => {
         registerConfigCommands(registry, core)
       })
 
-      it('/bypass on sets clientOverrides.bypassPermissions = true', async () => {
-        const res = await registry.execute('/bypass on', baseArgs('test-session'))
+      it('/bypass_permissions on sets clientOverrides.bypassPermissions = true', async () => {
+        const res = await registry.execute('/bypass_permissions on', baseArgs('test-session'))
         expect(res.type).toBe('text')
         expect(session.clientOverrides.bypassPermissions).toBe(true)
         expect(core.sessionManager.patchRecord).toHaveBeenCalled()
       })
 
-      it('/bypass off sets clientOverrides.bypassPermissions = false', async () => {
+      it('/bypass_permissions off sets clientOverrides.bypassPermissions = false', async () => {
         session.clientOverrides.bypassPermissions = true
-        const res = await registry.execute('/bypass off', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions off', baseArgs('test-session'))
         expect(res.type).toBe('text')
         expect(session.clientOverrides.bypassPermissions).toBe(false)
       })
 
       it('shows message about client-side fallback', async () => {
-        const res = await registry.execute('/bypass on', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions on', baseArgs('test-session'))
         if (res.type === 'text') {
           expect(res.text).toContain('client')
         }
@@ -525,30 +525,30 @@ describe('Config Commands', () => {
         registerConfigCommands(registry, core)
       })
 
-      it('/bypass on falls back to clientOverrides', async () => {
-        const res = await registry.execute('/bypass on', baseArgs('test-session'))
+      it('/bypass_permissions on falls back to clientOverrides', async () => {
+        const res = await registry.execute('/bypass_permissions on', baseArgs('test-session'))
         expect(res.type).toBe('text')
         expect(session.clientOverrides.bypassPermissions).toBe(true)
       })
 
-      it('/bypass off falls back to clientOverrides', async () => {
+      it('/bypass_permissions off falls back to clientOverrides', async () => {
         session.clientOverrides.bypassPermissions = true
-        const res = await registry.execute('/bypass off', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions off', baseArgs('test-session'))
         expect(res.type).toBe('text')
         expect(session.clientOverrides.bypassPermissions).toBe(false)
       })
 
-      it('/bypass with no args shows current status as off', async () => {
-        const res = await registry.execute('/bypass', baseArgs('test-session'))
+      it('/bypass_permissions with no args shows current status as off', async () => {
+        const res = await registry.execute('/bypass_permissions', baseArgs('test-session'))
         expect(res.type).toBe('menu')
         if (res.type === 'menu') {
           expect(res.title).toContain('OFF')
         }
       })
 
-      it('/bypass with no args shows on when clientOverrides enabled', async () => {
+      it('/bypass_permissions with no args shows on when clientOverrides enabled', async () => {
         session.clientOverrides.bypassPermissions = true
-        const res = await registry.execute('/bypass', baseArgs('test-session'))
+        const res = await registry.execute('/bypass_permissions', baseArgs('test-session'))
         expect(res.type).toBe('menu')
         if (res.type === 'menu') {
           expect(res.title).toContain('ON')
@@ -609,7 +609,7 @@ describe('Config Commands', () => {
       const { registerConfigCommands } = await loadModule()
       registerConfigCommands(registry, core)
 
-      const res = await registry.execute('/bypass', baseArgs(null))
+      const res = await registry.execute('/bypass_permissions', baseArgs(null))
       expect(res.type).toBe('error')
     })
   })
@@ -624,7 +624,7 @@ describe('Config Commands', () => {
       const { registerConfigCommands } = await loadModule()
       registerConfigCommands(registry, core)
 
-      for (const cmd of ['/mode', '/model', '/thought', '/bypass']) {
+      for (const cmd of ['/mode', '/model', '/thought', '/bypass_permissions']) {
         const res = await registry.execute(cmd, baseArgs(null))
         expect(res.type).toBe('error')
       }

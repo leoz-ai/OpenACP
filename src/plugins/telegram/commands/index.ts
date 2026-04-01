@@ -5,7 +5,7 @@ import type { CommandsAssistantContext } from "../types.js";
 // Domain modules
 import { handleNew, handleNewChat, setupNewSessionCallbacks, createSessionDirect } from './new-session.js'
 import { handleCancel, handleStatus, handleTopics, handleArchive, handleArchiveConfirm, setupSessionCallbacks } from './session.js'
-import { handleEnableDangerous, handleDisableDangerous, handleUpdate, handleRestart, handleTTS, handleVerbosity, handleOutputMode } from './admin.js'
+import { handleUpdate, handleRestart, handleTTS, handleVerbosity, handleOutputMode } from './admin.js'
 import { handleMenu, handleHelp, handleClear, buildMenuKeyboard } from './menu.js'
 import { handleAgents, handleInstall, handleAgentCallback } from "./agents.js";
 import { handleIntegrate } from "./integrate.js";
@@ -35,8 +35,6 @@ export function setupCommands(
   bot.command("install", (ctx) => handleInstall(ctx, core));
   bot.command("help", (ctx) => handleHelp(ctx));
   bot.command("menu", (ctx) => handleMenu(ctx));
-  bot.command("enable_bypass", (ctx) => handleEnableDangerous(ctx, core));
-  bot.command("disable_bypass", (ctx) => handleDisableDangerous(ctx, core));
   bot.command("restart", (ctx) => handleRestart(ctx, core));
   bot.command("update", (ctx) => handleUpdate(ctx, core));
   bot.command("integrate", (ctx) => handleIntegrate(ctx, core));
@@ -179,14 +177,6 @@ export const STATIC_COMMANDS = [
   { command: "install", description: "Install a new agent" },
   { command: "help", description: "Help" },
   { command: "menu", description: "Show menu" },
-  {
-    command: "enable_bypass",
-    description: "Auto-approve all permission requests (session only)",
-  },
-  {
-    command: "disable_bypass",
-    description: "Restore normal permission prompts (session only)",
-  },
   { command: "integrate", description: "Manage agent integrations" },
   { command: "handoff", description: "Continue this session in your terminal" },
   { command: "clear", description: "Clear assistant history" },
@@ -204,5 +194,5 @@ export const STATIC_COMMANDS = [
   { command: 'mode', description: 'Change session mode' },
   { command: 'model', description: 'Change AI model' },
   { command: 'thought', description: 'Change thinking level' },
-  { command: 'bypass', description: 'Toggle bypass permissions' },
+  { command: 'bypass_permissions', description: 'Toggle bypass permissions (on/off)' },
 ];
