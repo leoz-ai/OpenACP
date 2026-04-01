@@ -102,8 +102,9 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.transition("active");
   }
 
-  /** Transition to error — from initializing or active */
+  /** Transition to error — from initializing or active. Idempotent if already in error. */
   fail(reason: string): void {
+    if (this._status === "error") return;
     this.transition("error");
     this.emit("error", new Error(reason));
   }

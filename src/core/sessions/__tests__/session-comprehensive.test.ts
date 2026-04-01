@@ -117,10 +117,11 @@ describe("Session — State Machine Exhaustive Transitions", () => {
       expect(() => session.markCancelled()).toThrow("Invalid session transition: finished → cancelled");
     });
 
-    it("error → error throws (double error)", () => {
+    it("error → error is idempotent (no-op)", () => {
       const session = createTestSession();
       session.fail("first");
-      expect(() => session.fail("second")).toThrow("Invalid session transition: error → error");
+      session.fail("second"); // should not throw
+      expect(session.status).toBe("error");
     });
 
     it("error → finished throws", () => {

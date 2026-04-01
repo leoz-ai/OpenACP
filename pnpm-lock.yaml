@@ -45,8 +45,8 @@ importers:
         specifier: ^5.8.4
         version: 5.8.4
       fastify-type-provider-zod:
-        specifier: ^6.1.0
-        version: 6.1.0(@fastify/swagger@9.7.0)(fastify@5.8.4)(openapi-types@12.1.3)(zod@3.25.76)
+        specifier: ~5.1.0
+        version: 5.1.0(@fastify/swagger@9.7.0)(fastify@5.8.4)(openapi-types@12.1.3)(zod@3.25.76)
       grammy:
         specifier: ^1.41.1
         version: 1.41.1
@@ -128,7 +128,7 @@ importers:
     devDependencies:
       '@openacp/cli':
         specifier: workspace:*
-        version: link:../..
+        version: 2026.401.5(@types/node@25.5.0)(openapi-types@12.1.3)
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.5.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
@@ -620,6 +620,11 @@ packages:
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
 
+  '@openacp/cli@2026.401.5':
+    resolution: {integrity: sha512-5KrONpGgMiBtVsj4hxiNPk3dkYWNI9qoT23Xs1ovacxNkUNEm3rc1xjnojZeyjQ+4z9wBu5EYTuXH6UQN3jtKQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@oxc-project/types@0.120.0':
     resolution: {integrity: sha512-k1YNu55DuvAip/MGE1FTsIuU3FUCn6v/ujG9V7Nq5Df/kX2CWb13hhwD0lmJGMGqE+bE1MXvv9SZVnMzEXlWcg==}
 
@@ -635,7 +640,6 @@ packages:
   '@rolldown/binding-darwin-arm64@1.0.0-rc.10':
     resolution: {integrity: sha512-gED05Teg/vtTZbIJBc4VNMAxAFDUPkuO/rAIyyxZjTj1a1/s6z5TII/5yMGZ0uLRCifEtwUQn8OlYzuYc0m70w==}
     engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
     os: [darwin]
 
   '@rolldown/binding-darwin-x64@1.0.0-rc.10':
@@ -1226,6 +1230,14 @@ packages:
 
   fastify-plugin@5.1.0:
     resolution: {integrity: sha512-FAIDA8eovSt5qcDgcBvDuX/v0Cjz0ohGhENZ/wpc3y+oZCY2afZ9Baqql3g/lC+OHRnciQol4ww7tuthOb9idw==}
+
+  fastify-type-provider-zod@5.1.0:
+    resolution: {integrity: sha512-IdLEE16XWOkzTskK/onYQ4FLo6zB4/UXxzbZdvskprSAoNAFQoWdjfmSWjWVIDLIn/9Wa6MuKERQC8t7VxFFag==}
+    peerDependencies:
+      '@fastify/swagger': '>=9.5.1'
+      fastify: ^5.0.0
+      openapi-types: ^12.1.3
+      zod: '>=3.25.67'
 
   fastify-type-provider-zod@6.1.0:
     resolution: {integrity: sha512-Sl19VZFSX4W/+AFl3hkL5YgWk3eDXZ4XYOdrq94HunK+o7GQBCAqgk7+3gPXoWkF0bNxOiIgfnFGJJ3i9a2BtQ==}
@@ -2547,6 +2559,42 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
+  '@openacp/cli@2026.401.5(@types/node@25.5.0)(openapi-types@12.1.3)':
+    dependencies:
+      '@agentclientprotocol/claude-agent-acp': 0.24.2
+      '@agentclientprotocol/sdk': 0.16.1(zod@3.25.76)
+      '@clack/prompts': 1.1.0
+      '@fastify/cors': 11.2.0
+      '@fastify/rate-limit': 10.3.0
+      '@fastify/swagger': 9.7.0
+      '@fastify/swagger-ui': 5.2.5
+      '@hono/node-server': 1.19.11(hono@4.12.8)
+      '@inquirer/prompts': 8.3.2(@types/node@25.5.0)
+      diff: 8.0.3
+      fastest-levenshtein: 1.0.16
+      fastify: 5.8.4
+      fastify-type-provider-zod: 6.1.0(@fastify/swagger@9.7.0)(fastify@5.8.4)(openapi-types@12.1.3)(zod@3.25.76)
+      grammy: 1.41.1
+      hono: 4.12.8
+      jsonwebtoken: 9.0.3
+      nanoid: 5.1.7
+      node-wav: 0.0.2
+      ogg-opus-decoder: 1.7.3
+      ora: 9.3.0
+      p-queue: 9.1.0
+      pino: 10.3.1
+      pino-pretty: 13.1.3
+      pino-roll: 4.0.0
+      qrcode-terminal: 0.12.0
+      shiki: 4.0.2
+      zod: 3.25.76
+      zod-to-json-schema: 3.25.2(zod@3.25.76)
+    transitivePeerDependencies:
+      - '@types/node'
+      - encoding
+      - openapi-types
+      - supports-color
+
   '@oxc-project/types@0.120.0': {}
 
   '@pinojs/redact@0.4.0': {}
@@ -3061,6 +3109,14 @@ snapshots:
   fastest-levenshtein@1.0.16: {}
 
   fastify-plugin@5.1.0: {}
+
+  fastify-type-provider-zod@5.1.0(@fastify/swagger@9.7.0)(fastify@5.8.4)(openapi-types@12.1.3)(zod@3.25.76):
+    dependencies:
+      '@fastify/error': 4.2.0
+      '@fastify/swagger': 9.7.0
+      fastify: 5.8.4
+      openapi-types: 12.1.3
+      zod: 3.25.76
 
   fastify-type-provider-zod@6.1.0(@fastify/swagger@9.7.0)(fastify@5.8.4)(openapi-types@12.1.3)(zod@3.25.76):
     dependencies:
