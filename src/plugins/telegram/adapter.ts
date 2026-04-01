@@ -379,9 +379,12 @@ export class TelegramAdapter extends MessagingAdapter {
           },
         });
 
+        if (response.type === "delegated") {
+          // Delegated means assistant will handle the response — don't render anything
+          return;
+        }
         if (response.type === "silent") {
-          // Silent means the registry has no UI for this command — pass through
-          // to adapter-specific handlers (e.g. handleNewChat, handleCancel).
+          // Silent means fall through to adapter-specific handlers (backward compat)
           return next();
         }
         await this.renderCommandResponse(response, chatId, topicId);
