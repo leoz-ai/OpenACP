@@ -1,3 +1,5 @@
+import path from 'node:path'
+import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import type { RouteDeps } from './types.js'
 import { requireScopes } from '../middleware/auth.js'
@@ -44,7 +46,7 @@ export async function pluginRoutes(
       return reply.status(503).send({ error: 'Plugin manager unavailable' })
     }
 
-    const name = decodeURIComponent((req.params as { name: string }).name)
+    const name = (req.params as { name: string }).name
     const registry = lifecycleManager.registry
     const entry = registry.get(name)
 
@@ -70,11 +72,8 @@ export async function pluginRoutes(
         const { importFromDir } = await import('../../../core/plugin/plugin-installer.js')
         const instanceRoot =
           lifecycleManager.instanceRoot ??
-          (await import('node:path')).default.join(
-            (await import('node:os')).default.homedir(),
-            '.openacp',
-          )
-        const pluginsDir = (await import('node:path')).default.join(instanceRoot, 'plugins')
+          path.join(os.homedir(), '.openacp')
+        const pluginsDir = path.join(instanceRoot, 'plugins')
         try {
           const mod = await importFromDir(name, pluginsDir)
           pluginDef = mod.default ?? mod
@@ -108,7 +107,7 @@ export async function pluginRoutes(
       return reply.status(503).send({ error: 'Plugin manager unavailable' })
     }
 
-    const name = decodeURIComponent((req.params as { name: string }).name)
+    const name = (req.params as { name: string }).name
     const registry = lifecycleManager.registry
     const entry = registry.get(name)
 
@@ -138,7 +137,7 @@ export async function pluginRoutes(
       return reply.status(503).send({ error: 'Plugin manager unavailable' })
     }
 
-    const name = decodeURIComponent((req.params as { name: string }).name)
+    const name = (req.params as { name: string }).name
     const registry = lifecycleManager.registry
     const entry = registry.get(name)
 

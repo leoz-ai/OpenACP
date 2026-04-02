@@ -213,6 +213,8 @@ describe('plugin routes', () => {
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body)).toMatchObject({ ok: true })
+      expect(booted).toContain('@openacp/context')
+      expect(registryEnabled['@openacp/context']).toBe(true)
     })
 
     it('is idempotent when plugin is already loaded', async () => {
