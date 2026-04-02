@@ -68,10 +68,13 @@ export class SSEManager {
     const origin = req.headers.origin;
     const corsHeaders: Record<string, string> = {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Disable buffering in Nginx/Cloudflare/other reverse proxies
+      "X-Accel-Buffering": "no",
     };
-    if (origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
+    // SSE is authenticated via token query param — safe to allow any origin
+    if (origin) {
       corsHeaders["Access-Control-Allow-Origin"] = origin;
       corsHeaders["Access-Control-Allow-Credentials"] = "true";
     }

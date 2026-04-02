@@ -32,14 +32,10 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
 
   // Plugins
   await app.register(fastifyCors, {
-    origin: (origin, cb) => {
-      // Allow requests with no origin (curl, native apps) or localhost
-      if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
-        cb(null, true);
-      } else {
-        cb(null, false);
-      }
-    },
+    // Auth is token-based (Bearer header / ?token= query param), not cookies,
+    // so CORS restrictions provide no meaningful security here. Allow all origins
+    // so the API works through tunnels (Cloudflare, ngrok, etc.) and from Tauri.
+    origin: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
