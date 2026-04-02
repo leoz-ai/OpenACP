@@ -238,17 +238,13 @@ export async function showAgentPicker(ctx: Context, core: OpenACPCore, chatId: n
   const installed = catalog.getAvailable().filter((i) => i.installed)
 
   if (installed.length === 0) {
-    try {
-      await ctx.editMessageText('No agents installed. Use /install to add one.', { parse_mode: 'HTML' })
-    } catch {
-      await ctx.reply('No agents installed. Use /install to add one.', { parse_mode: 'HTML' }).catch(() => {})
-    }
+    await ctx.reply('No agents installed. Use /install to add one.', { parse_mode: 'HTML' }).catch(() => {})
     return
   }
 
-  // Single agent → skip picker, go to workspace
+  // Single agent → skip picker, go straight to workspace
   if (installed.length === 1) {
-    await showWorkspacePicker(ctx, core, chatId, installed[0].key)
+    await showWorkspacePicker(ctx, core, chatId, installed[0].key, true)
     return
   }
 
@@ -261,20 +257,14 @@ export async function showAgentPicker(ctx: Context, core: OpenACPCore, chatId: n
     kb.row()
   }
 
-  try {
-    await ctx.editMessageText('<b>🆕 New Session</b>\nSelect an agent:', {
-      parse_mode: 'HTML',
-      reply_markup: kb,
-    })
-  } catch {
-    await ctx.reply('<b>🆕 New Session</b>\nSelect an agent:', {
-      parse_mode: 'HTML',
-      reply_markup: kb,
-    }).catch(() => {})
-  }
+  // Always new message — menu stays untouched
+  await ctx.reply('<b>🆕 New Session</b>\nSelect an agent:', {
+    parse_mode: 'HTML',
+    reply_markup: kb,
+  }).catch(() => {})
 }
 
-async function showWorkspacePicker(ctx: Context, core: OpenACPCore, chatId: number, agentKey: string): Promise<void> {
+async function showWorkspacePicker(ctx: Context, core: OpenACPCore, chatId: number, agentKey: string, newMessage = false): Promise<void> {
   const records = core.sessionManager.listRecords()
   const recentWorkspaces = [...new Set(records.map((r) => r.workingDir).filter(Boolean))]
     .slice(0, 5)
@@ -299,16 +289,19 @@ async function showWorkspacePicker(ctx: Context, core: OpenACPCore, chatId: numb
   kb.text('📁 Custom path...', `ns:custom:${agentKey}`).row()
 
   const agentLabel = escapeHtml(agentKey)
-  try {
-    await ctx.editMessageText(`<b>🆕 New Session</b>\nAgent: <code>${agentLabel}</code>\n\nSelect workspace:`, {
-      parse_mode: 'HTML',
-      reply_markup: kb,
-    })
-  } catch {
-    await ctx.reply(`<b>🆕 New Session</b>\nAgent: <code>${agentLabel}</code>\n\nSelect workspace:`, {
-      parse_mode: 'HTML',
-      reply_markup: kb,
-    }).catch(() => {})
+  const text = `<b>🆕 New Session</b>\nAgent: <code>${agentLabel}</code>\n\nSelect workspace:`
+  const opts = { parse_mode: 'HTML' as const, reply_markup: kb }
+
+  if (newMessage) {
+    // First message in flow (single agent skip) — new message, menu untouched
+    await ctx.reply(text, opts).catch(() => {})
+  } else {
+    // Edit the agent picker message in-place
+    try {
+      await ctx.editMessageText(text, opts)
+    } catch {
+      await ctx.reply(text, opts).catch(() => {})
+    }
   }
 }
 
