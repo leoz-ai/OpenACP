@@ -64,6 +64,7 @@ export class SSEManager {
   handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const parsedUrl = new URL(req.url || "", "http://localhost");
     const sessionFilter = parsedUrl.searchParams.get("sessionId");
+    console.log(`[sse] new connection from origin=${req.headers.origin ?? 'none'} filter=${sessionFilter ?? 'none'} total=${this.sseConnections.size + 1}`);
 
     const origin = req.headers.origin;
     const corsHeaders: Record<string, string> = {
@@ -89,6 +90,7 @@ export class SSEManager {
     const cleanup = () => {
       this.sseConnections.delete(res);
       this.sseCleanupHandlers.delete(res);
+      console.log(`[sse] connection closed, remaining=${this.sseConnections.size}`);
     };
     this.sseCleanupHandlers.set(res, cleanup);
     req.on("close", cleanup);
