@@ -21,7 +21,7 @@
 
 **Modified files:**
 - `src/cli/commands/index.ts` — export `cmdInstances`
-- `src/cli.ts` — register `instances` in `instanceCommands` map
+- `src/cli.ts` — register `instances` in `noInstanceCommands` map (does not require an existing instance root)
 - `src/cli/commands/start.ts` — extend `--json` output with `name`, `directory`, `port`
 - `src/cli/commands/default.ts` — extend `--json` output after onboarding wizard
 - `src/plugins/api-server/routes/auth.ts` — add `POST /exchange` route
@@ -319,7 +319,7 @@ Expected: FAIL — `cmdInstancesCreate` not exported
 Add to `src/cli/commands/instances.ts`:
 
 ```typescript
-import { slugify } from '../../core/instance/instance-context.js'
+import { generateSlug } from '../../core/instance/instance-context.js'
 
 export async function cmdInstancesCreate(args: string[]): Promise<void> {
   const json = isJsonMode(args)
@@ -361,7 +361,7 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
     // .openacp exists but not registered — register it
     const config = JSON.parse(fs.readFileSync(path.join(instanceRoot, 'config.json'), 'utf-8'))
     const name = config.instanceName ?? path.basename(resolvedDir)
-    const baseId = slugify(name)
+    const baseId = generateSlug(name)
     const id = registry.uniqueId(baseId)
     registry.register(id, instanceRoot)
     await registry.save()
@@ -370,7 +370,7 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
 
   // Case: create new
   const name = instanceName ?? `openacp-${registry.list().length + 1}`
-  const baseId = slugify(name)
+  const baseId = generateSlug(name)
   const id = registry.uniqueId(baseId)
   fs.mkdirSync(instanceRoot, { recursive: true })
 
@@ -419,7 +419,7 @@ async function outputInstance(json: boolean, { id, root }: { id: string; root: s
 }
 ```
 
-> **Note:** `slugify` may not be exported from `instance-context.js`. Check and import from wherever it's defined, or implement inline: `(s: string) => s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')`. Similarly, `cloneInstance` in `core/setup/clone.js` may be a different path — check the actual clone logic location in the multi-instance implementation.
+> **Note:** `generateSlug` is exported from `instance-context.ts`. `cloneInstance` in `core/setup/clone.js` may be a different path — check the actual clone logic location in the multi-instance implementation before using this import.
 
 - [ ] **Step 4: Run tests**
 
@@ -461,10 +461,12 @@ import {
 } from './cli/commands/index.js'
 ```
 
-In the `instanceCommands` object (around line 141), add:
+In the `noInstanceCommands` object (not `instanceCommands`), add:
 ```typescript
-'instances': (r) => cmdInstances(args, r),
+'instances': async () => cmdInstances(args),
 ```
+
+`instances` must be in `noInstanceCommands` because it does not require an existing instance root — it reads the global `~/.openacp/instances.json` registry directly. Adding it to `instanceCommands` would cause `resolveRoot()` to prompt the user to select an instance before listing, which breaks the command.
 
 - [ ] **Step 3: Verify registration works**
 
@@ -565,9 +567,12 @@ git commit -m "feat: extend start --json output with name, directory, port"
 
 **Files:**
 - Modify: `src/plugins/api-server/routes/auth.ts`
+- Modify: `src/plugins/api-server/auth/token-store.ts` (if `exchangeCode` not already implemented)
 - Create: `src/plugins/api-server/__tests__/auth-exchange.test.ts`
 
-> **Check first:** Look at `src/plugins/api-server/auth/token-store.ts` to confirm whether `exchangeCode()` is already defined. If `createCode()` is there but `exchangeCode()` is not, add it. If both are there, just add the route.
+> **Check first (two things):**
+> 1. Open `src/plugins/api-server/index.ts`. There is likely already a `registerPlugin` call for `POST /exchange` registered with `{ auth: false }` — if so, the route registration boilerplate is done. Verify it calls `tokenStore.exchangeCode()`.
+> 2. Open `src/plugins/api-server/auth/token-store.ts` to confirm whether `exchangeCode()` is already defined. If `createCode()` is there but `exchangeCode()` is not, add it in this task. If both exist, skip Step 3 below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -703,13 +708,15 @@ exchangeCode(code: string): CreateTokenOpts {
 
 > **Note:** The `codes` map and its entry type may already be defined. Adapt to match the actual type. If `TokenStore` is an interface rather than a class, add `exchangeCode` to both the interface and the implementation.
 
-- [ ] **Step 4: Add `POST /exchange` route to auth.ts**
+- [ ] **Step 4: Add `POST /exchange` route to auth.ts (if not already present in index.ts)**
 
-In `src/plugins/api-server/routes/auth.ts`, add after the `POST /codes` route (before the `GET /codes` route):
+If the skeleton route in `index.ts` is incomplete, or auth.ts is the right place for the route body, add the implementation:
 
 ```typescript
 // POST /exchange — exchange one-time code for JWT (no auth required)
-app.post('/exchange', { config: { skipAuth: true } }, async (request, reply) => {
+// This route must be registered at the plugin level with { auth: false }
+// (via the third argument to registerPlugin in index.ts) — NOT via route-level config.
+app.post('/exchange', async (request, reply) => {
   const body = z.object({ code: z.string() }).parse(request.body)
   let tokenParams: any
   try {
@@ -738,7 +745,7 @@ app.post('/exchange', { config: { skipAuth: true } }, async (request, reply) => 
 
 Add `import { z } from 'zod'` at the top if not already present.
 
-> **Note:** The `skipAuth: true` config tells the auth preHandler to skip this route. Check how existing unauthenticated routes (e.g., health check) handle skipping auth — adapt to match that pattern.
+> **Auth bypass pattern:** The auth preHandler checks route/plugin registration options, not `request.routeOptions.config`. The correct way to mark a route group as unauthenticated is to pass `{ auth: false }` as the **third argument** to `registerPlugin(prefix, handler, { auth: false })` in `index.ts`. Do NOT use `{ config: { skipAuth: true } }` on individual route definitions — look at how the health or public routes bypass auth to confirm the exact call pattern used in this codebase.
 
 - [ ] **Step 5: Run tests**
 

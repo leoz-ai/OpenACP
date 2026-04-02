@@ -91,17 +91,16 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
     async start() {
       await app.ready();
 
-      // Auto-detect available port: retry +1 up to 10 times on EADDRINUSE
-      const maxRetries = 10;
+      // Auto-detect available port: retry +1 until a free port is found
       let port = options.port;
 
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      while (port <= 65535) {
         try {
           const address = await app.listen({ port, host: options.host });
           const url = new URL(address);
           return { port: Number(url.port), host: url.hostname };
         } catch (err: any) {
-          if (err?.code === 'EADDRINUSE' && attempt < maxRetries && port < 65535) {
+          if (err?.code === 'EADDRINUSE' && port < 65535) {
             console.log(`[api-server] Port ${port} in use, trying ${port + 1}...`);
             port++;
             continue;
@@ -109,7 +108,7 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
           throw err;
         }
       }
-      throw new Error(`All ports ${options.port}-${port} in use`);
+      throw new Error('No available ports found');
     },
 
     async stop() {
