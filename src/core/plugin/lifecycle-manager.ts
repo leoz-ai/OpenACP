@@ -72,6 +72,8 @@ export interface LifecycleManagerOpts {
   log?: Logger
   settingsManager?: SettingsManager
   pluginRegistry?: PluginRegistry
+  /** Root directory for this OpenACP instance (default: ~/.openacp) */
+  instanceRoot?: string
 }
 
 export class LifecycleManager {
@@ -85,8 +87,9 @@ export class LifecycleManager {
   private config: unknown
   private core: unknown
   private log: Logger | undefined
-  private settingsManager: SettingsManager | undefined
+  settingsManager: SettingsManager | undefined
   private pluginRegistry: PluginRegistry | undefined
+  private instanceRoot: string | undefined
 
   private contexts = new Map<string, ReturnType<typeof createPluginContext>>()
   private loadOrder: OpenACPPlugin[] = []
@@ -121,6 +124,7 @@ export class LifecycleManager {
     this.log = opts?.log
     this.settingsManager = opts?.settingsManager
     this.pluginRegistry = opts?.pluginRegistry
+    this.instanceRoot = opts?.instanceRoot
   }
 
   private getPluginLogger(pluginName: string): Logger {
@@ -248,6 +252,7 @@ export class LifecycleManager {
         config: this.config,
         core: this.core,
         log: this.log,
+        instanceRoot: this.instanceRoot,
       })
 
       try {
@@ -258,6 +263,7 @@ export class LifecycleManager {
       } catch (err) {
         this._failed.add(plugin.name)
         ctx.cleanup()
+        console.error(`[lifecycle] Plugin ${plugin.name} setup() FAILED:`, err)
         this.getPluginLogger(plugin.name).error(`setup() failed: ${err}`)
         this.eventBus?.emit('plugin:failed', { name: plugin.name, error: String(err) })
       }

@@ -125,17 +125,12 @@ interface SdkSessionInfoUpdate {
   _meta?: Record<string, unknown>;
 }
 
-interface SdkCurrentModeUpdate {
-  sessionUpdate: 'current_mode_update';
-  currentModeId: string;
-  _meta?: Record<string, unknown>;
-}
-
 interface SdkConfigOptionUpdate {
   sessionUpdate: 'config_option_update';
   configOptions: unknown[];
   _meta?: Record<string, unknown>;
 }
+
 
 interface SdkUserMessageChunk {
   sessionUpdate: 'user_message_chunk';
@@ -163,6 +158,9 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
   sessionId!: string;
   agentName: string;
   promptCapabilities?: { image?: boolean; audio?: boolean };
+  agentCapabilities?: import("../types.js").AgentCapabilities;
+  /** Preserved from newSession/resumeSession response for ACP state propagation */
+  initialSessionResponse?: { modes?: unknown; configOptions?: unknown; models?: unknown };
   middlewareChain?: MiddlewareChain;
   debugTracer: DebugTracer | null = null;
 
@@ -273,6 +271,9 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     instance.promptCapabilities =
       initResponse.agentCapabilities?.promptCapabilities;
 
+    // Store full agent capabilities for introspection (session list, fork, close, etc.)
+    instance.agentCapabilities = initResponse.agentCapabilities as import("../types.js").AgentCapabilities | undefined;
+
     log.info(
       { promptCapabilities: instance.promptCapabilities ?? {} },
       "Agent prompt capabilities",
@@ -326,6 +327,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       mcpServers: resolvedMcp as any,
     });
     instance.sessionId = response.sessionId;
+    instance.initialSessionResponse = response;
     instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
     instance.setupCrashDetection();
 
@@ -356,6 +358,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         cwd: workingDirectory,
       });
       instance.sessionId = response.sessionId;
+      instance.initialSessionResponse = response;
       instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
       log.info(
         { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
@@ -372,6 +375,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         mcpServers: resolvedMcp as any,
       });
       instance.sessionId = response.sessionId;
+      instance.initialSessionResponse = response;
       instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
       log.info(
         { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
@@ -507,14 +511,6 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
             };
             break;
           }
-          case "current_mode_update": {
-            const cm = update as unknown as SdkCurrentModeUpdate;
-            event = {
-              type: "current_mode_update",
-              modeId: cm.currentModeId,
-            };
-            break;
-          }
           case "config_option_update": {
             const co = update as unknown as SdkConfigOptionUpdate;
             event = {
@@ -532,10 +528,10 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
             break;
           }
           // NOTE: model_update is NOT a session update type in the ACP SDK schema.
-          // Model changes are applied via the unstable_setSessionModel() method and
-          // the response is synchronous — the SDK does not push a model_update
-          // notification to the client. Therefore AgentEvent "model_update" cannot
-          // originate from sessionUpdate and must be emitted by callers of setModel()
+          // Model changes are applied via setSessionConfigOption() and the response
+          // is synchronous — the SDK does not push a model_update notification to
+          // the client. Therefore AgentEvent "model_update" cannot originate from
+          // sessionUpdate and must be emitted by callers of setConfigOption()
           // if they need to propagate the change downstream.
           default:
             // Unknown update type — ignore
@@ -633,10 +629,6 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
 
   // ── New ACP methods ──────────────────────────────────────────────────
 
-  async setMode(modeId: string): Promise<void> {
-    await this.connection.setSessionMode({ sessionId: this.sessionId, modeId });
-  }
-
   async setConfigOption(
     configId: string,
     value: SetConfigOptionValue,
@@ -646,13 +638,6 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       configId,
       ...value,
     } as any);
-  }
-
-  async setModel(modelId: string): Promise<void> {
-    await this.connection.unstable_setSessionModel({
-      sessionId: this.sessionId,
-      modelId,
-    });
   }
 
   async listSessions(

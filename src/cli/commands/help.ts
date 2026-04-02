@@ -11,6 +11,10 @@ Connect messaging platforms (Telegram, Discord) to 28+ AI coding agents via ACP 
   openacp                              Start (mode from config)
   openacp start                        Start as background daemon
   openacp stop                         Stop background daemon
+  openacp restart                      Restart (same mode)
+  openacp restart --foreground         Restart in foreground mode
+  openacp restart --daemon             Restart as background daemon
+  openacp attach                       Attach to running daemon
   openacp status                       Show daemon status
   openacp logs                         Tail daemon log file
   openacp --foreground                 Force foreground mode
@@ -65,11 +69,18 @@ Connect messaging platforms (Telegram, Discord) to 28+ AI coding agents via ACP 
   openacp api new [agent] [workspace]  Create session
   openacp api send <id> <prompt>       Send prompt
   openacp api cancel <id>              Cancel session
-  openacp api dangerous <id> on|off    Toggle dangerous mode
+  openacp api bypass <id> on|off       Toggle bypass permissions
   openacp api topics [--status ...]    List topics
   openacp api cleanup [--status ...]   Cleanup old topics
   openacp api health                   System health check
   openacp api restart                  Restart daemon
+
+\x1b[1mWorkspace Flags:\x1b[0m
+  --local              Use workspace in current directory
+  --global             Use global workspace (~/.openacp)
+  --dir <path>         Use workspace at specified directory
+  --from <path>        Copy settings from existing workspace (on create)
+  --name <name>        Set workspace name (on create)
 
 \x1b[2mMore info: https://github.com/Open-ACP/OpenACP\x1b[0m
 `)

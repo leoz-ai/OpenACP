@@ -2,12 +2,13 @@ import { checkAndPromptUpdate } from '../version.js'
 import { printHelp } from './help.js'
 import path from 'node:path'
 import os from 'node:os'
+import { createInstanceContext, getGlobalRoot } from '../../core/instance/instance-context.js'
+import { printInstanceHint } from '../instance-hint.js'
 
-const OPENACP_DIR = path.join(os.homedir(), '.openacp')
-const PLUGINS_DATA_DIR = path.join(OPENACP_DIR, 'plugins', 'data')
-const REGISTRY_PATH = path.join(OPENACP_DIR, 'plugins.json')
-
-export async function cmdDefault(command: string | undefined): Promise<void> {
+export async function cmdDefault(command: string | undefined, instanceRoot?: string): Promise<void> {
+  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const pluginsDataDir = path.join(root, 'plugins', 'data')
+  const registryPath = path.join(root, 'plugins.json')
   const forceForeground = command === '--foreground'
 
   // Reject unknown commands
@@ -16,6 +17,7 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
     const topLevelCommands = [
       'start', 'stop', 'status', 'logs', 'config', 'reset', 'update',
       'install', 'uninstall', 'plugins', 'plugin', 'api', 'adopt', 'integrate', 'doctor', 'agents', 'onboard',
+      'attach',
     ]
     const suggestion = suggestMatch(command, topLevelCommands)
     console.error(`Unknown command: ${command}`)
@@ -27,37 +29,114 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
   await checkAndPromptUpdate()
 
   const { ConfigManager } = await import('../../core/config/config.js')
-  const cm = new ConfigManager()
+  const configPath = path.join(root, 'config.json')
+  const cm = new ConfigManager(configPath)
 
   // If no config, run setup first
   if (!(await cm.exists())) {
     const { SettingsManager } = await import('../../core/plugin/settings-manager.js')
     const { PluginRegistry } = await import('../../core/plugin/plugin-registry.js')
-    const settingsManager = new SettingsManager(PLUGINS_DATA_DIR)
-    const pluginRegistry = new PluginRegistry(REGISTRY_PATH)
+    const settingsManager = new SettingsManager(pluginsDataDir)
+    const pluginRegistry = new PluginRegistry(registryPath)
     await pluginRegistry.load()
 
     const { runSetup } = await import('../../core/setup/index.js')
-    const shouldStart = await runSetup(cm, { settingsManager, pluginRegistry })
+    const shouldStart = await runSetup(cm, { settingsManager, pluginRegistry, instanceRoot: root })
     if (!shouldStart) process.exit(0)
   }
 
   await cm.load()
   const config = cm.get()
 
+  // Check if daemon is already running before trying to start
   if (!forceForeground && config.runMode === 'daemon') {
-    const { startDaemon, getPidPath } = await import('../daemon.js')
-    const result = startDaemon(getPidPath(), config.logging.logDir)
+    const { isProcessRunning, getPidPath, startDaemon } = await import('../daemon.js')
+    const pidPath = getPidPath(root)
+
+    if (isProcessRunning(pidPath)) {
+      await showAlreadyRunningMenu(root)
+      return
+    }
+
+    const result = startDaemon(pidPath, config.logging.logDir, root)
     if ('error' in result) {
       console.error(result.error)
       process.exit(1)
     }
+    printInstanceHint(root)
     console.log(`OpenACP daemon started (PID ${result.pid})`)
     return
   }
 
   const { markRunning } = await import('../daemon.js')
-  markRunning()
+  markRunning(root)
+  printInstanceHint(root)
   const { startServer } = await import('../../main.js')
-  await startServer()
+  const ctx = createInstanceContext({
+    id: 'default',
+    root,
+    isGlobal: root === getGlobalRoot(),
+  })
+  await startServer({ instanceContext: ctx })
+}
+
+async function showAlreadyRunningMenu(root: string): Promise<void> {
+  const { formatInstanceStatus } = await import('./status.js')
+
+  console.log('')
+  console.log('\x1b[1mOpenACP is already running\x1b[0m')
+  console.log('')
+
+  const status = formatInstanceStatus(root)
+  if (status) {
+    for (const line of status.lines) {
+      console.log(line)
+    }
+    console.log('')
+  }
+
+  // TTY: interactive menu
+  const { showInteractiveMenu } = await import('../interactive-menu.js')
+
+  // Options ordered for two-column layout: r/f, s/l, q
+  const shown = await showInteractiveMenu([
+    {
+      key: 'r', label: 'Restart',
+      action: async () => {
+        const { cmdRestart } = await import('./restart.js')
+        await cmdRestart([], root)
+      },
+    },
+    {
+      key: 's', label: 'Stop',
+      action: async () => {
+        const { cmdStop } = await import('./stop.js')
+        await cmdStop([], root)
+      },
+    },
+    {
+      key: 'q', label: 'Quit',
+      action: () => { /* exit naturally */ },
+    },
+    {
+      key: 'f', label: 'Restart in foreground',
+      action: async () => {
+        const { cmdRestart } = await import('./restart.js')
+        await cmdRestart(['--foreground'], root)
+      },
+    },
+    {
+      key: 'l', label: 'View logs',
+      action: async () => {
+        const { cmdLogs } = await import('./logs.js')
+        await cmdLogs([], root)
+      },
+    },
+  ])
+
+  // Non-TTY: print suggestions and exit
+  if (!shown) {
+    console.log('  Use: openacp restart | openacp stop | openacp logs')
+    console.log('')
+  }
 }

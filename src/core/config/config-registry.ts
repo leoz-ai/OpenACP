@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import type { Config } from "./config.js";
+import { getGlobalRoot } from "../instance/instance-context.js";
 
 export interface ConfigFieldDef {
   path: string;
@@ -21,7 +21,7 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     type: "select",
     options: (config) => {
       try {
-        const agentsPath = path.join(os.homedir(), ".openacp", "agents.json");
+        const agentsPath = path.join(getGlobalRoot(), "agents.json");
         if (fs.existsSync(agentsPath)) {
           const data = JSON.parse(fs.readFileSync(agentsPath, "utf-8"));
           return Object.keys(data.installed ?? {});
@@ -35,8 +35,8 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     hotReload: true,
   },
   {
-    path: "channels.telegram.displayVerbosity",
-    displayName: "Telegram Verbosity",
+    path: "channels.telegram.outputMode",
+    displayName: "Telegram Output Mode",
     group: "display",
     type: "select",
     options: ["low", "medium", "high"],
@@ -44,8 +44,8 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     hotReload: true,
   },
   {
-    path: "channels.discord.displayVerbosity",
-    displayName: "Discord Verbosity",
+    path: "channels.discord.outputMode",
+    displayName: "Discord Output Mode",
     group: "display",
     type: "select",
     options: ["low", "medium", "high"],
@@ -116,6 +116,14 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     group: "speech",
     type: "string",
     scope: "sensitive",
+    hotReload: true,
+  },
+  {
+    path: "agentSwitch.labelHistory",
+    displayName: "Label Agent in History",
+    group: "agent",
+    type: "toggle",
+    scope: "safe",
     hotReload: true,
   },
 ];

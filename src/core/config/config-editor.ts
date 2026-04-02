@@ -1,4 +1,3 @@
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as clack from '@clack/prompts'
 import type { Config, ConfigManager } from './config.js'
@@ -202,12 +201,15 @@ async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<vo
   if (plugin?.configure) {
     const { SettingsManager } = await import('../plugin/settings-manager.js')
     const { createInstallContext } = await import('../plugin/install-context.js')
-    const basePath = path.join(os.homedir(), '.openacp', 'plugins')
+    const { getGlobalRoot } = await import('../instance/instance-context.js')
+    const root = getGlobalRoot()
+    const basePath = path.join(root, 'plugins')
     const settingsManager = new SettingsManager(basePath)
     const ctx = createInstallContext({
       pluginName: plugin.name,
       settingsManager,
       basePath,
+      instanceRoot: root,
     })
     await plugin.configure(ctx)
   } else {

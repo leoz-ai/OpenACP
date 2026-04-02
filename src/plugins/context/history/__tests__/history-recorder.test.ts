@@ -367,11 +367,16 @@ describe("HistoryRecorder", () => {
   // ── Mode change / Config change ──
 
   describe("mode and config changes", () => {
-    it("creates a mode_change step", () => {
+    it("creates config_change steps from config_option_update", () => {
       recorder.onBeforePrompt("s1", "Go", undefined);
-      recorder.onAfterEvent("s1", { type: "current_mode_update", modeId: "code" });
+      recorder.onAfterEvent("s1", {
+        type: "config_option_update",
+        options: [
+          { id: "mode", name: "Mode", type: "select", currentValue: "code", options: [] },
+        ],
+      });
       const steps = recorder.getState("s1")!.history.turns[1].steps!;
-      expect(steps[0]).toEqual({ type: "mode_change", modeId: "code" });
+      expect(steps[0]).toEqual({ type: "config_change", configId: "mode", value: "code" });
     });
 
     it("creates one config_change step per option", () => {
@@ -490,7 +495,6 @@ describe("HistoryRecorder", () => {
         { type: "system_message", message: "sys" },
         { type: "commands_update", commands: [] },
         { type: "session_info_update", title: "t" },
-        { type: "model_update", modelId: "m" },
         { type: "user_message_chunk", content: "c" },
         { type: "tts_strip" },
       ];

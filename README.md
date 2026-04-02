@@ -73,6 +73,19 @@ Your Codebase
 ## Quick Start
 
 ```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.sh | bash
+
+# Windows
+powershell -c "irm https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.ps1 | iex"
+```
+
+Works on macOS, Linux & Windows. Installs Node.js (if needed) and everything else for you.
+
+<details>
+<summary>Or install via npm</summary>
+
+```bash
 npm install -g @openacp/cli
 openacp
 # → Interactive setup wizard starts:
@@ -83,6 +96,8 @@ openacp
 # → ✓ Configuration saved. Starting OpenACP...
 # → 🚀 OpenACP is running. Send a message to your bot!
 ```
+
+</details>
 
 The interactive setup wizard walks you through everything:
 
@@ -113,12 +128,14 @@ That's it. Send a message to your bot and start coding.
 - **Session persistence** — Sessions survive restarts, with configurable TTL
 - **Permission control** — Approve or deny agent actions via buttons, with optional auto-approve
 - **Real-time streaming** — See agent thinking, tool calls, and output as they happen
+- **Agent switching** — Switch agents mid-conversation with `/switch`; history carries over automatically
 
 ### Developer Tools
 
 - **Tunnel & port forwarding** — Expose local ports to the internet (Cloudflare, ngrok, bore, Tailscale)
 - **Built-in file viewer** — Monaco Editor with syntax highlighting, diffs, and markdown preview
 - **Session transfer** — Move sessions between terminal and chat (`/handoff`)
+- **Agent switch** — Change which AI agent handles your session mid-conversation (`/switch`)
 - **Voice & speech** — Send voice messages, get spoken responses (Groq STT + Edge TTS)
 - **Usage tracking** — Token counts, cost reports, optional monthly budget limits
 - **Context resume** — Resume sessions with full conversation history
@@ -163,7 +180,8 @@ openacp agents install <name>      # Install from registry
 ```bash
 # Server
 openacp                            # Start (first run = setup wizard)
-openacp start / stop / status      # Daemon management
+openacp start / stop / restart     # Daemon management
+openacp status                     # Check daemon status
 openacp logs                       # Tail daemon logs
 
 # Configuration

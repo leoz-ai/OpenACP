@@ -1,15 +1,29 @@
-import type { Router } from "../router.js";
-import type { RouteDeps } from "../api-server.js";
+import type { FastifyInstance } from 'fastify';
+import type { RouteDeps } from './types.js';
+import { requireScopes } from '../middleware/auth.js';
 
-export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
-  router.get("/api/health", async (_req, res) => {
+/**
+ * System routes for health, version, restart, and adapters.
+ *
+ * This route group is registered with { auth: false } so health can be public.
+ * Individual sensitive routes add auth + scope checks via preHandler.
+ */
+export async function systemRoutes(
+  app: FastifyInstance,
+  deps: RouteDeps,
+): Promise<void> {
+  const authPreHandler = deps.authPreHandler;
+
+  // GET /system/health — detailed health info including sessions, adapters, tunnel
+  // Public: no auth required
+  app.get('/health', async () => {
     const activeSessions = deps.core.sessionManager.listSessions();
     const allRecords = deps.core.sessionManager.listRecords();
     const mem = process.memoryUsage();
     const tunnel = deps.core.tunnelService;
 
-    deps.sendJson(res, 200, {
-      status: "ok",
+    return {
+      status: 'ok',
       uptime: Date.now() - deps.startedAt,
       version: deps.getVersion(),
       memory: {
@@ -19,7 +33,7 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
       },
       sessions: {
         active: activeSessions.filter(
-          (s) => s.status === "active" || s.status === "initializing",
+          (s) => s.status === 'active' || s.status === 'initializing',
         ).length,
         total: allRecords.length,
       },
@@ -27,28 +41,40 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
       tunnel: tunnel
         ? { enabled: true, url: tunnel.getPublicUrl() }
         : { enabled: false },
-    });
+    };
   });
 
-  router.get("/api/version", async (_req, res) => {
-    deps.sendJson(res, 200, { version: deps.getVersion() });
+  // GET /system/version — get version (requires auth + system:health scope)
+  app.get('/version', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:health')],
+  }, async () => {
+    return { version: deps.getVersion() };
   });
 
-  router.post("/api/restart", async (_req, res) => {
+  // POST /system/restart — request a graceful restart (requires auth + system:admin scope)
+  app.post('/restart', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:admin')],
+  }, async (_request, reply) => {
     if (!deps.core.requestRestart) {
-      deps.sendJson(res, 501, { error: "Restart not available" });
-      return;
+      return reply.status(501).send({ error: 'Restart not available' });
     }
 
-    deps.sendJson(res, 200, { ok: true, message: "Restarting..." });
+    // Send response before restarting
+    const response = { ok: true, message: 'Restarting...' };
     setImmediate(() => deps.core.requestRestart!());
+    return response;
   });
 
-  router.get("/api/adapters", async (_req, res) => {
-    const adapters = Array.from(deps.core.adapters.entries()).map(([name]) => ({
-      name,
-      type: "built-in" as const,
-    }));
-    deps.sendJson(res, 200, { adapters });
+  // GET /system/adapters — list connected adapters (requires auth + system:health scope)
+  app.get('/adapters', {
+    preHandler: [...(authPreHandler ? [authPreHandler] : []), requireScopes('system:health')],
+  }, async () => {
+    const adapters = Array.from(deps.core.adapters.entries()).map(
+      ([name]) => ({
+        name,
+        type: 'built-in' as const,
+      }),
+    );
+    return { adapters };
   });
 }

@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentInstance } from "../agents/agent-instance.js";
-import type { AgentCapabilities, AgentEvent, Attachment, PermissionRequest, SessionStatus, SessionMode, ConfigOption, ModelInfo, SessionModeState, SessionModelState } from "../types.js";
+import type { AgentCapabilities, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption } from "../types.js";
 import { TypedEmitter } from "../utils/typed-emitter.js";
 import { PromptQueue } from "./prompt-queue.js";
 import { PermissionGate } from "./permission-gate.js";
@@ -32,6 +32,7 @@ export interface SessionEvents {
   status_change: (from: SessionStatus, to: SessionStatus) => void;
   named: (name: string) => void;
   error: (error: Error) => void;
+  prompt_count_changed: (count: number) => void;
 }
 
 export class Session extends TypedEmitter<SessionEvents> {
@@ -46,15 +47,14 @@ export class Session extends TypedEmitter<SessionEvents> {
   name?: string;
   createdAt: Date = new Date();
   voiceMode: "off" | "next" | "on" = "off";
-  dangerousMode: boolean = false;
-  currentMode?: string;
-  availableModes: SessionMode[] = [];
   configOptions: ConfigOption[] = [];
-  currentModel?: string;
-  availableModels: ModelInfo[] = [];
+  clientOverrides: { bypassPermissions?: boolean } = {};
   agentCapabilities?: AgentCapabilities;
   archiving: boolean = false;
   promptCount: number = 0;
+  firstAgent: string;
+  agentSwitchHistory: AgentSwitchEntry[] = [];
+  isAssistant: boolean = false;
   log: Logger;
   middlewareChain?: MiddlewareChain;
 
@@ -70,14 +70,17 @@ export class Session extends TypedEmitter<SessionEvents> {
     workingDirectory: string;
     agentInstance: AgentInstance;
     speechService?: SpeechService;
+    isAssistant?: boolean;
   }) {
     super();
     this.id = opts.id || nanoid(12);
     this.channelId = opts.channelId;
     this.agentName = opts.agentName;
+    this.firstAgent = opts.agentName;
     this.workingDirectory = opts.workingDirectory;
     this.agentInstance = opts.agentInstance;
     this.speechService = opts.speechService;
+    this.isAssistant = opts.isAssistant ?? false;
     this.log = createSessionLogger(this.id, moduleLog);
     this.log.info({ agentName: this.agentName }, "Session created");
 
@@ -102,8 +105,9 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.transition("active");
   }
 
-  /** Transition to error — from initializing or active */
+  /** Transition to error — from initializing or active. Idempotent if already in error. */
   fail(reason: string): void {
+    if (this._status === "error") return;
     this.transition("error");
     this.emit("error", new Error(reason));
   }
@@ -169,15 +173,11 @@ export class Session extends TypedEmitter<SessionEvents> {
   }
 
   private async processPrompt(text: string, attachments?: Attachment[]): Promise<void> {
-    if (text === "\x00__warmup__") {
-      await this.runWarmup();
-      return;
-    }
-
     // Don't process prompts for finished sessions (queue may still drain)
     if (this._status === "finished") return;
 
     this.promptCount++;
+    this.emit('prompt_count_changed', this.promptCount);
 
     if (this._status === "initializing" || this._status === "cancelled" || this._status === "error") {
       this.activate();
@@ -400,55 +400,29 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
   }
 
-  /** Fire-and-forget warm-up: primes model cache while user types their first message */
-  async warmup(): Promise<void> {
-    // Route through PromptQueue to prevent concurrent prompt execution.
-    // Any user prompts arriving during warmup will be queued and drained after.
-    await this.queue.enqueue("\x00__warmup__");
-  }
-
-  private async runWarmup(): Promise<void> {
-    // Pause events but let commands_update pass through
-    this.pause((_event, args) => {
-      const agentEvent = args[0] as AgentEvent;
-      return agentEvent?.type === "commands_update";
-    });
-
-    try {
-      const start = Date.now();
-      await this.agentInstance.prompt('Reply with only "ready".');
-      this.activate();
-      this.log.info({ durationMs: Date.now() - start }, "Warm-up complete");
-    } catch (err) {
-      this.log.error({ err }, "Warm-up failed");
-    } finally {
-      this.clearBuffer();
-      this.resume();
-    }
-  }
 
   // --- ACP Mode / Config / Model State ---
 
-  setInitialAcpState(state: {
-    modes?: SessionModeState | null;
-    configOptions?: ConfigOption[] | null;
-    models?: SessionModelState | null;
-    agentCapabilities?: AgentCapabilities | null;
-  }): void {
-    if (state.modes) {
-      this.currentMode = state.modes.currentModeId;
-      this.availableModes = state.modes.availableModes;
-    }
-    if (state.configOptions) {
-      this.configOptions = state.configOptions;
-    }
-    if (state.models) {
-      this.currentModel = state.models.currentModelId;
-      this.availableModels = state.models.availableModels;
-    }
-    if (state.agentCapabilities) {
-      this.agentCapabilities = state.agentCapabilities;
-    }
+  setInitialConfigOptions(options: ConfigOption[]): void {
+    this.configOptions = options ?? [];
+  }
+
+  setAgentCapabilities(caps: AgentCapabilities | undefined): void {
+    this.agentCapabilities = caps;
+  }
+
+  getConfigOption(id: string): ConfigOption | undefined {
+    return this.configOptions.find(o => o.id === id);
+  }
+
+  getConfigByCategory(category: string): ConfigOption | undefined {
+    return this.configOptions.find(o => o.category === category);
+  }
+
+  getConfigValue(id: string): string | undefined {
+    const option = this.getConfigOption(id);
+    if (!option) return undefined;
+    return String(option.currentValue);
   }
 
   /** Set session name explicitly and emit 'named' event */
@@ -457,13 +431,12 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.emit("named", name);
   }
 
-  async updateMode(modeId: string): Promise<void> {
-    // Hook: mode:beforeChange — await-able, can block
-    if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('mode:beforeChange', { sessionId: this.id, fromMode: this.currentMode, toMode: modeId }, async (p) => p);
-      if (!result) return; // blocked by middleware
+  /** Send a config option change to the agent and update local state from the response. */
+  async setConfigOption(configId: string, value: import("../types.js").SetConfigOptionValue): Promise<void> {
+    const response = await this.agentInstance.setConfigOption(configId, value);
+    if (response.configOptions) {
+      await this.updateConfigOptions(response.configOptions as ConfigOption[]);
     }
-    this.currentMode = modeId;
   }
 
   async updateConfigOptions(options: ConfigOption[]): Promise<void> {
@@ -475,13 +448,18 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.configOptions = options;
   }
 
-  async updateModel(modelId: string): Promise<void> {
-    // Hook: model:beforeChange — await-able, can block
-    if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('model:beforeChange', { sessionId: this.id, fromModel: this.currentModel, toModel: modelId }, async (p) => p);
-      if (!result) return; // blocked by middleware
-    }
-    this.currentModel = modelId;
+  /** Snapshot of current ACP state for persistence */
+  toAcpStateSnapshot(): NonNullable<import("../types.js").SessionRecord["acpState"]> {
+    return {
+      configOptions: this.configOptions.length > 0 ? this.configOptions : undefined,
+      agentCapabilities: this.agentCapabilities,
+    };
+  }
+
+  /** Check if the agent supports a specific session capability */
+  supportsCapability(cap: 'list' | 'fork' | 'close' | 'loadSession'): boolean {
+    if (cap === 'loadSession') return this.agentCapabilities?.loadSession === true;
+    return this.agentCapabilities?.sessionCapabilities?.[cap] === true;
   }
 
   /** Cancel the current prompt and clear the queue. Stays in active state. */
@@ -494,6 +472,55 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.queue.clear();
     this.log.info("Prompt aborted");
     await this.agentInstance.cancel();
+  }
+
+  /** Search backward through agentSwitchHistory for the last entry matching agentName */
+  findLastSwitchEntry(agentName: string): AgentSwitchEntry | undefined {
+    for (let i = this.agentSwitchHistory.length - 1; i >= 0; i--) {
+      if (this.agentSwitchHistory[i].agentName === agentName) {
+        return this.agentSwitchHistory[i];
+      }
+    }
+    return undefined;
+  }
+
+  /** Switch the agent instance in-place, preserving session identity */
+  async switchAgent(agentName: string, createAgent: () => Promise<AgentInstance>): Promise<void> {
+    if (agentName === this.agentName) {
+      throw new Error(`Already using ${agentName}`);
+    }
+
+    // Record current agent in history
+    this.agentSwitchHistory.push({
+      agentName: this.agentName,
+      agentSessionId: this.agentSessionId,
+      switchedAt: new Date().toISOString(),
+      promptCount: this.promptCount,
+    });
+
+    // Clear queued prompts and abort in-flight prompt before destroying old agent
+    this.queue.clear();
+
+    // Reject any pending permission request before destroying old agent
+    if (this.permissionGate.isPending) {
+      this.permissionGate.reject("Agent switched");
+    }
+
+    // Destroy old agent
+    await this.agentInstance.destroy();
+
+    // Create and wire new agent
+    const newAgent = await createAgent();
+    this.agentInstance = newAgent;
+    this.agentName = agentName;
+    this.agentSessionId = newAgent.sessionId;
+    this.promptCount = 0;
+
+    // Reset agent-specific ACP state (will be re-populated by new agent)
+    this.agentCapabilities = undefined;
+    this.configOptions = [];
+
+    this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }
 
   async destroy(): Promise<void> {

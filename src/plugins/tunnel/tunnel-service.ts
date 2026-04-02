@@ -1,92 +1,57 @@
-import { serve } from '@hono/node-server'
 import type { TunnelConfig } from '../../core/config/config.js'
 import { createChildLogger } from '../../core/utils/log.js'
 import { TunnelRegistry, type TunnelEntry } from './tunnel-registry.js'
 import { ViewerStore } from './viewer-store.js'
-import { createTunnelServer } from './server.js'
 
 const log = createChildLogger({ module: 'tunnel' })
 
 export class TunnelService {
   private registry: TunnelRegistry
   private store: ViewerStore
-  private server: ReturnType<typeof serve> | null = null
   private config: TunnelConfig
-  private systemPort = 0
+  private apiPort: number = 0
   private startError: string | undefined
 
-  constructor(config: TunnelConfig) {
+  constructor(config: TunnelConfig, registryPath?: string, binDir?: string) {
     this.config = config
     this.store = new ViewerStore(config.storeTtlMinutes)
     this.registry = new TunnelRegistry({
       maxUserTunnels: config.maxUserTunnels ?? 5,
       providerOptions: config.options,
+      registryPath,
+      binDir,
     })
   }
 
-  async start(): Promise<string> {
-    // 1. Start HTTP viewer server — try configured port, then auto-increment
-    const authToken = this.config.auth.enabled ? this.config.auth.token : undefined
-    const app = createTunnelServer(this.store, authToken)
+  async start(apiPort: number): Promise<string> {
+    this.apiPort = apiPort
 
-    let actualPort = this.config.port
-    const maxRetries = 10
+    // ViewerStore already initialized in constructor — no change needed there
 
-    for (let i = 0; i < maxRetries; i++) {
-      const port = this.config.port + i
-      const server = serve({ fetch: app.fetch, port })
-
-      const ok = await new Promise<boolean>((resolve) => {
-        server.on('listening', () => resolve(true))
-        server.on('error', () => resolve(false))
-      })
-
-      if (ok) {
-        this.server = server
-        actualPort = port
-        if (i > 0) {
-          log.info({ configuredPort: this.config.port, actualPort }, 'Configured port in use, using next available')
-        }
-        log.info({ port: actualPort }, 'Tunnel HTTP server started')
-        break
-      }
-
-      server.close()
-    }
-
-    if (!this.server) {
-      log.warn({ port: this.config.port }, 'Could not find available port for tunnel HTTP server')
-      return `http://localhost:${this.config.port}`
-    }
-
-    this.systemPort = actualPort
-
-    // 2. Register system tunnel (file viewer)
-    try {
-      await this.registry.add(actualPort, {
-        type: 'system',
-        provider: this.config.provider,
-        label: 'File Viewer',
-      })
-    } catch (err) {
-      this.startError = (err as Error).message
-      log.warn({ err: this.startError }, 'System tunnel failed, running on localhost')
-    }
-
-    // 3. Restore persisted user tunnels
+    // Restore persisted user tunnels
     await this.registry.restore()
 
-    const systemEntry = this.registry.getSystemEntry()
-    return systemEntry?.publicUrl || `http://localhost:${actualPort}`
+    // Register system tunnel pointing to API server port
+    if (this.config.provider) {
+      try {
+        const entry = await this.registry.add(apiPort, {
+          type: 'system',
+          provider: this.config.provider,
+          label: 'system',
+        })
+        return entry.publicUrl || `http://localhost:${apiPort}`
+      } catch (err) {
+        this.startError = (err as Error).message
+        return `http://localhost:${apiPort}`
+      }
+    }
+
+    return `http://localhost:${apiPort}`
   }
 
   async stop(): Promise<void> {
     await this.registry.shutdown()
     this.registry.flush()
-    if (this.server) {
-      this.server.close()
-      this.server = null
-    }
     this.store.destroy()
     log.info('Tunnel service stopped')
   }
@@ -125,8 +90,9 @@ export class TunnelService {
   // --- Viewer (system tunnel) ---
 
   getPublicUrl(): string {
+    if (!this.apiPort) return ''
     const system = this.registry.getSystemEntry()
-    return system?.publicUrl || `http://localhost:${this.systemPort || this.config.port}`
+    return system?.publicUrl || `http://localhost:${this.apiPort}`
   }
 
   getStartError(): string | undefined {
@@ -138,14 +104,17 @@ export class TunnelService {
   }
 
   fileUrl(entryId: string): string {
-    return `${this.getPublicUrl()}/view/${entryId}`
+    const base = this.getPublicUrl()
+    return base ? `${base}/view/${entryId}` : ''
   }
 
   diffUrl(entryId: string): string {
-    return `${this.getPublicUrl()}/diff/${entryId}`
+    const base = this.getPublicUrl()
+    return base ? `${base}/diff/${entryId}` : ''
   }
 
   outputUrl(entryId: string): string {
-    return `${this.getPublicUrl()}/output/${entryId}`
+    const base = this.getPublicUrl()
+    return base ? `${base}/output/${entryId}` : ''
   }
 }

@@ -7,8 +7,8 @@ export class ContextManager {
   private providers: ContextProvider[] = [];
   private cache: ContextCache;
 
-  constructor() {
-    this.cache = new ContextCache(path.join(os.homedir(), ".openacp", "cache", "entire"));
+  constructor(cachePath?: string) {
+    this.cache = new ContextCache(cachePath ?? path.join(os.homedir(), ".openacp", "cache", "entire"));
   }
 
   register(provider: ContextProvider): void {
@@ -32,7 +32,7 @@ export class ContextManager {
   }
 
   async buildContext(query: ContextQuery, options?: ContextOptions): Promise<ContextResult | null> {
-    const queryKey = `${query.type}:${query.value}:${options?.limit ?? ""}:${options?.maxTokens ?? ""}`;
+    const queryKey = `${query.type}:${query.value}:${options?.limit ?? ""}:${options?.maxTokens ?? ""}:${options?.labelAgent ?? ""}`;
     const cached = this.cache.get(query.repoPath, queryKey);
     if (cached) return cached;
 

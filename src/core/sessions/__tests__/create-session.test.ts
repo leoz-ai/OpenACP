@@ -66,6 +66,7 @@ function createMockCore(): OpenACPCore {
 
   // Set up minimal internal state
   core.adapters = new Map();
+  (core as any).bridges = new Map();
   core.agentManager = {
     spawn: vi.fn().mockResolvedValue(mockAgent),
     resume: vi.fn().mockResolvedValue(mockAgent),

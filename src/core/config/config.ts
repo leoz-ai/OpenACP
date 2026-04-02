@@ -18,11 +18,6 @@ const BaseChannelSchema = z
   })
   .passthrough();
 
-export const OPENACP_DIR = path.join(os.homedir(), ".openacp");
-export const PLUGINS_DIR = path.join(OPENACP_DIR, "plugins");
-export const PLUGINS_DATA_DIR = path.join(OPENACP_DIR, "plugins", "data");
-export const REGISTRY_PATH = path.join(OPENACP_DIR, "plugins.json");
-
 const AgentSchema = z.object({
   command: z.string(),
   args: z.array(z.string()).default([]),
@@ -106,6 +101,7 @@ const SpeechSchema = z
   .default({});
 
 export const ConfigSchema = z.object({
+  instanceName: z.string().optional(),
   channels: z
     .object({})
     .catchall(BaseChannelSchema),
@@ -150,6 +146,9 @@ export const ConfigSchema = z.object({
     .default({}),
   speech: SpeechSchema,
   outputMode: z.enum(["low", "medium", "high"]).default("medium").optional(),
+  agentSwitch: z.object({
+    labelHistory: z.boolean().default(true),
+  }).default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -206,10 +205,10 @@ export class ConfigManager extends EventEmitter {
   private config!: Config;
   private configPath: string;
 
-  constructor() {
+  constructor(configPath?: string) {
     super();
     this.configPath =
-      process.env.OPENACP_CONFIG_PATH || expandHome("~/.openacp/config.json");
+      process.env.OPENACP_CONFIG_PATH || configPath || expandHome("~/.openacp/config.json");
   }
 
   async load(): Promise<void> {
@@ -234,7 +233,7 @@ export class ConfigManager extends EventEmitter {
     const raw = JSON.parse(fs.readFileSync(this.configPath, "utf-8"));
 
     // 3.5. Auto-migrate config
-    const { changed: configUpdated } = applyMigrations(raw);
+    const { changed: configUpdated } = applyMigrations(raw, undefined, { configDir: path.dirname(this.configPath) });
     if (configUpdated) {
       fs.writeFileSync(this.configPath, JSON.stringify(raw, null, 2));
     }
@@ -286,6 +285,30 @@ export class ConfigManager extends EventEmitter {
         : undefined;
       this.emit("config:changed", { path: changePath, value, oldValue });
     }
+  }
+
+  /**
+   * Set a single config value by dot-path (e.g. "security.maxConcurrentSessions").
+   * Builds the nested update object, validates, and saves.
+   * Throws if the path contains blocked keys or the value fails Zod validation.
+   */
+  async setPath(dotPath: string, value: unknown): Promise<void> {
+    const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+    const parts = dotPath.split('.');
+    if (parts.some((p) => BLOCKED_KEYS.has(p))) {
+      throw new Error(`Invalid config path: ${dotPath}`);
+    }
+
+    // Build nested updates object from dot-path
+    const updates: Record<string, unknown> = {};
+    let target = updates;
+    for (let i = 0; i < parts.length - 1; i++) {
+      target[parts[i]!] = {};
+      target = target[parts[i]!] as Record<string, unknown>;
+    }
+    target[parts[parts.length - 1]!] = value;
+
+    await this.save(updates, dotPath);
   }
 
   resolveWorkspace(input?: string): string {

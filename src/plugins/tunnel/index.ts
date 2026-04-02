@@ -1,5 +1,9 @@
+import path from 'node:path'
 import type { OpenACPPlugin, InstallContext } from '../../core/plugin/types.js'
 import type { TunnelConfig } from '../../core/config/config.js'
+import type { ApiServerService } from '../api-server/service.js'
+import { MAX_RETRIES } from './tunnel-registry.js'
+import { createViewerRoutes } from './viewer-routes.js'
 
 function createTunnelPlugin(): OpenACPPlugin {
   let service: { stop(): Promise<void> } | null = null
@@ -9,7 +13,8 @@ function createTunnelPlugin(): OpenACPPlugin {
     version: '1.0.0',
     description: 'Expose local services to internet via tunnel providers',
     essential: false,
-    permissions: ['services:register', 'kernel:access', 'commands:register'],
+    pluginDependencies: { '@openacp/api-server': '*' },
+    permissions: ['services:register', 'services:use', 'kernel:access', 'commands:register', 'events:read'],
 
     async install(ctx: InstallContext) {
       const { terminal, settings, legacyConfig } = ctx
@@ -126,9 +131,13 @@ function createTunnelPlugin(): OpenACPPlugin {
       }
     },
 
+    inheritableKeys: ['provider', 'maxUserTunnels', 'auth'],
+
     async setup(ctx) {
       const config = ctx.pluginConfig as Record<string, unknown>
-      if (!config.enabled) {
+      // Default enabled to true — settings created via copyInstance omit this key
+      const enabled = 'enabled' in config ? config.enabled : true
+      if (!enabled) {
         ctx.log.info('Tunnel disabled')
         return
       }
@@ -137,9 +146,38 @@ function createTunnelPlugin(): OpenACPPlugin {
         return
       }
 
+      if (config.port) {
+        ctx.log.warn('tunnel.port is deprecated and ignored — tunnel now uses API server port')
+      }
+      if ((config.auth as Record<string, unknown> | undefined)?.enabled) {
+        ctx.log.warn('tunnel.auth is deprecated and ignored — viewer routes are now public')
+      }
+
       const { TunnelService } = await import('./tunnel-service.js')
-      const tunnelSvc = new TunnelService(config as unknown as TunnelConfig)
-      const publicUrl = await tunnelSvc.start()
+      const instanceRoot = ctx.instanceRoot
+      const tunnelSvc = new TunnelService(
+        config as unknown as TunnelConfig,
+        path.join(instanceRoot, 'tunnels.json'),
+        path.join(instanceRoot, 'bin'),
+      )
+
+      // Get API server service (new dependency)
+      const apiServer = ctx.getService<ApiServerService>('api-server')
+
+      // Register viewer routes in API server (replaces Hono viewer server)
+      if (apiServer) {
+        const viewerRoutes = createViewerRoutes(tunnelSvc.getStore())
+        apiServer.registerPlugin('/', viewerRoutes, { auth: false })
+      } else {
+        ctx.log.warn('API server not available — viewer links will be unavailable')
+      }
+
+      // Start tunnel only after API server is actually listening
+      ctx.on('api-server:started', async (data: unknown) => {
+        const apiPort = (data as { port: number }).port
+        const publicUrl = await tunnelSvc.start(apiPort)
+        ctx.log.info(`Tunnel ready: ${publicUrl}`)
+      })
       service = tunnelSvc
 
       ctx.registerService('tunnel', tunnelSvc)
@@ -176,9 +214,12 @@ function createTunnelPlugin(): OpenACPPlugin {
             }
           }
 
-          // /tunnel (no args) — show current tunnel URL
+          // /tunnel (no args) — show current tunnel URL + health
           const url = tunnelSvc.getPublicUrl()
-          return { type: 'text', text: url ? `Tunnel: ${url}` : 'No tunnel active.' }
+          const err = tunnelSvc.getStartError()
+          let text = url ? `Tunnel: ${url}` : 'No tunnel active.'
+          if (err) text += `\n⚠️ System tunnel error: ${err}`
+          return { type: 'text', text }
         },
       })
 
@@ -189,18 +230,24 @@ function createTunnelPlugin(): OpenACPPlugin {
         handler: async () => {
           const userTunnels = tunnelSvc.listTunnels()
           const systemUrl = tunnelSvc.getPublicUrl()
+          const sysError = tunnelSvc.getStartError()
+          const systemDetail = sysError ? `${systemUrl} ⚠️ ${sysError}` : systemUrl
           const items = [
-            { label: 'System', detail: systemUrl },
-            ...userTunnels.map(t => ({
-              label: t.label ?? `Port ${t.port}`,
-              detail: `${t.publicUrl ?? t.status} (${t.provider})`,
-            })),
+            { label: 'System', detail: systemDetail },
+            ...userTunnels.map(t => {
+              const statusInfo = t.status === 'failed' && t.retryCount > 0
+                ? `${t.status} (retry ${t.retryCount}/${MAX_RETRIES})`
+                : t.status
+              return {
+                label: t.label ?? `Port ${t.port}`,
+                detail: `${t.publicUrl ?? statusInfo} (${t.provider})`,
+              }
+            }),
           ]
           return { type: 'list', title: 'Active Tunnels', items }
         },
       })
 
-      ctx.log.info(`Tunnel ready: ${publicUrl}`)
     },
 
     async teardown() {

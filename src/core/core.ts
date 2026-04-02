@@ -15,16 +15,22 @@ import { SessionFactory } from "./sessions/session-factory.js";
 import type { IncomingMessage } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
+import { AgentSwitchHandler } from "./agent-switch-handler.js";
 import { AgentCatalog } from "./agents/agent-catalog.js";
+import { AgentStore } from "./agents/agent-store.js";
 import { EventBus } from "./event-bus.js";
 import { LifecycleManager } from "./plugin/lifecycle-manager.js";
+import { MenuRegistry } from './menu-registry.js';
+import { AssistantRegistry, AssistantManager } from './assistant/index.js';
+import { registerCoreMenuItems } from './menu/core-items.js';
+import { createSessionsSection, createAgentsSection, createConfigSection, createSystemSection } from './assistant/index.js';
 import { ServiceRegistry } from "./plugin/service-registry.js";
 import { MiddlewareChain } from "./plugin/middleware-chain.js";
 import { ErrorTracker } from "./plugin/error-tracker.js";
 import { createChildLogger } from "./utils/log.js";
 import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
-import type { ContextQuery, ContextOptions, ContextResult } from "../plugins/context/context-provider.js";
+import type { InstanceContext } from "./instance/instance-context.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -34,14 +40,20 @@ export class OpenACPCore {
   sessionManager: SessionManager;
   messageTransformer: MessageTransformer;
   adapters: Map<string, IChannelAdapter> = new Map();
+  /** sessionId → SessionBridge — tracks active bridges for disconnect/reconnect during agent switch */
+  private bridges: Map<string, SessionBridge> = new Map();
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
   private sessionStore: SessionStore | null = null;
-  private resumeLocks: Map<string, Promise<Session | null>> = new Map();
   eventBus: EventBus;
   sessionFactory: SessionFactory;
   readonly lifecycleManager: LifecycleManager;
+  private agentSwitchHandler: AgentSwitchHandler;
+  public readonly instanceContext?: InstanceContext;
+  readonly menuRegistry = new MenuRegistry();
+  readonly assistantRegistry = new AssistantRegistry();
+  assistantManager!: AssistantManager;
 
   // --- Lazy getters: resolve from ServiceRegistry (populated by plugins during boot) ---
 
@@ -71,13 +83,18 @@ export class OpenACPCore {
     return this.getService<ContextManager>('context');
   }
 
-  constructor(configManager: ConfigManager) {
+  constructor(configManager: ConfigManager, ctx?: InstanceContext) {
     this.configManager = configManager;
+    this.instanceContext = ctx;
     const config = configManager.get();
-    this.agentCatalog = new AgentCatalog();
+    this.agentCatalog = new AgentCatalog(
+      ctx ? new AgentStore(ctx.paths.agents) : undefined,
+      ctx?.paths.registryCache,
+      ctx?.paths.agentsDir,
+    );
     this.agentCatalog.load();
     this.agentManager = new AgentManager(this.agentCatalog);
-    const storePath = path.join(os.homedir(), ".openacp", "sessions.json");
+    const storePath = ctx?.paths.sessions ?? path.join(os.homedir(), ".openacp", "sessions.json");
     this.sessionStore = new JsonFileSessionStore(
       storePath,
       config.sessionStore.ttlDays,
@@ -94,6 +111,7 @@ export class OpenACPCore {
       this.sessionManager,
       () => this.speechService,
       this.eventBus,
+      ctx?.root,
     );
 
     // Initialize plugin lifecycle manager (before setting middlewareChain on factory)
@@ -105,13 +123,34 @@ export class OpenACPCore {
       sessions: this.sessionManager,
       config: this.configManager,
       core: this,
-      storagePath: path.join(os.homedir(), ".openacp", "plugins", "data"),
+      storagePath: ctx?.paths.pluginsData ?? path.join(os.homedir(), ".openacp", "plugins", "data"),
+      instanceRoot: ctx?.root,
       log: createChildLogger({ module: "plugin" }),
     });
 
     // Wire middleware chain to session factory and session manager
     this.sessionFactory.middlewareChain = this.lifecycleManager.middlewareChain;
     this.sessionManager.middlewareChain = this.lifecycleManager.middlewareChain;
+
+    // Wire lazy resume dependencies
+    this.sessionFactory.sessionStore = this.sessionStore;
+    this.sessionFactory.adapters = this.adapters;
+    this.sessionFactory.createFullSession = (params) => this.createSession(params);
+    this.sessionFactory.configManager = this.configManager;
+    this.sessionFactory.agentCatalog = this.agentCatalog;
+    this.sessionFactory.getContextManager = () => this.lifecycleManager.serviceRegistry.get<ContextManager>('context');
+
+    this.agentSwitchHandler = new AgentSwitchHandler({
+      sessionManager: this.sessionManager,
+      agentManager: this.agentManager,
+      configManager: this.configManager,
+      eventBus: this.eventBus,
+      adapters: this.adapters,
+      bridges: this.bridges,
+      createBridge: (session, adapter) => this.createBridge(session, adapter),
+      getMiddlewareChain: () => this.lifecycleManager?.middlewareChain,
+      getService: <T>(name: string) => this.lifecycleManager.serviceRegistry.get<T>(name),
+    });
 
     // Hot-reload: handle config changes that need side effects
     this.configManager.on(
@@ -136,6 +175,27 @@ export class OpenACPCore {
         }
       },
     );
+
+    // Register core menu items
+    registerCoreMenuItems(this.menuRegistry);
+
+    // Set instance root for assistant CLI guidelines
+    if (ctx?.root) {
+      this.assistantRegistry.setInstanceRoot(path.dirname(ctx.root));
+    }
+
+    // Register core assistant sections
+    this.assistantRegistry.register(createSessionsSection(this));
+    this.assistantRegistry.register(createAgentsSection(this as any));
+    this.assistantRegistry.register(createConfigSection(this as any));
+    this.assistantRegistry.register(createSystemSection());
+
+    // Create assistant manager
+    this.assistantManager = new AssistantManager(this as any, this.assistantRegistry);
+
+    // Register registries as services for plugin access
+    this.lifecycleManager.serviceRegistry.register('menu-registry', this.menuRegistry, 'core');
+    this.lifecycleManager.serviceRegistry.register('assistant-registry', this.assistantRegistry, 'core');
   }
 
   get tunnelService(): TunnelService | undefined {
@@ -155,8 +215,19 @@ export class OpenACPCore {
     this.agentCatalog.refreshRegistryIfStale().catch((err) => {
       log.warn({ err }, "Background registry refresh failed");
     });
-    for (const adapter of this.adapters.values()) {
-      await adapter.start();
+    const failures: Array<{ name: string; error: unknown }> = [];
+    for (const [name, adapter] of this.adapters.entries()) {
+      try {
+        await adapter.start();
+      } catch (err) {
+        log.error({ err, adapter: name }, `Adapter "${name}" failed to start`);
+        failures.push({ name, error: err });
+      }
+    }
+    if (failures.length > 0 && failures.length === this.adapters.size) {
+      throw new Error(
+        `All adapters failed to start: ${failures.map((f) => f.name).join(", ")}`,
+      );
     }
   }
 
@@ -186,7 +257,7 @@ export class OpenACPCore {
 
   // --- Archive ---
 
-  async archiveSession(sessionId: string): Promise<{ ok: true; newThreadId: string } | { ok: false; error: string }> {
+  async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const session = this.sessionManager.getSession(sessionId);
     if (!session) return { ok: false, error: "Session not found (must be in memory)" };
 
@@ -200,26 +271,13 @@ export class OpenACPCore {
     if (!adapter.archiveSessionTopic) return { ok: false, error: "Adapter does not support topic archiving" };
 
     try {
-      // archiveSessionTopic handles: cleanup trackers → delete old topic → create new topic
-      const newThreadId = await adapter.archiveSessionTopic(session.id);
+      // archiveSessionTopic handles: cleanup trackers → delete topic
+      await adapter.archiveSessionTopic(session.id);
 
-      // Rewire session to new topic
-      session.threadId = newThreadId;
+      // Cancel session — stops agent, removes from active sessions, marks record as cancelled
+      await this.sessionManager.cancelSession(sessionId);
 
-      // Update session store with new topic ID (best-effort — topic is already recreated)
-      try {
-        const platform: Record<string, unknown> = {};
-        if (session.channelId === "telegram") {
-          platform.topicId = Number(newThreadId);
-        } else {
-          platform.threadId = newThreadId;
-        }
-        await this.sessionManager.patchRecord(sessionId, { platform });
-      } catch (patchErr) {
-        log.warn({ err: patchErr, sessionId }, "Failed to update session record after archive — session will work but may not survive restart");
-      }
-
-      return { ok: true, newThreadId };
+      return { ok: true };
     } catch (err) {
       // Clear archiving flag on error
       session.archiving = false;
@@ -266,22 +324,21 @@ export class OpenACPCore {
       return;
     }
 
-    // Find session by thread
-    let session = this.sessionManager.getSessionByThread(
-      message.channelId,
-      message.threadId,
-    );
-
-    // Lazy resume: try to restore session from store
-    if (!session) {
-      session = (await this.lazyResume(message)) ?? undefined;
-    }
+    // Find session by thread or lazy resume
+    let session = await this.sessionFactory.getOrResume(message.channelId, message.threadId);
 
     if (!session) {
       log.warn(
         { channelId: message.channelId, threadId: message.threadId },
         "No session found for thread (in-memory miss + lazy resume returned null)",
       );
+      const adapter = this.adapters.get(message.channelId);
+      if (adapter) {
+        await adapter.sendMessage(message.threadId, {
+          type: "error",
+          text: "⚠️ No active session in this topic. Use /new to start one.",
+        });
+      }
       return;
     }
 
@@ -324,21 +381,9 @@ export class OpenACPCore {
       session.threadId = threadId;
     }
 
-    // 5. Connect SessionBridge
-    if (adapter) {
-      const bridge = this.createBridge(session, adapter);
-      bridge.connect();
-    }
-
-    // 5b-5c. Wire usage tracking and tunnel cleanup
-    this.sessionFactory.wireSideEffects(session, {
-      eventBus: this.eventBus,
-      notificationManager: this.notificationManager,
-      tunnelService: this._tunnelService,
-    });
-
-    // 6. Persist initial record
-    // Preserve existing platform data (e.g. topicId) when resuming an existing session
+    // 5. Persist initial record BEFORE bridge.connect() so that:
+    //    - Lazy resume can find the record by threadId
+    //    - sendSkillCommands/renameSessionThread have threadId available
     const existingRecord = this.sessionStore?.get(session.id);
     const platform: Record<string, unknown> = {
       ...(existingRecord?.platform ?? {}),
@@ -361,6 +406,56 @@ export class OpenACPCore {
       lastActiveAt: new Date().toISOString(),
       name: session.name,
       platform,
+      firstAgent: session.firstAgent,
+      currentPromptCount: session.promptCount,
+      agentSwitchHistory: session.agentSwitchHistory,
+      // Cache ACP state for display before agent reconnects on lazy resume
+      acpState: session.toAcpStateSnapshot(),
+    });
+
+    // 6. Connect SessionBridge — agent events can now fire with threadId available
+    if (adapter) {
+      const bridge = this.createBridge(session, adapter);
+      bridge.connect();
+      // Flush any skill commands that arrived before threadId was set (safety net)
+      adapter.flushPendingSkillCommands?.(session.id).catch((err) => {
+        log.warn({ err, sessionId: session.id }, "Failed to flush pending skill commands");
+      });
+      // Signal that thread is ready — all listeners (adapters, plugins, etc.) can react
+      if (params.createThread && session.threadId) {
+        this.eventBus.emit("session:threadReady", {
+          sessionId: session.id,
+          channelId: params.channelId,
+          threadId: session.threadId,
+        });
+      }
+    }
+
+    // 6b. Headless sessions (no adapter): auto-approve safe permissions so agents don't hang.
+    // Permissions without an explicit allow option are NOT auto-approved — they will time out.
+    if (!adapter) {
+      session.agentInstance.onPermissionRequest = async (permRequest) => {
+        const allowOption = permRequest.options.find((o) => o.isAllow);
+        if (!allowOption) {
+          log.warn(
+            { sessionId: session.id, permissionId: permRequest.id, description: permRequest.description },
+            "Headless session has no allow option for permission request — skipping auto-approve, will time out",
+          );
+          return new Promise<string>(() => {}); // never resolves; gate will time out
+        }
+        log.warn(
+          { sessionId: session.id, permissionId: permRequest.id, option: allowOption.id },
+          `Auto-approving permission "${permRequest.description}" for headless session — no adapter connected`,
+        );
+        return allowOption.id;
+      };
+    }
+
+    // 6c. Wire usage tracking and tunnel cleanup
+    this.sessionFactory.wireSideEffects(session, {
+      eventBus: this.eventBus,
+      notificationManager: this.notificationManager,
+      tunnelService: this._tunnelService,
     });
 
     log.info(
@@ -376,20 +471,7 @@ export class OpenACPCore {
     workspacePath?: string,
     options?: { createThread?: boolean },
   ): Promise<Session> {
-    const config = this.configManager.get();
-    const resolvedAgent = agentName || config.defaultAgent;
-    log.info({ channelId, agentName: resolvedAgent }, "New session request");
-    const agentDef = this.agentCatalog.resolve(resolvedAgent);
-    const resolvedWorkspace = this.configManager.resolveWorkspace(
-      workspacePath || agentDef?.workingDirectory,
-    );
-
-    return this.createSession({
-      channelId,
-      agentName: resolvedAgent,
-      workingDirectory: resolvedWorkspace,
-      createThread: options?.createThread,
-    });
+    return this.sessionFactory.handleNewSession(channelId, agentName, workspacePath, options);
   }
 
   async adoptSession(
@@ -526,174 +608,49 @@ export class OpenACPCore {
     };
   }
 
-  async handleNewChat(
-    channelId: string,
-    currentThreadId: string,
-  ): Promise<Session | null> {
-    const currentSession = this.sessionManager.getSessionByThread(
-      channelId,
-      currentThreadId,
-    );
-
-    if (currentSession) {
-      return this.handleNewSession(
-        channelId,
-        currentSession.agentName,
-        currentSession.workingDirectory,
-      );
-    }
-
-    // Fallback: look up from store (e.g. after restart before lazy resume)
-    const record = this.sessionManager.getRecordByThread(
-      channelId,
-      currentThreadId,
-    );
-    if (!record || record.status === "cancelled" || record.status === "error")
-      return null;
-
-    return this.handleNewSession(
-      channelId,
-      record.agentName,
-      record.workingDir,
-    );
+  async handleNewChat(channelId: string, currentThreadId: string): Promise<Session | null> {
+    return this.sessionFactory.handleNewChat(channelId, currentThreadId);
   }
 
   async createSessionWithContext(params: {
     channelId: string;
     agentName: string;
     workingDirectory: string;
-    contextQuery: ContextQuery;
-    contextOptions?: ContextOptions;
+    contextQuery: import("../plugins/context/context-provider.js").ContextQuery;
+    contextOptions?: import("../plugins/context/context-provider.js").ContextOptions;
     createThread?: boolean;
-  }): Promise<{ session: Session; contextResult: ContextResult | null }> {
-    let contextResult: ContextResult | null = null;
-    try {
-      contextResult = await this.contextManager.buildContext(
-        params.contextQuery,
-        params.contextOptions,
-      );
-    } catch (err) {
-      log.warn({ err }, "Context building failed, proceeding without context");
-    }
-
-    const session = await this.createSession({
-      channelId: params.channelId,
-      agentName: params.agentName,
-      workingDirectory: params.workingDirectory,
-      createThread: params.createThread,
-    });
-
-    if (contextResult) {
-      session.setContext(contextResult.markdown);
-    }
-
-    return { session, contextResult };
+  }): Promise<{ session: Session; contextResult: import("../plugins/context/context-provider.js").ContextResult | null }> {
+    return this.sessionFactory.createSessionWithContext(params);
   }
 
-  // --- Lazy Resume ---
+  // --- Agent Switch ---
 
-  /**
-   * Get active session by thread, or attempt lazy resume from store.
-   * Used by adapter command handlers that need a session but don't go through handleMessage().
-   */
+  async switchSessionAgent(sessionId: string, toAgent: string): Promise<{ resumed: boolean }> {
+    return this.agentSwitchHandler.switch(sessionId, toAgent);
+  }
+
   async getOrResumeSession(channelId: string, threadId: string): Promise<Session | null> {
-    const session = this.sessionManager.getSessionByThread(channelId, threadId);
-    if (session) return session;
-    return this.lazyResume({ channelId, threadId, userId: "", text: "" });
-  }
-
-  private async lazyResume(message: IncomingMessage): Promise<Session | null> {
-    const store = this.sessionStore;
-    if (!store) return null;
-
-    const lockKey = `${message.channelId}:${message.threadId}`;
-
-    // Check for existing resume in progress
-    const existing = this.resumeLocks.get(lockKey);
-    if (existing) return existing;
-
-    const record = store.findByPlatform(
-      message.channelId,
-      (p) => String(p.topicId) === message.threadId,
-    );
-    if (!record) {
-      log.debug(
-        { threadId: message.threadId, channelId: message.channelId },
-        "No session record found for thread",
-      );
-      return null;
-    }
-
-    // Don't resume errored or cancelled sessions
-    if (record.status === "error" || record.status === "cancelled") {
-      log.debug(
-        {
-          threadId: message.threadId,
-          sessionId: record.sessionId,
-          status: record.status,
-        },
-        "Skipping resume of error session",
-      );
-      return null;
-    }
-
-    log.info(
-      {
-        threadId: message.threadId,
-        sessionId: record.sessionId,
-        status: record.status,
-      },
-      "Lazy resume: found record, attempting resume",
-    );
-
-    const resumePromise = (async (): Promise<Session | null> => {
-      try {
-        const session = await this.createSession({
-          channelId: record.channelId,
-          agentName: record.agentName,
-          workingDirectory: record.workingDir,
-          resumeAgentSessionId: record.agentSessionId,
-          existingSessionId: record.sessionId,
-          initialName: record.name,
-          threadId: message.threadId,
-        });
-        session.activate();
-        session.dangerousMode = record.dangerousMode ?? false;
-
-        log.info(
-          { sessionId: session.id, threadId: message.threadId },
-          "Lazy resume successful",
-        );
-        return session;
-      } catch (err) {
-        log.error({ err, record }, "Lazy resume failed");
-        // Send error feedback to user instead of silent drop
-        const adapter = this.adapters.get(message.channelId);
-        if (adapter) {
-          try {
-            await adapter.sendMessage(message.threadId, {
-              type: "error",
-              text: `⚠️ Failed to resume session: ${err instanceof Error ? err.message : String(err)}`,
-            });
-          } catch {
-            /* best effort */
-          }
-        }
-        return null;
-      } finally {
-        this.resumeLocks.delete(lockKey);
-      }
-    })();
-
-    this.resumeLocks.set(lockKey, resumePromise);
-    return resumePromise;
+    return this.sessionFactory.getOrResume(channelId, threadId);
   }
 
   // --- Event Wiring ---
 
-  /** Create a SessionBridge for the given session and adapter */
+  /** Connect a session bridge for the given session (used by AssistantManager) */
+  connectSessionBridge(session: Session): void {
+    const adapter = this.adapters.get(session.channelId);
+    if (!adapter) return;
+    const bridge = this.createBridge(session, adapter);
+    bridge.connect();
+  }
+
+  /** Create a SessionBridge for the given session and adapter.
+   *  Disconnects any existing bridge for the same session first. */
   createBridge(session: Session, adapter: IChannelAdapter): SessionBridge {
-    return new SessionBridge(session, adapter, {
+    const existing = this.bridges.get(session.id);
+    if (existing) {
+      existing.disconnect();
+    }
+    const bridge = new SessionBridge(session, adapter, {
       messageTransformer: this.messageTransformer,
       notificationManager: this.notificationManager,
       sessionManager: this.sessionManager,
@@ -701,5 +658,7 @@ export class OpenACPCore {
       fileService: this.fileService,
       middlewareChain: this.lifecycleManager?.middlewareChain,
     });
+    this.bridges.set(session.id, bridge);
+    return bridge;
   }
 }
