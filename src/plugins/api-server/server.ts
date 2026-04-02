@@ -1,5 +1,4 @@
 import Fastify, { type FastifyInstance, type FastifyPluginAsync } from 'fastify';
-import fastifyCors from '@fastify/cors';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyRateLimit from '@fastify/rate-limit';
@@ -31,14 +30,6 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
   app.setSerializerCompiler(serializerCompiler);
 
   // Plugins
-  await app.register(fastifyCors, {
-    // Auth is token-based (Bearer header / ?token= query param), not cookies,
-    // so CORS restrictions provide no meaningful security here. Allow all origins
-    // so the API works through tunnels (Cloudflare, ngrok, etc.) and from Tauri.
-    origin: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    credentials: true,
-  });
   await app.register(fastifyRateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(fastifySwagger, {
     openapi: {
