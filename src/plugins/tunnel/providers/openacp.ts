@@ -145,6 +145,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
       }
 
       const timeout = setTimeout(() => {
+        log.info({ port }, 'cloudflared still running after startup window — assuming tunnel active')
         settle(resolve)
       }, STARTUP_TIMEOUT_MS)
 

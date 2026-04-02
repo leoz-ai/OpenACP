@@ -9,6 +9,9 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return { ...actual, existsSync: vi.fn(() => true) }
 })
+vi.mock('../../../core/agents/agent-dependencies.js', () => ({
+  commandExists: vi.fn(() => false),
+}))
 vi.mock('../providers/install-cloudflared.js', () => ({
   ensureCloudflared: vi.fn().mockResolvedValue('/mock/cloudflared'),
 }))
