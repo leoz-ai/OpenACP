@@ -1,10 +1,11 @@
 import type { Context } from 'grammy'
 import type { OpenACPCore } from '../../../core/index.js'
+import type { MenuRegistry } from '../../../core/menu-registry.js'
 import { handleAgents } from './agents.js'
 import { handleTopics } from './session.js'
 import { handleDoctor } from './doctor.js'
 import { handleUpdate, handleRestart } from './admin.js'
-import { handleHelp } from './menu.js'
+import { handleHelp, handleMenu } from './menu.js'
 
 /**
  * Commands that should be intercepted and handled by Telegram-specific
@@ -23,4 +24,8 @@ export const TELEGRAM_OVERRIDES: Record<
   update: (ctx, core) => handleUpdate(ctx, core),
   restart: (ctx, core) => handleRestart(ctx, core),
   help: (ctx) => handleHelp(ctx),
+  menu: (ctx, core) => {
+    const menuRegistry = core.lifecycleManager?.serviceRegistry?.get('menu-registry') as MenuRegistry | undefined
+    return handleMenu(ctx, menuRegistry)
+  },
 }

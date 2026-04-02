@@ -38,10 +38,10 @@ export function buildMenuKeyboard(menuRegistry?: MenuRegistry): InlineKeyboard {
   return kb
 }
 
-export async function handleMenu(ctx: Context): Promise<void> {
+export async function handleMenu(ctx: Context, menuRegistry?: MenuRegistry): Promise<void> {
   await ctx.reply(`<b>OpenACP Menu</b>\nChoose an action:`, {
     parse_mode: "HTML",
-    reply_markup: buildMenuKeyboard(),
+    reply_markup: buildMenuKeyboard(menuRegistry),
   });
 }
 
