@@ -255,6 +255,9 @@ export async function sessionRoutes(
       const changes: Record<string, unknown> = {};
 
       if (body.agentName !== undefined) {
+        if (session.promptRunning) {
+          await session.abortPrompt();
+        }
         const result = await deps.core.switchSessionAgent(sessionId, body.agentName);
         changes.agentName = body.agentName;
         changes.resumed = result.resumed;
