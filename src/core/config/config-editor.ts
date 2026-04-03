@@ -229,7 +229,7 @@ async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<vo
     const { createInstallContext } = await import('../plugin/install-context.js')
     const { getGlobalRoot } = await import('../instance/instance-context.js')
     const root = getGlobalRoot()
-    const basePath = path.join(root, 'plugins')
+    const basePath = path.join(root, 'plugins', 'data')
     const settingsManager = new SettingsManager(basePath)
     const ctx = createInstallContext({
       pluginName: plugin.name,
@@ -246,12 +246,20 @@ async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<vo
 // --- Edit: Channels (parent menu) ---
 
 async function editChannels(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  const tgEnabled = (config.channels?.telegram as Record<string, unknown>)?.enabled !== false && config.channels?.telegram
-  const dcEnabled = (config.channels?.discord as Record<string, unknown>)?.enabled !== false && config.channels?.discord
+  let tgConfigured = !!(config.channels?.telegram as Record<string, unknown> | undefined)
+  let dcConfigured = !!(config.channels?.discord as Record<string, unknown> | undefined)
+
+  if (settingsManager) {
+    const tgPs = await settingsManager.loadSettings('@openacp/telegram')
+    if (tgPs.botToken && tgPs.chatId) tgConfigured = true
+
+    const dcPs = await settingsManager.loadSettings('@openacp/adapter-discord')
+    if (dcPs.guildId || dcPs.token) dcConfigured = true
+  }
 
   console.log(header('Channels'))
-  console.log(`  Telegram : ${tgEnabled ? ok('configured') : dim('not configured')}`)
-  console.log(`  Discord  : ${dcEnabled ? ok('configured') : dim('not configured')}`)
+  console.log(`  Telegram : ${tgConfigured ? ok('configured') : dim('not configured')}`)
+  console.log(`  Discord  : ${dcConfigured ? ok('configured') : dim('not configured')}`)
   console.log('')
 
   while (true) {

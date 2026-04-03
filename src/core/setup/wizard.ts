@@ -582,7 +582,7 @@ async function selectSection(hasSelection: boolean): Promise<ReconfigureSection>
   ) as ReconfigureSection;
 }
 
-export async function runReconfigure(configManager: ConfigManager): Promise<void> {
+export async function runReconfigure(configManager: ConfigManager, settingsManager?: SettingsManager): Promise<void> {
   await printStartBanner();
   clack.intro("OpenACP — Reconfigure");
 
@@ -591,7 +591,7 @@ export async function runReconfigure(configManager: ConfigManager): Promise<void
     let config = configManager.get();
 
     // Show current config summary
-    clack.note(summarizeConfig(config), "Current configuration");
+    clack.note(await summarizeConfig(config, settingsManager), "Current configuration");
 
     let ranSection = false;
 
@@ -601,7 +601,7 @@ export async function runReconfigure(configManager: ConfigManager): Promise<void
       ranSection = true;
 
       if (choice === "channels") {
-        const result = await configureChannels(config);
+        const result = await configureChannels(config, settingsManager);
         if (result.changed) {
           // IMPORTANT: Use writeNew() instead of save() because save() uses deepMerge
           // which cannot delete keys. Channel deletion (delete next.channels.telegram)

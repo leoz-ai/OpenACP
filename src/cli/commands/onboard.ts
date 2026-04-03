@@ -17,7 +17,7 @@ export async function cmdOnboard(instanceRoot?: string): Promise<void> {
 
   if (await cm.exists()) {
     const { runReconfigure } = await import('../../core/setup/index.js')
-    await runReconfigure(cm)
+    await runReconfigure(cm, settingsManager)
   } else {
     const { runSetup } = await import('../../core/setup/index.js')
     await runSetup(cm, { skipRunMode: true, settingsManager, pluginRegistry, instanceRoot: OPENACP_DIR })

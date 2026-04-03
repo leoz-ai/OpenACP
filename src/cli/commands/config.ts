@@ -134,7 +134,7 @@ the API for live updates. When stopped, edits config file directly.
   }
 
   const root = instanceRoot ?? getGlobalRoot()
-  const settingsManager = new SettingsManager(pathMod.join(root, 'plugins'))
+  const settingsManager = new SettingsManager(pathMod.join(root, 'plugins', 'data'))
 
   const port = readApiPort(undefined, instanceRoot)
   if (port !== null) {
