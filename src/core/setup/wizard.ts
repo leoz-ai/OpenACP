@@ -431,7 +431,7 @@ export async function runSetup(
       channels: {},
       agents: {},
       defaultAgent,
-      workspace,
+      workspace: { ...workspace, security: { allowedPaths: [], envWhitelist: [] } },
       security,
       logging: {
         level: "info",

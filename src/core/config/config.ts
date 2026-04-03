@@ -112,6 +112,12 @@ export const ConfigSchema = z.object({
   workspace: z
     .object({
       baseDir: z.string().default("~/openacp-workspace"),
+      security: z
+        .object({
+          allowedPaths: z.array(z.string()).default([]),
+          envWhitelist: z.array(z.string()).default([]),
+        })
+        .default({}),
     })
     .default({}),
   security: z
@@ -319,14 +325,17 @@ export class ConfigManager extends EventEmitter {
       fs.mkdirSync(resolved, { recursive: true });
       return resolved;
     }
-    if (input.startsWith("/") || input.startsWith("~")) {
-      const resolved = expandHome(input);
-      fs.mkdirSync(resolved, { recursive: true });
-      return resolved;
+    // Named workspace only — no absolute paths, no traversal
+    const name = input.replace(/[^a-zA-Z0-9_-]/g, "");
+    if (name !== input) {
+      throw new Error(
+        `Invalid workspace name: "${input}". Only alphanumeric characters, hyphens, and underscores are allowed.`,
+      );
     }
-    // Named workspace → lowercase, under baseDir
-    const name = input.toLowerCase();
-    const resolved = path.join(expandHome(this.config.workspace.baseDir), name);
+    const resolved = path.join(
+      expandHome(this.config.workspace.baseDir),
+      name.toLowerCase(),
+    );
     fs.mkdirSync(resolved, { recursive: true });
     return resolved;
   }
