@@ -325,7 +325,22 @@ export class ConfigManager extends EventEmitter {
       fs.mkdirSync(resolved, { recursive: true });
       return resolved;
     }
-    // Named workspace only — no absolute paths, no traversal
+
+    // Absolute or tilde paths: must resolve under baseDir
+    if (input.startsWith("/") || input.startsWith("~")) {
+      const resolved = expandHome(input);
+      const base = expandHome(this.config.workspace.baseDir);
+      // Allow baseDir itself and paths under it
+      if (resolved === base || resolved.startsWith(base + path.sep)) {
+        fs.mkdirSync(resolved, { recursive: true });
+        return resolved;
+      }
+      throw new Error(
+        `Workspace path "${input}" is outside base directory "${this.config.workspace.baseDir}".`,
+      );
+    }
+
+    // Named workspace: alphanumeric, hyphens, underscores only
     const name = input.replace(/[^a-zA-Z0-9_-]/g, "");
     if (name !== input) {
       throw new Error(

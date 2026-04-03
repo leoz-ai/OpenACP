@@ -1,6 +1,10 @@
 export const DEFAULT_ENV_WHITELIST = [
   "PATH", "HOME", "SHELL", "LANG", "LC_*", "TERM", "USER", "LOGNAME",
   "TMPDIR", "XDG_*", "NODE_ENV", "EDITOR",
+  // Git
+  "GIT_*", "SSH_AUTH_SOCK", "SSH_AGENT_PID",
+  // Terminal rendering
+  "COLORTERM", "FORCE_COLOR", "NO_COLOR", "TERM_PROGRAM", "HOSTNAME",
 ];
 
 function matchesPattern(key: string, pattern: string): boolean {

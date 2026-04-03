@@ -170,7 +170,7 @@ export function renderFileViewer(entry: ViewerEntry): string {
           const rawHtml = marked.parse(content)
           previewEl.innerHTML = sanitizeHtml(rawHtml)
         } else {
-          previewEl.innerHTML = content.replace(/\\n/g, '<br>');
+          previewEl.innerHTML = sanitizeHtml(content.replace(/\\n/g, '<br>'));
         }
         previewEl.style.color = isDark ? '#d4d4d4' : '#1e1e1e';
         wrapperEl.style.background = isDark ? '#1e1e1e' : '#ffffff';

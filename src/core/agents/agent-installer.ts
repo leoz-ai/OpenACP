@@ -24,7 +24,10 @@ export function verifyChecksum(buffer: Buffer, expectedHash: string): void {
 
 export function validateTarContents(entries: string[], destDir: string): void {
   for (const entry of entries) {
-    if (entry.includes("..")) {
+    // Check for path traversal segments, not just substring — avoids false positives
+    // on filenames like "setup..sh" or "..config" that are not traversal attacks.
+    const segments = entry.split("/");
+    if (segments.includes("..")) {
       throw new Error(`Archive contains unsafe path traversal: ${entry}`);
     }
     if (entry.startsWith("/")) {

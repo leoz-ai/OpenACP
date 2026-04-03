@@ -142,8 +142,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
     // `--url` with `--token` is a documented cloudflared shorthand: it sets up a
     // simple HTTP proxy to the given local service without requiring ingress rules
     // to be configured on the Cloudflare dashboard side.
-    const args = ['tunnel', 'run', '--url', `http://localhost:${port}`]
-    const providerEnv = { TUNNEL_TOKEN: token };
+    const args = ['tunnel', 'run', '--url', `http://localhost:${port}`, '--token', token]
 
     return new Promise<void>((resolve, reject) => {
       let settled = false
@@ -158,7 +157,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
 
       let child: ChildProcess
       try {
-        child = spawn(binaryPath, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...providerEnv } })
+        child = spawn(binaryPath, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
       } catch (err) {
         clearTimeout(timeout)
         settle(() => reject(new Error(`Failed to start cloudflared at ${binaryPath}`)))

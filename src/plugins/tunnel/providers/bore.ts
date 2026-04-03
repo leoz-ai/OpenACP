@@ -26,9 +26,8 @@ export class BoreTunnelProvider implements TunnelProvider {
     if (this.options.port) {
       args.push('--port', String(this.options.port))
     }
-    const providerEnv: Record<string, string> = {};
     if (this.options.secret) {
-      providerEnv.BORE_SECRET = String(this.options.secret);
+      args.push('--secret', String(this.options.secret))
     }
 
     return new Promise<string>((resolve, reject) => {
@@ -41,7 +40,7 @@ export class BoreTunnelProvider implements TunnelProvider {
       }, 30_000)
 
       try {
-        this.child = spawn('bore', args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...providerEnv } })
+        this.child = spawn('bore', args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
       } catch {
         clearTimeout(timeout)
         settle(() => reject(new Error(

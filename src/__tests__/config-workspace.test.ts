@@ -58,15 +58,31 @@ describe('ConfigManager.resolveWorkspace', () => {
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('rejects absolute path', async () => {
+  it('rejects absolute path outside baseDir', async () => {
     await configManager.load()
-    const absPath = path.join(tmpDir, 'custom-workspace')
-    expect(() => configManager.resolveWorkspace(absPath)).toThrow(/Invalid workspace name/)
+    expect(() => configManager.resolveWorkspace('/tmp/outside-workspace')).toThrow(/outside base directory/)
   })
 
-  it('rejects tilde path', async () => {
+  it('rejects tilde path outside baseDir', async () => {
     await configManager.load()
-    expect(() => configManager.resolveWorkspace('~/test-workspace-openacp')).toThrow(/Invalid workspace name/)
+    // Use a tilde path that resolves outside the tmpDir-based baseDir
+    expect(() => configManager.resolveWorkspace('~/outside-workspace-openacp-test')).toThrow(/outside base directory/)
+  })
+
+  it('allows absolute path under baseDir', async () => {
+    await configManager.load()
+    const underBase = path.join(tmpDir, 'workspace', 'sub-project')
+    const result = configManager.resolveWorkspace(underBase)
+    expect(result).toBe(underBase)
+    expect(fs.existsSync(result)).toBe(true)
+  })
+
+  it('allows baseDir itself as absolute path', async () => {
+    await configManager.load()
+    const base = path.join(tmpDir, 'workspace')
+    const result = configManager.resolveWorkspace(base)
+    expect(result).toBe(base)
+    expect(fs.existsSync(result)).toBe(true)
   })
 
   it('resolves named workspace under baseDir', async () => {

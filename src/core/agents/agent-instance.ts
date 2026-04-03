@@ -194,7 +194,10 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     const ignorePatterns = PathGuard.loadIgnoreFile(workingDirectory);
     instance.pathGuard = new PathGuard({
       cwd: workingDirectory,
-      allowedPaths: [], // will be wired to config in future
+      // allowedPaths is wired from workspace.security.allowedPaths config;
+      // spawnSubprocess would need to receive a SecurityConfig param to use it.
+      // Tracked as follow-up: pass workspace security config through spawn/resume call chain.
+      allowedPaths: [],
       ignorePatterns,
     });
 
@@ -204,6 +207,8 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       {
         stdio: ["pipe", "pipe", "pipe"],
         cwd: workingDirectory,
+        // envWhitelist from workspace.security.envWhitelist config would extend DEFAULT_ENV_WHITELIST.
+        // Tracked as follow-up: pass workspace security config through spawn/resume call chain.
         env: filterEnv(process.env as Record<string, string>, agentDef.env),
       },
     );
@@ -578,7 +583,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         // Security: validate path against workspace boundary
         const pathCheck = self.pathGuard.validatePath(p.path, "read");
         if (!pathCheck.allowed) {
-          return { content: `[Access denied] ${pathCheck.reason}` };
+          throw new Error(`[Access denied] ${pathCheck.reason}`);
         }
         // Hook: fs:beforeRead — modifiable, can block
         if (self.middlewareChain) {

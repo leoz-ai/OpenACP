@@ -197,7 +197,7 @@ function createTunnelPlugin(): OpenACPPlugin {
       // Register viewer routes in API server (replaces Hono viewer server)
       if (apiServer) {
         const viewerRoutes = createViewerRoutes(tunnelSvc.getStore())
-        apiServer.registerPlugin('/', viewerRoutes)  // auth defaults to true
+        apiServer.registerPlugin('/', viewerRoutes, { auth: false })
       } else {
         ctx.log.warn('API server not available — viewer links will be unavailable')
       }
