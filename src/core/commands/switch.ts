@@ -36,6 +36,7 @@ export function registerSwitchCommands(registry: CommandRegistry, _core: unknown
 
       // /switch <agentName> → direct switch
       if (raw) {
+        const droppedCount = session.queueDepth
         if (session.promptRunning) {
           await session.abortPrompt()
         }
@@ -43,7 +44,8 @@ export function registerSwitchCommands(registry: CommandRegistry, _core: unknown
         try {
           const { resumed } = await core.switchSessionAgent(session.id, raw)
           const status = resumed ? 'resumed' : 'new session'
-          return { type: 'text', text: `✅ Switched to ${raw} (${status})` } satisfies CommandResponse
+          const droppedNote = droppedCount > 0 ? ` (${droppedCount} queued prompt${droppedCount > 1 ? 's' : ''} cleared)` : ''
+          return { type: 'text', text: `✅ Switched to ${raw} (${status})${droppedNote}` } satisfies CommandResponse
         } catch (err: any) {
           return { type: 'error', message: `Failed to switch agent: ${err.message || err}` } satisfies CommandResponse
         }
