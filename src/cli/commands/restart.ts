@@ -47,12 +47,13 @@ Stops the running daemon (if any) and starts a new one.
   const pidPath = getPidPath(root)
 
   // Stop existing daemon (ignore errors — it may not be running)
+  console.log('Stopping...')
   const stopResult = await stopDaemon(pidPath, root)
   if (stopResult.stopped) {
     console.log(`Stopped daemon (was PID ${stopResult.pid})`)
   }
 
-  const cm = new ConfigManager()
+  const cm = new ConfigManager(path.join(root, 'config.json'))
   if (!(await cm.exists())) {
     if (json) jsonError(ErrorCodes.CONFIG_NOT_FOUND, 'No config found. Run "openacp" first to set up.')
     console.error('No config found. Run "openacp" first to set up.')
@@ -62,8 +63,13 @@ Stops the running daemon (if any) and starts a new one.
   await cm.load()
   const config = cm.get()
 
-  // Determine mode: explicit flag > config; --json always uses daemon mode
-  const useForeground = json ? false : (forceForeground || (!forceDaemon && config.runMode !== 'daemon'))
+  // Determine mode: explicit flag > was-running-as-daemon > config
+  // If a daemon was running (PID exists), restart as daemon to preserve the current mode.
+  // `openacp start` always starts as daemon regardless of config.runMode, so we must not
+  // use config.runMode alone — otherwise a daemon started via `openacp start` with
+  // runMode:'foreground' would incorrectly restart in foreground.
+  const hadDaemon = stopResult.pid !== undefined
+  const useForeground = json ? false : (forceForeground || (!forceDaemon && !hadDaemon && config.runMode !== 'daemon'))
 
   if (useForeground) {
     markRunning(root)
