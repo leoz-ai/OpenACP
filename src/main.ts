@@ -442,7 +442,11 @@ export async function startServer(opts?: StartServerOptions) {
       const tunnelErr = tunnelSvc.getStartError()
       const url = tunnelSvc.getPublicUrl()
       const isPublic = url && !url.startsWith('http://localhost') && !url.startsWith('http://127.0.0.1')
-      if (tunnelErr) {
+      if (tunnelErr && isPublic) {
+        // Fallback tunnel is active (e.g. OpenACP unavailable → Cloudflare)
+        warn(`Primary tunnel failed — using fallback: ${tunnelErr}`)
+        tunnelUrl = url
+      } else if (tunnelErr) {
         warn(`Tunnel failed (${tunnelErr}) — retrying in background`)
       } else if (isPublic) {
         ok('Tunnel ready')
