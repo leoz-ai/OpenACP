@@ -630,6 +630,22 @@ EOF
 
 # ─── Section 5: Node.js Detection & Installation ──────────────────────────────
 
+ensure_xcode_clt() {
+    if [[ "$OS" != "macos" ]]; then
+        return 0
+    fi
+    if xcode-select -p &>/dev/null 2>&1; then
+        return 0
+    fi
+    ui_info "Xcode Command Line Tools not found — installing..."
+    xcode-select --install 2>/dev/null || true
+    ui_info "A dialog appeared — click Install and wait for it to complete"
+    until xcode-select -p &>/dev/null 2>&1; do
+        sleep 5
+    done
+    ui_success "Xcode Command Line Tools installed"
+}
+
 node_major_version() {
     if ! command -v node &>/dev/null; then
         return 1
@@ -727,6 +743,7 @@ print_nvm_upgrade_hint() {
 
 install_node() {
     if [[ "$OS" == "macos" ]]; then
+        ensure_xcode_clt
         # Install via nvm (no sudo required)
         if [[ -z "${NVM_DIR:-}" ]] && [[ ! -s "${HOME}/.nvm/nvm.sh" ]] && [[ ! -s "${XDG_CONFIG_HOME:-}/nvm/nvm.sh" ]]; then
             ui_info "Installing nvm (Node Version Manager)"
