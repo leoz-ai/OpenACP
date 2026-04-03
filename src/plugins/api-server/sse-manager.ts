@@ -50,7 +50,7 @@ export class SSEManager {
       this.boundHandlers.push({ event: eventName, handler });
     }
 
-    // Health heartbeat every 30s
+    // Health heartbeat every 15s
     this.healthInterval = setInterval(() => {
       const mem = process.memoryUsage();
       const stats = this.getSessionStats();

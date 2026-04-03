@@ -456,8 +456,8 @@ export async function startServer(opts?: StartServerOptions) {
       ok(`${name.charAt(0).toUpperCase() + name.slice(1)} connected`)
     }
 
-    const apiSvc = core.lifecycleManager.serviceRegistry.get('api-server')
-    const apiPort = config.api?.port ?? 21420
+    const apiSvc = core.lifecycleManager.serviceRegistry.get<import('./plugins/api-server/service.js').ApiServerService>('api-server')
+    const apiPort = apiSvc ? apiSvc.getPort() : (config.api?.port ?? 21420)
     if (apiSvc) ok(`API server on port ${apiPort}`)
 
     // Links as plain text — easily copyable

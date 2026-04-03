@@ -74,7 +74,7 @@ export function renderFileViewer(entry: ViewerEntry): string {
     <span>OpenACP Viewer (read-only)</span>
   </div>
 
-  ${lang === 'markdown' ? '<script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/marked.min.js"></script><script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>' : ''}
+  ${lang === 'markdown' ? '<script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/marked.min.js"></script>' : ''}
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
   <script>
     function sanitizeHtml(html) {
