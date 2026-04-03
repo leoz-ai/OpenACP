@@ -195,8 +195,12 @@ export async function sessionRoutes(
       }
 
       const body = PromptBodySchema.parse(request.body);
+      const { sourceAdapterId, responseAdapterId } = request.body as any;
 
-      await session.enqueuePrompt(body.prompt);
+      await session.enqueuePrompt(body.prompt, undefined, {
+        sourceAdapterId: sourceAdapterId ?? 'api',
+        responseAdapterId: responseAdapterId,
+      });
       return {
         ok: true,
         sessionId,
@@ -418,6 +422,40 @@ export async function sessionRoutes(
         return result;
       } else {
         return reply.status(400).send(result);
+      }
+    },
+  );
+
+  // POST /sessions/:sessionId/attach — attach an adapter to a session
+  app.post<{ Params: { sessionId: string }; Body: { adapterId: string } }>(
+    '/:sessionId/attach',
+    { preHandler: requireScopes('sessions:write') },
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const { adapterId } = (request.body ?? {}) as { adapterId?: string };
+      if (!adapterId) return reply.code(400).send({ error: 'adapterId is required' });
+      try {
+        const result = await (deps.core as any).attachAdapter(sessionId, adapterId);
+        return { ok: true, threadId: result.threadId };
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  // POST /sessions/:sessionId/detach — detach an adapter from a session
+  app.post<{ Params: { sessionId: string }; Body: { adapterId: string } }>(
+    '/:sessionId/detach',
+    { preHandler: requireScopes('sessions:write') },
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const { adapterId } = (request.body ?? {}) as { adapterId?: string };
+      if (!adapterId) return reply.code(400).send({ error: 'adapterId is required' });
+      try {
+        await (deps.core as any).detachAdapter(sessionId, adapterId);
+        return { ok: true };
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
       }
     },
   );
