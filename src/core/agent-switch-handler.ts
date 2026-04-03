@@ -83,10 +83,12 @@ export class AgentSwitchHandler {
     });
 
     // 3. Disconnect bridge — remove from map first to prevent stale references
-    const hadBridge = bridges.has(sessionId);
-    const bridge = bridges.get(sessionId);
+    // The primary adapter bridge key is "channelId:sessionId"
+    const primaryKey = `${session.channelId}:${sessionId}`;
+    const hadBridge = bridges.has(primaryKey);
+    const bridge = bridges.get(primaryKey);
     if (bridge) {
-      bridges.delete(sessionId);
+      bridges.delete(primaryKey);
       bridge.disconnect();
     }
 
