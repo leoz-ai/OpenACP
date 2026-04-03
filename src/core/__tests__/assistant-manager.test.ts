@@ -10,7 +10,10 @@ function mockCore() {
     destroy: vi.fn().mockResolvedValue(undefined),
   };
   return {
-    createSession: vi.fn().mockResolvedValue(session),
+    createSession: vi.fn().mockImplementation(async (params) => {
+      if (params.threadId) session.threadId = params.threadId;
+      return session;
+    }),
     connectSessionBridge: vi.fn(),
     configManager: {
       get: () => ({ defaultAgent: "claude-code" }),

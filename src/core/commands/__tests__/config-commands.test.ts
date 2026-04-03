@@ -587,10 +587,17 @@ describe('Config Commands', () => {
         expect(isPermissionBypass('auto_accept')).toBe(true)
       })
 
+      it('detects "yolo" keyword', async () => {
+        const { isPermissionBypass } = await loadModule()
+        expect(isPermissionBypass('yolo')).toBe(true)
+        expect(isPermissionBypass('yolo_mode')).toBe(true)
+      })
+
       it('is case-insensitive', async () => {
         const { isPermissionBypass } = await loadModule()
         expect(isPermissionBypass('BypassPermissions')).toBe(true)
         expect(isPermissionBypass('DANGEROUS')).toBe(true)
+        expect(isPermissionBypass('YOLO')).toBe(true)
       })
 
       it('returns false for non-bypass values', async () => {

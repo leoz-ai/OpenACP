@@ -191,17 +191,7 @@ export class SessionFactory {
     }
 
     // 3. Propagate ACP state from agent session response
-    const resp = agentInstance.initialSessionResponse;
-    if (resp) {
-      if (resp.configOptions) {
-        session.setInitialConfigOptions(resp.configOptions as import("../types.js").ConfigOption[]);
-      }
-      if (agentInstance.agentCapabilities) {
-        session.setAgentCapabilities(agentInstance.agentCapabilities);
-      }
-    } else if (agentInstance.agentCapabilities) {
-      session.setAgentCapabilities(agentInstance.agentCapabilities);
-    }
+    session.applySpawnResponse(agentInstance.initialSessionResponse, agentInstance.agentCapabilities);
 
     // 4. Register in SessionManager
     this.sessionManager.registerSession(session);

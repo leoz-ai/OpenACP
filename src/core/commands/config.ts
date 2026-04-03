@@ -2,6 +2,9 @@ import type { CommandRegistry } from '../command-registry.js'
 import type { CommandResponse } from '../plugin/types.js'
 import type { OpenACPCore } from '../core.js'
 import type { ConfigOption, ConfigSelectChoice, ConfigSelectGroup } from '../types.js'
+import { createChildLogger } from '../utils/log.js'
+
+const log = createChildLogger({ module: 'commands/config' })
 
 // ── Bypass keyword detection ─────────────────────────────────────────
 
@@ -135,14 +138,24 @@ function registerCategoryCommand(
           configOption.id,
           { type: 'select', value: raw },
         )
-        if (response.configOptions) {
+        if (response.configOptions && response.configOptions.length > 0) {
           // Skip middleware hook on update — already validated above
           session.configOptions = response.configOptions as ConfigOption[]
+        } else {
+          // Legacy agents (e.g. Gemini) fall back to setSessionMode/setSessionModel
+          // and return empty configOptions — update currentValue optimistically.
+          session.configOptions = session.configOptions.map((o): ConfigOption =>
+            o.id === configOption.id && o.type === 'select' ? { ...o, currentValue: raw } : o
+          )
         }
         core.eventBus.emit('session:configChanged', { sessionId: session.id })
         return { type: 'text', text: labels.successMsg(match.name, configOption.name) } satisfies CommandResponse
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
+        log.error({ err, commandName, configId: configOption.id }, 'setConfigOption failed')
+        const msg = err instanceof Error ? err.message
+          : typeof err === 'object' && err !== null && typeof (err as any).message === 'string'
+            ? (err as any).message
+            : String(err)
         return { type: 'error', message: `Could not change ${commandName}: ${msg}` } satisfies CommandResponse
       }
     },
@@ -223,8 +236,12 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
             modeConfig.id,
             { type: 'select', value: targetValue },
           )
-          if (response.configOptions) {
+          if (response.configOptions && response.configOptions.length > 0) {
             session.configOptions = response.configOptions as ConfigOption[]
+          } else {
+            session.configOptions = session.configOptions.map((o): ConfigOption =>
+              o.id === modeConfig.id && o.type === 'select' ? { ...o, currentValue: targetValue } : o
+            )
           }
           core.eventBus.emit('session:configChanged', { sessionId: session.id })
           return {
@@ -234,7 +251,11 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
               : '🔐 **Bypass Permissions disabled** — you will be asked to approve risky actions.',
           } satisfies CommandResponse
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
+          log.error({ err }, 'setConfigOption failed (bypass toggle)')
+          const msg = err instanceof Error ? err.message
+            : typeof err === 'object' && err !== null && typeof (err as any).message === 'string'
+              ? (err as any).message
+              : String(err)
           return { type: 'error', message: `Could not toggle bypass: ${msg}` } satisfies CommandResponse
         }
       }

@@ -125,6 +125,11 @@ export class SessionBridge {
     if (this.session.latestCommands !== null) {
       this.session.emit("agent_event", { type: "commands_update", commands: this.session.latestCommands });
     }
+
+    // Replay configOptions so the adapter reflects the current agent's options
+    if (this.session.configOptions.length > 0) {
+      this.session.emit("agent_event", { type: "config_option_update", options: this.session.configOptions });
+    }
   }
 
   disconnect(): void {

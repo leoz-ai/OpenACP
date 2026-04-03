@@ -346,13 +346,20 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       cwd: workingDirectory,
       mcpServers: resolvedMcp as any,
     });
+
+    log.info(response, 'newSession response');
     instance.sessionId = response.sessionId;
     instance.initialSessionResponse = response;
     instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
     instance.setupCrashDetection();
 
     log.info(
-      { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
+      {
+        sessionId: response.sessionId,
+        durationMs: Date.now() - spawnStart,
+        configOptions: (response as any).configOptions ?? [],
+        agentCapabilities: instance.agentCapabilities ?? null,
+      },
       "Agent spawn complete",
     );
     return instance;
@@ -372,24 +379,49 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       workingDirectory,
     );
 
+    const resolvedMcp = AgentInstance.mcpManager.resolve(mcpServers);
+
     try {
-      const response = await instance.connection.unstable_resumeSession({
-        sessionId: agentSessionId,
-        cwd: workingDirectory,
-      });
-      instance.sessionId = response.sessionId;
-      instance.initialSessionResponse = response;
-      instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
-      log.info(
-        { sessionId: response.sessionId, durationMs: Date.now() - spawnStart },
-        "Agent resume complete",
-      );
+      if (instance.agentCapabilities?.loadSession) {
+        // Agent supports session/load — preferred over unstable session/resume
+        const response = await instance.connection.loadSession({
+          sessionId: agentSessionId,
+          cwd: workingDirectory,
+          mcpServers: resolvedMcp as any,
+        });
+        instance.sessionId = agentSessionId;
+        instance.initialSessionResponse = response;
+        instance.debugTracer = createDebugTracer(agentSessionId, workingDirectory);
+        log.info(
+          {
+            sessionId: agentSessionId,
+            durationMs: Date.now() - spawnStart,
+            agentCapabilities: instance.agentCapabilities ?? null,
+          },
+          "Agent load complete",
+        );
+      } else {
+        const response = await instance.connection.unstable_resumeSession({
+          sessionId: agentSessionId,
+          cwd: workingDirectory,
+        });
+        instance.sessionId = response.sessionId;
+        instance.initialSessionResponse = response;
+        instance.debugTracer = createDebugTracer(response.sessionId, workingDirectory);
+        log.info(
+          {
+            sessionId: response.sessionId,
+            durationMs: Date.now() - spawnStart,
+            agentCapabilities: instance.agentCapabilities ?? null,
+          },
+          "Agent resume complete",
+        );
+      }
     } catch (err) {
       log.warn(
         { err, agentSessionId },
         "Resume failed, falling back to new session",
       );
-      const resolvedMcp = AgentInstance.mcpManager.resolve(mcpServers);
       const response = await instance.connection.newSession({
         cwd: workingDirectory,
         mcpServers: resolvedMcp as any,
@@ -663,11 +695,34 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     configId: string,
     value: SetConfigOptionValue,
   ): Promise<SetSessionConfigOptionResponse> {
-    return await this.connection.setSessionConfigOption({
-      sessionId: this.sessionId,
-      configId,
-      ...value,
-    } as any);
+    try {
+      return await this.connection.setSessionConfigOption({
+        sessionId: this.sessionId,
+        configId,
+        ...value,
+      } as any);
+    } catch (err) {
+      // Fall back to legacy setSessionMode / unstable_setSessionModel for agents
+      // (e.g. Gemini CLI) that implement the old separate methods instead of the
+      // unified session/set_config_option method (ACP -32601 Method Not Found).
+      if (typeof err === 'object' && err !== null && (err as any).code === -32601) {
+        if (configId === 'mode' && value.type === 'select') {
+          await this.connection.setSessionMode({
+            sessionId: this.sessionId,
+            modeId: value.value as string,
+          });
+          return { configOptions: [] };
+        }
+        if (configId === 'model' && value.type === 'select') {
+          await this.connection.unstable_setSessionModel({
+            sessionId: this.sessionId,
+            modelId: value.value as string,
+          });
+          return { configOptions: [] };
+        }
+      }
+      throw err;
+    }
   }
 
   async listSessions(

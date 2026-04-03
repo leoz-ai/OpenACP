@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentInstance } from "../agents/agent-instance.js";
-import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption } from "../types.js";
+import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption, SessionModeState, SessionModelState } from "../types.js";
 import { TypedEmitter } from "../utils/typed-emitter.js";
 import { PromptQueue } from "./prompt-queue.js";
 import { PermissionGate } from "./permission-gate.js";
@@ -91,6 +91,7 @@ export class Session extends TypedEmitter<SessionEvents> {
       (err) => {
         this.log.error({ err }, "Prompt execution failed");
         const message = err instanceof Error ? err.message : String(err);
+        this.fail(message);
         this.emit("agent_event", { type: "error", message: `Prompt execution failed: ${message}` });
       },
     );
@@ -421,6 +422,40 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.agentCapabilities = caps;
   }
 
+  /**
+   * Hydrate configOptions and agentCapabilities from a spawn response.
+   * Handles both the native configOptions format and legacy modes/models fields.
+   */
+  applySpawnResponse(resp: { modes?: unknown; configOptions?: unknown; models?: unknown } | undefined, caps: AgentCapabilities | undefined): void {
+    if (caps) this.agentCapabilities = caps;
+    if (!resp) return;
+
+    if (resp.configOptions) {
+      this.configOptions = resp.configOptions as ConfigOption[];
+      return;
+    }
+
+    // Convert legacy modes/models fields (old ACP format) to configOptions
+    const legacyOptions: ConfigOption[] = [];
+    if (resp.modes) {
+      const m = resp.modes as SessionModeState;
+      legacyOptions.push({
+        id: 'mode', name: 'Mode', category: 'mode', type: 'select',
+        currentValue: m.currentModeId,
+        options: m.availableModes.map(x => ({ value: x.id, name: x.name, description: x.description })),
+      });
+    }
+    if (resp.models) {
+      const m = resp.models as SessionModelState;
+      legacyOptions.push({
+        id: 'model', name: 'Model', category: 'model', type: 'select',
+        currentValue: m.currentModelId,
+        options: m.availableModels.map(x => ({ value: (x as any).modelId ?? x.id, name: x.name, description: x.description })),
+      });
+    }
+    if (legacyOptions.length > 0) this.configOptions = legacyOptions;
+  }
+
   getConfigOption(id: string): ConfigOption | undefined {
     return this.configOptions.find(o => o.id === id);
   }
@@ -444,8 +479,14 @@ export class Session extends TypedEmitter<SessionEvents> {
   /** Send a config option change to the agent and update local state from the response. */
   async setConfigOption(configId: string, value: import("../types.js").SetConfigOptionValue): Promise<void> {
     const response = await this.agentInstance.setConfigOption(configId, value);
-    if (response.configOptions) {
+    if (response.configOptions && response.configOptions.length > 0) {
       await this.updateConfigOptions(response.configOptions as ConfigOption[]);
+    } else if (value.type === 'select') {
+      // Legacy agents return empty configOptions — update currentValue optimistically.
+      const updated = this.configOptions.map((o): ConfigOption =>
+        o.id === configId && o.type === 'select' ? { ...o, currentValue: value.value as string } : o
+      );
+      await this.updateConfigOptions(updated);
     }
   }
 
@@ -526,9 +567,11 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.agentSessionId = newAgent.sessionId;
     this.promptCount = 0;
 
-    // Reset agent-specific ACP state (will be re-populated by new agent)
+    // Hydrate ACP state from the new agent's spawn response
     this.agentCapabilities = undefined;
     this.configOptions = [];
+    this.latestCommands = null;
+    this.applySpawnResponse(newAgent.initialSessionResponse, newAgent.agentCapabilities);
 
     this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }
