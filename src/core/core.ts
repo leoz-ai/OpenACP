@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { nanoid } from "nanoid";
 import type { SettingsManager } from "./plugin/settings-manager.js";
 import { ConfigManager } from "./config/config.js";
 import { AgentManager } from "./agents/agent-manager.js";
@@ -382,8 +383,25 @@ export class OpenACPCore {
       }
     }
 
-    // Forward to session
-    await session.enqueuePrompt(text, message.attachments, message.routing);
+    // Emit message:queued immediately (before awaiting the queue) so SSE clients see the
+    // incoming message right away, not after the AI finishes processing.
+    const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
+    if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
+      const turnId = nanoid(8);
+      this.eventBus.emit("message:queued", {
+        sessionId: session.id,
+        turnId,
+        text,
+        sourceAdapterId,
+        attachments: message.attachments,
+        timestamp: new Date().toISOString(),
+        queueDepth: session.queueDepth,
+      });
+      // Pass pre-generated turnId so message:processing shares the same ID
+      await session.enqueuePrompt(text, message.attachments, message.routing, turnId);
+    } else {
+      await session.enqueuePrompt(text, message.attachments, message.routing);
+    }
   }
 
   // --- Unified Session Creation Pipeline ---
@@ -687,6 +705,10 @@ export class OpenACPCore {
 
   async getOrResumeSession(channelId: string, threadId: string): Promise<Session | null> {
     return this.sessionFactory.getOrResume(channelId, threadId);
+  }
+
+  async getOrResumeSessionById(sessionId: string): Promise<Session | null> {
+    return this.sessionFactory.getOrResumeById(sessionId);
   }
 
   async attachAdapter(sessionId: string, adapterId: string): Promise<{ threadId: string }> {
