@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSystemEvent, createTurnContext } from "../turn-context.js";
+import { isSystemEvent, createTurnContext, getEffectiveTarget } from "../turn-context.js";
 
 describe("TurnContext", () => {
   describe("createTurnContext", () => {
@@ -77,6 +77,23 @@ describe("TurnContext", () => {
 
     it("classifies audio_content as turn event", () => {
       expect(isSystemEvent({ type: "audio_content", data: "", mimeType: "audio/mp3" })).toBe(false);
+    });
+  });
+
+  describe("getEffectiveTarget", () => {
+    it("returns null for silent prompts (responseAdapterId=null)", () => {
+      const ctx = createTurnContext("telegram", null);
+      expect(getEffectiveTarget(ctx)).toBeNull();
+    });
+
+    it("falls back to sourceAdapterId when responseAdapterId is undefined", () => {
+      const ctx = createTurnContext("telegram");
+      expect(getEffectiveTarget(ctx)).toBe("telegram");
+    });
+
+    it("returns explicit responseAdapterId when set", () => {
+      const ctx = createTurnContext("system", "discord");
+      expect(getEffectiveTarget(ctx)).toBe("discord");
     });
   });
 });
