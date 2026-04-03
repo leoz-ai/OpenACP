@@ -6,11 +6,11 @@ export const PaginationQuerySchema = z.object({
 });
 
 export const IdParamSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(200),
 });
 
 export const NameParamSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(200),
 });
 
 export const ApiErrorSchema = z.object({

@@ -11,6 +11,11 @@ interface SessionStats {
   total: number;
 }
 
+// Maximum concurrent SSE connections. Beyond this the server returns 503 to
+// prevent resource exhaustion (file-descriptor / memory DoS) from a single
+// attacker opening many persistent connections via the public tunnel.
+const MAX_SSE_CONNECTIONS = 50;
+
 export class SSEManager {
   private sseConnections = new Set<http.ServerResponse>();
   private sseCleanupHandlers = new Map<http.ServerResponse, () => void>();
@@ -62,6 +67,12 @@ export class SSEManager {
   }
 
   handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (this.sseConnections.size >= MAX_SSE_CONNECTIONS) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Too many SSE connections" }));
+      return;
+    }
+
     const parsedUrl = new URL(req.url || "", "http://localhost");
     const sessionFilter = parsedUrl.searchParams.get("sessionId");
     console.log(`[sse] +connection total=${this.sseConnections.size + 1}`);
@@ -74,10 +85,11 @@ export class SSEManager {
       // Disable buffering in Nginx/Cloudflare/other reverse proxies
       "X-Accel-Buffering": "no",
     };
-    // SSE is authenticated via token query param — safe to allow any origin
+    // SSE is authenticated via Bearer/query token — no credentials (cookies) involved,
+    // so Access-Control-Allow-Credentials is not needed and must not be set alongside
+    // a reflected origin (that combination is a known CORS misconfiguration).
     if (origin) {
       corsHeaders["Access-Control-Allow-Origin"] = origin;
-      corsHeaders["Access-Control-Allow-Credentials"] = "true";
     }
     // Disable Nagle's algorithm so small SSE chunks are sent immediately
     res.socket?.setNoDelay(true);

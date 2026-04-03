@@ -29,12 +29,14 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // CORS — allow any origin (auth is token-based, not cookie-based)
+  // CORS — allow any origin (auth is Bearer token, not cookie-based).
+  // Do NOT set Access-Control-Allow-Credentials: credentials mode is not needed
+  // for Bearer token auth and reflecting the origin with credentials: true is a
+  // well-known CORS misconfiguration that could allow cross-origin credential abuse.
   app.addHook('onRequest', async (request, reply) => {
     const origin = request.headers.origin;
     if (origin) {
       reply.header('Access-Control-Allow-Origin', origin);
-      reply.header('Access-Control-Allow-Credentials', 'true');
     }
     if (request.method === 'OPTIONS') {
       reply.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
@@ -44,7 +46,25 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
   });
 
   // Plugins
-  await app.register(fastifyRateLimit, { max: 100, timeWindow: '1 minute' });
+  await app.register(fastifyRateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
+    // When the server is reachable through a tunnel (Cloudflare, ngrok, etc.) all
+    // requests arrive from the same tunnel-proxy IP address.  Use the real client IP
+    // from well-known forwarded headers so rate limits are enforced per-caller, not
+    // per-tunnel.  Only the first value in X-Forwarded-For is taken (the client); the
+    // rest may be added by intermediate proxies and must not be trusted for limiting.
+    keyGenerator: (request) => {
+      const cfIp = request.headers['cf-connecting-ip'];
+      if (cfIp && typeof cfIp === 'string') return cfIp;
+      const xff = request.headers['x-forwarded-for'];
+      if (xff) {
+        const first = (Array.isArray(xff) ? xff[0] : xff).split(',')[0]?.trim();
+        if (first) return first;
+      }
+      return request.ip;
+    },
+  });
   await app.register(fastifySwagger, {
     openapi: {
       info: { title: 'OpenACP API', version: '1.0.0' },

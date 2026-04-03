@@ -54,9 +54,21 @@ export class StaticServer {
     // Try exact file match
     const filePath = path.join(this.uiDir, safePath);
     if (!filePath.startsWith(this.uiDir + path.sep) && filePath !== this.uiDir)
-      return false; // path traversal guard
+      return false; // path traversal guard (pre-symlink check)
 
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    // Resolve symlinks to prevent traversal via symlinks pointing outside uiDir
+    let realFilePath: string;
+    try {
+      realFilePath = fs.realpathSync(filePath);
+    } catch {
+      // File does not exist — fall through to SPA fallback
+      realFilePath = filePath;
+    }
+    const realUiDir = fs.realpathSync(this.uiDir);
+    if (!realFilePath.startsWith(realUiDir + path.sep) && realFilePath !== realUiDir)
+      return false; // symlink traversal guard
+
+    if (fs.existsSync(realFilePath) && fs.statSync(realFilePath).isFile()) {
       const ext = path.extname(filePath);
       const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
       // Vite-hashed assets get long cache, others get no-cache
@@ -68,7 +80,7 @@ export class StaticServer {
         "Content-Type": contentType,
         "Cache-Control": cacheControl,
       });
-      fs.createReadStream(filePath).pipe(res);
+      fs.createReadStream(realFilePath).pipe(res);
       return true;
     }
 

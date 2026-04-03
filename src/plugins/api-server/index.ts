@@ -289,7 +289,9 @@ function createApiServerPlugin(): OpenACPPlugin {
         const { parseDuration } = await import('./auth/token-store.js')
         const { AuthError } = await import('./middleware/error-handler.js')
 
-        app.post('/exchange', async (request, reply) => {
+        app.post('/exchange', {
+          config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+        }, async (request, reply) => {
           const body = ExchangeCodeBodySchema.parse(request.body)
           const code = tokenStore.exchangeCode(body.code)
           if (!code) {

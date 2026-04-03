@@ -1,7 +1,14 @@
+import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
 import { requireScopes } from '../middleware/auth.js';
 import { SessionIdParamSchema } from '../schemas/sessions.js';
+
+const VALID_TOPIC_STATUSES = ['active', 'finished', 'cancelled', 'error', 'archived'] as const;
+
+const TopicCleanupBodySchema = z.object({
+  statuses: z.array(z.enum(VALID_TOPIC_STATUSES)).optional(),
+});
 
 export async function topicRoutes(
   app: FastifyInstance,
@@ -15,9 +22,12 @@ export async function topicRoutes(
         .send({ error: 'Topic management not available' });
     }
     const statusParam = (request.query as Record<string, string>).status;
-    const filter = statusParam
-      ? { statuses: statusParam.split(',') }
-      : undefined;
+    let filter: { statuses: string[] } | undefined
+    if (statusParam) {
+      const parsed = statusParam.split(',').map(s => s.trim())
+      const valid = parsed.filter(s => (VALID_TOPIC_STATUSES as readonly string[]).includes(s))
+      filter = valid.length > 0 ? { statuses: valid } : undefined
+    }
     const topics = deps.topicManager.listTopics(filter);
     return { topics };
   });
@@ -29,7 +39,7 @@ export async function topicRoutes(
         .status(501)
         .send({ error: 'Topic management not available' });
     }
-    const body = (request.body ?? {}) as { statuses?: string[] };
+    const body = TopicCleanupBodySchema.parse(request.body ?? {});
     const result = await deps.topicManager.cleanup(body.statuses);
     return result;
   });

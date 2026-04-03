@@ -4,6 +4,9 @@ import { AuthError } from './error-handler.js';
 import { verifyToken } from '../auth/jwt.js';
 import { getRoleScopes } from '../auth/roles.js';
 import type { TokenStore } from '../auth/token-store.js';
+import { createChildLogger } from '../../../core/utils/log.js';
+
+const log = createChildLogger({ module: 'api-auth' });
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -32,6 +35,14 @@ export function createAuthPreHandler(
     const authHeader = request.headers.authorization;
     const queryToken = (request.query as Record<string, string>)?.token;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
+
+    // Warn when token is passed via URL query param — tokens in URLs are logged by
+    // tunnel providers (Cloudflare, ngrok), appear in browser history, and can leak
+    // via Referer headers. Use the Authorization: Bearer header instead.
+    if (queryToken && !authHeader) {
+      log.warn({ url: request.url.replace(/([?&]token=)[^&]+/, '$1[REDACTED]') },
+        'Token passed via URL query param — use Authorization: Bearer header to avoid token leakage in tunnel/proxy logs')
+    }
 
     if (!token) {
       throw new AuthError('UNAUTHORIZED', 'Missing authentication token');
