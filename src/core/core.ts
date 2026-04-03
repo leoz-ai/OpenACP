@@ -144,6 +144,12 @@ export class OpenACPCore {
     this.sessionFactory.configManager = this.configManager;
     this.sessionFactory.agentCatalog = this.agentCatalog;
     this.sessionFactory.getContextManager = () => this.lifecycleManager.serviceRegistry.get<ContextManager>('context');
+    // Whitelist the file-service upload directory so agents can read attachments
+    // (images, voice notes) that Telegram/Slack save outside the workspace in ~/.openacp/.
+    this.sessionFactory.getAgentAllowedPaths = () => {
+      const fileService = this.lifecycleManager.serviceRegistry.get<import('../plugins/file-service/file-service.js').FileService>('file-service');
+      return fileService ? [fileService.baseDir] : [];
+    };
 
     this.agentSwitchHandler = new AgentSwitchHandler({
       sessionManager: this.sessionManager,

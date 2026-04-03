@@ -167,6 +167,11 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
   middlewareChain?: MiddlewareChain;
   debugTracer: DebugTracer | null = null;
 
+  /** Allow external callers (e.g. SessionFactory) to whitelist additional read paths */
+  addAllowedPath(p: string): void {
+    this.pathGuard.addAllowedPath(p);
+  }
+
   // Callback — set by core when wiring events
   onPermissionRequest: (request: PermissionRequest) => Promise<string> =
     async () => "";

@@ -94,6 +94,14 @@ export class PathGuard {
     return { allowed: true, reason: "" };
   }
 
+  addAllowedPath(p: string): void {
+    try {
+      this.allowedPaths.push(fs.realpathSync(path.resolve(p)));
+    } catch {
+      this.allowedPaths.push(path.resolve(p));
+    }
+  }
+
   static loadIgnoreFile(cwd: string): string[] {
     const ignorePath = path.join(cwd, ".openacpignore");
     try {

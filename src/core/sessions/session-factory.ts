@@ -48,6 +48,10 @@ export class SessionFactory {
   agentCatalog?: AgentCatalog;
   /** Injected by Core — needed for context-aware session creation */
   getContextManager?: () => ContextManager | undefined;
+  /** Injected by Core — returns extra filesystem paths the agent is allowed to read.
+   *  Used to whitelist the file-service upload directory so agents can read attachments
+   *  saved outside the workspace (e.g. ~/.openacp/instances/main/files/). */
+  getAgentAllowedPaths?: () => string[];
 
   constructor(
     private agentManager: AgentManager,
@@ -159,6 +163,13 @@ export class SessionFactory {
 
       // Re-throw so callers still see the failure
       throw err;
+    }
+
+    // Whitelist extra paths (e.g. file-service upload dir) so agents can read attachments
+    // saved outside the workspace boundary without lifting the workspace guard entirely.
+    const extraPaths = this.getAgentAllowedPaths?.() ?? [];
+    for (const p of extraPaths) {
+      agentInstance.addAllowedPath(p);
     }
 
     // Wire middleware chain to agent instance for FS/terminal hooks
