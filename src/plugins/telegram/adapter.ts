@@ -128,6 +128,8 @@ export class TelegramAdapter extends MessagingAdapter {
   private _pendingSkillCommands = new Map<string, AgentCommand[]>();
   /** Control message IDs per session (for updating status text/buttons) */
   private controlMsgIds = new Map<string, number>();
+  private _threadReadyHandler?: (data: { sessionId: string; channelId: string; threadId: string }) => void;
+  private _configChangedHandler?: (data: { sessionId: string }) => void;
 
   /** Store control message ID in memory + persist to session record */
   private storeControlMsgId(sessionId: string, msgId: number): void {
@@ -503,7 +505,7 @@ export class TelegramAdapter extends MessagingAdapter {
     this.permissionHandler.setupCallbackHandler();
 
     // Send initial messages when a new session thread is created via API/CLI
-    this.core.eventBus.on("session:threadReady", ({ sessionId, channelId, threadId }) => {
+    this._threadReadyHandler = ({ sessionId, channelId, threadId }) => {
       if (channelId !== "telegram") return;
       const session = this.core.sessionManager.getSession(sessionId);
       if (!session) return;
@@ -535,12 +537,14 @@ export class TelegramAdapter extends MessagingAdapter {
       }).catch((err) => {
         log.warn({ err, sessionId }, 'Failed to send initial messages for new session');
       });
-    });
+    };
+    this.core.eventBus.on("session:threadReady", this._threadReadyHandler);
 
     // Update control message when config changes via commands (/model, /mode, /bypass, etc.)
-    this.core.eventBus.on("session:configChanged", ({ sessionId }) => {
+    this._configChangedHandler = ({ sessionId }) => {
       this.updateControlMessage(sessionId).catch(() => {});
-    });
+    };
+    this.core.eventBus.on("session:configChanged", this._configChangedHandler);
 
     // Setup message routing
     this.setupRoutes();
@@ -638,6 +642,16 @@ export class TelegramAdapter extends MessagingAdapter {
       tracker.destroy();
     }
     this.sessionTrackers.clear();
+
+    // Remove direct eventBus listeners
+    if (this._threadReadyHandler) {
+      this.core.eventBus.off("session:threadReady", this._threadReadyHandler);
+      this._threadReadyHandler = undefined;
+    }
+    if (this._configChangedHandler) {
+      this.core.eventBus.off("session:configChanged", this._configChangedHandler);
+      this._configChangedHandler = undefined;
+    }
 
     // Clear send queue
     this.sendQueue.clear();

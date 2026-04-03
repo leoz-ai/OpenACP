@@ -91,6 +91,7 @@ function createApiServerPlugin(): OpenACPPlugin {
   let actualPort = 0
   let cleanupInterval: ReturnType<typeof setInterval> | null = null
   let tokenStoreRef: import('./auth/token-store.js').TokenStore | null = null
+  let sseManagerRef: import('./sse-manager.js').SSEManager | null = null
 
   return {
     name: '@openacp/api-server',
@@ -319,7 +320,7 @@ function createApiServerPlugin(): OpenACPPlugin {
       }, { auth: false })
 
       // SSE manager
-      const sseManager = new SSEManager(
+      const sseManager = (sseManagerRef = new SSEManager(
         core.eventBus,
         () => {
           const sessions = core.sessionManager.listSessions()
@@ -331,7 +332,7 @@ function createApiServerPlugin(): OpenACPPlugin {
           }
         },
         startedAt,
-      )
+      ))
 
       // Register SSE route with auth (supports both Bearer header and ?token= query param)
       server.registerPlugin('/api/v1/events', async (app) => {
@@ -418,6 +419,10 @@ function createApiServerPlugin(): OpenACPPlugin {
       if (tokenStoreRef) {
         tokenStoreRef.destroy()
         tokenStoreRef = null
+      }
+      if (sseManagerRef) {
+        sseManagerRef.stop()
+        sseManagerRef = null
       }
       if (server) {
         await server.stop()
