@@ -15,7 +15,7 @@ ERROR='\033[38;2;239;68;68m'           # red #ef4444
 MUTED='\033[38;2;90;100;128m'          # text-muted #5a6480
 NC='\033[0m'
 
-INSTALLER_VERSION="1.0.1"
+INSTALLER_VERSION="1.0.2"
 
 DEFAULT_TAGLINE="AI coding agents, anywhere."
 NODE_DEFAULT_MAJOR=20
@@ -818,6 +818,10 @@ install_node() {
             exit 1
         fi
 
+        # Always ensure shell configs are patched (idempotent) — handles the case where
+        # nvm was already installed but ~/.zshrc didn't exist at that time.
+        patch_nvm_shell_configs
+
         ui_success "Node.js v${NODE_DEFAULT_MAJOR} installed"
 
     elif [[ "$OS" == "linux" ]]; then
@@ -896,6 +900,11 @@ install_node() {
                 echo "Please install Node.js ${NODE_DEFAULT_MAJOR} manually: https://nodejs.org"
                 exit 1
             fi
+        fi
+
+        # Always ensure shell configs are patched (idempotent)
+        if [[ -s "${HOME}/.nvm/nvm.sh" ]] || [[ -s "${NVM_DIR:-}/nvm.sh" ]]; then
+            patch_nvm_shell_configs
         fi
 
         ui_success "Node.js v${NODE_DEFAULT_MAJOR} installed"
