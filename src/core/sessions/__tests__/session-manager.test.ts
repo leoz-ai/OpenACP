@@ -417,9 +417,8 @@ describe('SessionManager', () => {
       expect(noStoreManager.getSessionRecord('any')).toBeUndefined()
     })
   })
-})
 
-describe('listAllSessions', () => {
+  describe('listAllSessions', () => {
   it('returns live session with isLive=true and runtime fields', () => {
     const manager = new SessionManager(null)
     const session = createSession({ id: 'sess-1', channelId: 'telegram' })
@@ -616,5 +615,6 @@ describe('listAllSessions', () => {
     const summaries = manager.listAllSessions()
 
     expect(summaries[0].configOptions).toEqual(configOptions)
+  })
   })
 })
