@@ -278,6 +278,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
 
     let stopReason: string = 'end_turn';
+    let promptError: unknown;
     try {
       const response = await this.agentInstance.prompt(processed.text, processed.attachments);
       if (response && typeof response === 'object' && 'stopReason' in response) {
@@ -291,15 +292,22 @@ export class Session extends TypedEmitter<SessionEvents> {
       if (ttsActive && this.voiceMode === "next") {
         this.voiceMode = "off";
       }
+    } catch (err) {
+      stopReason = 'error';
+      promptError = err;
     } finally {
       if (accumulatorListener) {
         this.off("agent_event", accumulatorListener);
       }
+      // Hook: turn:end — always fires, even on error or cancel
+      if (this.middlewareChain) {
+        this.middlewareChain.execute('turn:end', { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
+      }
     }
 
-    // Hook: turn:end — read-only, fire-and-forget
-    if (this.middlewareChain) {
-      this.middlewareChain.execute('turn:end', { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
+    // Re-throw so PromptQueue error handler can call this.fail()
+    if (promptError !== undefined) {
+      throw promptError;
     }
 
     this.log.info(
