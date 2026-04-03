@@ -58,20 +58,15 @@ describe('ConfigManager.resolveWorkspace', () => {
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('resolves absolute path directly', async () => {
+  it('rejects absolute path', async () => {
     await configManager.load()
     const absPath = path.join(tmpDir, 'custom-workspace')
-    const result = configManager.resolveWorkspace(absPath)
-    expect(result).toBe(absPath)
-    expect(fs.existsSync(result)).toBe(true)
+    expect(() => configManager.resolveWorkspace(absPath)).toThrow(/Invalid workspace name/)
   })
 
-  it('resolves tilde path', async () => {
+  it('rejects tilde path', async () => {
     await configManager.load()
-    const result = configManager.resolveWorkspace('~/test-workspace-openacp')
-    expect(result).toBe(path.join(os.homedir(), 'test-workspace-openacp'))
-    // Cleanup
-    fs.rmSync(result, { recursive: true, force: true })
+    expect(() => configManager.resolveWorkspace('~/test-workspace-openacp')).toThrow(/Invalid workspace name/)
   })
 
   it('resolves named workspace under baseDir', async () => {
