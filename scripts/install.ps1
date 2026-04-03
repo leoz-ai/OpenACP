@@ -1,5 +1,5 @@
 # OpenACP Installer for Windows
-# Usage: powershell -c "irm https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.ps1?v=1.0.0 | iex"
+# Usage: powershell -c "irm https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.ps1 | iex"
 
 [CmdletBinding()]
 param(

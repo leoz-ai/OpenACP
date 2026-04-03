@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # OpenACP Installer for macOS and Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.sh?v=1.0.0 | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Open-ACP/OpenACP/main/scripts/install.sh | bash
 
 # ─── Section 1: Initialization & Utilities ────────────────────────────────────
 
