@@ -766,9 +766,12 @@ EOF
     }
 
     if [[ "$OS" == "macos" ]]; then
-        # macOS default shell is zsh — nvm installer uses $SHELL to detect the right rc file,
-        # so it should patch ~/.zshrc automatically. We patch here as a safety net only.
-        for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+        # macOS default shell is zsh. On a fresh machine ~/.zshrc may not exist yet —
+        # nvm installer only appends to existing files, so we must ensure ~/.zshrc exists.
+        touch "$HOME/.zshrc"
+        patch_rc "$HOME/.zshrc"
+        # Also patch bash configs if they exist
+        for rc in "$HOME/.bashrc" "$HOME/.bash_profile"; do
             [[ -f "$rc" ]] && patch_rc "$rc"
         done
     else
