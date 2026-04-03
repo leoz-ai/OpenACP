@@ -98,11 +98,11 @@ const contextPlugin: OpenACPPlugin = {
       },
     })
 
-    // Middleware: clean up recorder memory on session destroy
+    // Middleware: flush in-progress turn and clean up on session destroy
     ctx.registerMiddleware('session:afterDestroy', {
       priority: 200,
       handler: async (payload, next) => {
-        recorder.finalize(payload.sessionId)
+        await recorder.onSessionDestroy(payload.sessionId)
         return next()
       },
     })
