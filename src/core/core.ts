@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { nanoid } from "nanoid";
 import type { SettingsManager } from "./plugin/settings-manager.js";
 import { ConfigManager } from "./config/config.js";
 import { AgentManager } from "./agents/agent-manager.js";
@@ -382,12 +383,11 @@ export class OpenACPCore {
       }
     }
 
-    // Forward to session
-    const turnId = await session.enqueuePrompt(text, message.attachments, message.routing);
-
-    // Emit message:queued for cross-adapter input visibility (SSE clients see messages from external adapters)
+    // Emit message:queued immediately (before awaiting the queue) so SSE clients see the
+    // incoming message right away, not after the AI finishes processing.
     const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
     if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
+      const turnId = nanoid(8);
       this.eventBus.emit("message:queued", {
         sessionId: session.id,
         turnId,
@@ -397,6 +397,10 @@ export class OpenACPCore {
         timestamp: new Date().toISOString(),
         queueDepth: session.queueDepth,
       });
+      // Pass pre-generated turnId so message:processing shares the same ID
+      await session.enqueuePrompt(text, message.attachments, message.routing, turnId);
+    } else {
+      await session.enqueuePrompt(text, message.attachments, message.routing);
     }
   }
 

@@ -199,9 +199,9 @@ export class Session extends TypedEmitter<SessionEvents> {
 
   // --- Public API ---
 
-  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting): Promise<string> {
-    // Generate turnId at enqueue time so it can be shared between message:queued and message:processing
-    const turnId = nanoid(8);
+  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, externalTurnId?: string): Promise<string> {
+    // Use pre-generated turnId if provided (so callers can emit events before awaiting the queue)
+    const turnId = externalTurnId ?? nanoid(8);
     // Hook: agent:beforePrompt — modifiable, can block
     if (this.middlewareChain) {
       const payload = { text, attachments, sessionId: this.id };
