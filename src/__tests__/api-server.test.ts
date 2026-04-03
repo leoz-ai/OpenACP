@@ -575,7 +575,22 @@ describe("ApiServer", () => {
 
   // ===== New endpoint tests =====
 
-  it("GET /api/health returns system health", async () => {
+  it("GET /api/health returns basic system health (public endpoint)", async () => {
+    const port = await startServer();
+
+    // Public /health endpoint returns minimal info only (no auth required)
+    const res = await apiFetch(port, "/api/v1/system/health");
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe("ok");
+    expect(data.version).toBeDefined();
+    expect(typeof data.uptime).toBe("number");
+    // Sensitive details (memory, sessions, adapters) are on /health/details — not here
+    expect(data.memory).toBeUndefined();
+    expect(data.sessions).toBeUndefined();
+  });
+
+  it("GET /api/health/details returns full system health (authenticated)", async () => {
     mockCore.sessionManager.listSessions.mockReturnValueOnce([
       { status: "active" },
       { status: "initializing" },
@@ -589,7 +604,7 @@ describe("ApiServer", () => {
     ]);
     const port = await startServer();
 
-    const res = await apiFetch(port, "/api/v1/system/health");
+    const res = await apiFetch(port, "/api/v1/system/health/details");
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.status).toBe("ok");
@@ -826,7 +841,7 @@ describe("ApiServer", () => {
 
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toContain("Missing message");
+    expect(data.error).toContain("Required");
   });
 
   it("POST /api/restart returns 200 and triggers restart", async () => {
@@ -1519,10 +1534,8 @@ describe("ApiServer", () => {
     });
 
     it("allows health endpoint without auth", async () => {
-      mockCore.sessionManager.listSessions.mockReturnValueOnce([]);
-      mockCore.sessionManager.listRecords.mockReturnValueOnce([]);
       const port = await startServer();
-      // Use raw fetch without auth
+      // Use raw fetch without auth — public /health requires no token
       const res = await globalThis.fetch(`http://127.0.0.1:${port}/api/v1/system/health`);
       expect(res.status).toBe(200);
     });
