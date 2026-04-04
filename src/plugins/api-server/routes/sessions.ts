@@ -235,6 +235,14 @@ export async function sessionRoutes(
       }
 
       session.permissionGate.resolve(body.optionId);
+
+      if (body.feedback) {
+        // Abort current turn so the agent doesn't respond about the refusal,
+        // then queue feedback as next prompt.
+        session.abortPrompt().catch(() => {});
+        session.enqueuePrompt(body.feedback).catch(() => {});
+      }
+
       return { ok: true };
     },
   );
