@@ -85,14 +85,16 @@ export async function sessionRoutes(
   app.post('/', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     const body = CreateSessionBodySchema.parse(request.body ?? {});
 
-    // Check max concurrent sessions
-    const config = deps.core.configManager.get();
+    // Check max concurrent sessions (default 20; security plugin may override via plugin settings)
+    const settingsManager = deps.lifecycleManager?.settingsManager
+    const secSettings = settingsManager ? await settingsManager.loadSettings('@openacp/security') : {}
+    const maxConcurrentSessions = (secSettings.maxConcurrentSessions as number) ?? 20;
     const activeSessions = deps.core.sessionManager
       .listSessions()
       .filter((s) => s.status === 'active' || s.status === 'initializing');
-    if (activeSessions.length >= config.security.maxConcurrentSessions) {
+    if (activeSessions.length >= maxConcurrentSessions) {
       return reply.status(429).send({
-        error: `Max concurrent sessions (${config.security.maxConcurrentSessions}) reached. Cancel a session first.`,
+        error: `Max concurrent sessions (${maxConcurrentSessions}) reached. Cancel a session first.`,
       });
     }
 
@@ -116,7 +118,7 @@ export async function sessionRoutes(
 
     const channelId = adapterId ?? 'api';
 
-    const resolvedAgent = body.agent || config.defaultAgent;
+    const resolvedAgent = body.agent || deps.core.configManager.get().defaultAgent;
     const agentDef = deps.core.agentCatalog.resolve(resolvedAgent);
     const resolvedWorkspace = deps.core.configManager.resolveWorkspace(
       body.workspace || agentDef?.workingDirectory,

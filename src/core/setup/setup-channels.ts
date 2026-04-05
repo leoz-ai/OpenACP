@@ -11,13 +11,11 @@ export async function getChannelStatuses(config: Config, settingsManager?: Setti
   const statuses: ChannelStatus[] = [];
 
   for (const [id, meta] of Object.entries(CHANNEL_META) as [ChannelId, typeof CHANNEL_META[ChannelId]][]) {
-    const ch = config.channels[id] as Record<string, unknown> | undefined;
-
-    let configured = !!ch && Object.keys(ch).length > 1;
-    let enabled = ch?.enabled === true;
+    let configured = false;
+    let enabled = false;
     let hint: string | undefined;
 
-    // Check plugin settings first (new-style config takes priority)
+    // Read channel status from plugin settings (channels migrated out of config.json)
     if (settingsManager && id === "telegram") {
       const ps = await settingsManager.loadSettings("@openacp/telegram");
       if (ps.botToken && ps.chatId) {
@@ -31,16 +29,6 @@ export async function getChannelStatuses(config: Config, settingsManager?: Setti
         configured = true;
         enabled = ps.enabled !== false;
         hint = ps.guildId ? `Guild: ${ps.guildId}` : undefined;
-      }
-    }
-
-    // Legacy hint from config.channels (only if not overridden by plugin settings)
-    if (!hint) {
-      if (id === "telegram" && ch?.botToken && typeof ch.botToken === "string" && ch.botToken !== "YOUR_BOT_TOKEN_HERE") {
-        hint = `Chat ID: ${ch.chatId}`;
-      }
-      if (id === "discord" && ch?.guildId) {
-        hint = `Guild: ${ch.guildId}`;
       }
     }
 
@@ -151,7 +139,10 @@ export async function configureChannels(config: Config, settingsManager?: Settin
 
       if (action === "skip") continue;
       if (action === "disable") {
-        (next.channels[channelId] as Record<string, unknown>).enabled = false;
+        // Disable via plugin settings (channels migrated out of config.json)
+        if (settingsManager) {
+          await settingsManager.updatePluginSettings(`@openacp/${channelId}`, { enabled: false });
+        }
         changed = true;
         console.log(ok(`${meta.label} disabled`));
         continue;
@@ -164,7 +155,10 @@ export async function configureChannels(config: Config, settingsManager?: Settin
           }),
         );
         if (confirmed) {
-          delete next.channels[channelId];
+          // Clear plugin settings (channels migrated out of config.json)
+          if (settingsManager) {
+            await settingsManager.updatePluginSettings(`@openacp/${channelId}`, {});
+          }
           changed = true;
           console.log(ok(`${meta.label} config deleted`));
         }

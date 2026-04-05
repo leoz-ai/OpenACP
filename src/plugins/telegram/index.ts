@@ -17,29 +17,12 @@ function createTelegramPlugin(): OpenACPPlugin {
     optionalPluginDependencies: {
       '@openacp/speech': '^1.0.0',
     },
-    permissions: ['services:register', 'kernel:access', 'events:read'],
+    permissions: ['services:register', 'kernel:access', 'events:read', 'commands:register'],
     inheritableKeys: [],
 
     async install(ctx: InstallContext) {
-      const { terminal, settings, legacyConfig } = ctx
+      const { terminal, settings } = ctx
 
-      // Migrate from legacy config if present
-      if (legacyConfig) {
-        const tg = legacyConfig.channels as Record<string, unknown> | undefined
-        const telegramCfg = tg?.telegram as Record<string, unknown> | undefined
-        if (telegramCfg?.botToken) {
-          await settings.setAll({
-            botToken: telegramCfg.botToken,
-            chatId: telegramCfg.chatId,
-            notificationTopicId: telegramCfg.notificationTopicId ?? null,
-            assistantTopicId: telegramCfg.assistantTopicId ?? null,
-          })
-          terminal.log.success('Telegram settings migrated from legacy config')
-          return
-        }
-      }
-
-      // Interactive setup via terminal
       const { validateBotToken, validateChatId, validateBotAdmin } = await import('./validators.js')
 
       let botToken = ''
@@ -168,6 +151,12 @@ function createTelegramPlugin(): OpenACPPlugin {
     },
 
     async setup(ctx) {
+      ctx.registerEditableFields([
+        { key: 'enabled', displayName: 'Enabled', type: 'toggle', scope: 'safe', hotReload: false },
+        { key: 'botToken', displayName: 'Bot Token', type: 'string', scope: 'sensitive', hotReload: false },
+        { key: 'chatId', displayName: 'Chat ID', type: 'number', scope: 'safe', hotReload: false },
+      ])
+
       const config = ctx.pluginConfig as Record<string, unknown>
       if (!config.botToken || !config.chatId) {
         ctx.log.info('Telegram disabled (missing botToken or chatId)')
