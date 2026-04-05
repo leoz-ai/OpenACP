@@ -8,7 +8,7 @@ function createTelegramPlugin(): OpenACPPlugin {
   return {
     name: '@openacp/telegram',
     version: '1.0.0',
-    description: 'Telegram adapter with forum topics',
+    description: 'Telegram adapter with Topics support',
     essential: true,
     pluginDependencies: {
       '@openacp/security': '^1.0.0',
@@ -55,7 +55,7 @@ function createTelegramPlugin(): OpenACPPlugin {
       }
 
       // Chat ID detection
-      terminal.log.info('Send a message in your Telegram supergroup to detect the chat ID,')
+      terminal.log.info('Send a message in your Telegram group to detect the chat ID,')
       terminal.log.info('or enter the chat ID manually.')
 
       const chatIdMethod = await terminal.select({
@@ -69,7 +69,7 @@ function createTelegramPlugin(): OpenACPPlugin {
       let chatId: number
       if (chatIdMethod === 'manual') {
         const val = await terminal.text({
-          message: 'Supergroup chat ID (e.g. -1001234567890):',
+          message: 'Group chat ID (e.g. -1001234567890):',
           validate: (v) => {
             const n = Number(v.trim())
             if (isNaN(n) || !Number.isInteger(n)) return 'Chat ID must be an integer'
@@ -86,7 +86,25 @@ function createTelegramPlugin(): OpenACPPlugin {
       // Validate chat ID
       const chatResult = await validateChatId(botToken, chatId)
       if (chatResult.ok) {
-        terminal.log.success(`Group: ${chatResult.title}${chatResult.isForum ? ' (Topics enabled)' : ''}`)
+        terminal.log.success(`Group: ${chatResult.title}`)
+        if (!chatResult.isForum) {
+          terminal.log.warning('Topics are not enabled on this group.')
+          terminal.log.info('OpenACP requires Topics to organize sessions.')
+          terminal.log.info('')
+          terminal.log.info('To enable Topics:')
+          terminal.log.info('  1. Open your group in Telegram')
+          terminal.log.info('  2. Go to Group Settings → Edit')
+          terminal.log.info('  3. Enable "Topics"')
+          terminal.log.info('')
+          const proceed = await terminal.confirm({
+            message: 'Topics not enabled. Continue anyway? (You can fix this before starting OpenACP)',
+            initialValue: false,
+          })
+          if (!proceed) {
+            terminal.log.info('Setup cancelled. Re-run when Topics are enabled.')
+            return
+          }
+        }
       } else {
         terminal.log.warning(chatResult.error)
       }
@@ -95,6 +113,23 @@ function createTelegramPlugin(): OpenACPPlugin {
       const adminResult = await validateBotAdmin(botToken, chatId)
       if (adminResult.ok) {
         terminal.log.success('Bot has admin privileges')
+        if (!adminResult.canManageTopics) {
+          terminal.log.warning('Bot does not have "Manage Topics" permission.')
+          terminal.log.info('')
+          terminal.log.info('To fix:')
+          terminal.log.info('  1. Open Group Settings → Administrators')
+          terminal.log.info('  2. Select the bot')
+          terminal.log.info('  3. Enable "Manage Topics"')
+          terminal.log.info('')
+          const proceed = await terminal.confirm({
+            message: 'Bot cannot manage topics. Continue anyway? (You can fix this before starting OpenACP)',
+            initialValue: false,
+          })
+          if (!proceed) {
+            terminal.log.info('Setup cancelled. Re-run when bot permissions are set.')
+            return
+          }
+        }
       } else {
         terminal.log.warning(adminResult.error)
       }
@@ -262,7 +297,7 @@ async function detectChatIdViaPolling(
   // Fallback to manual
   terminal.log.warning('Timed out waiting for messages. Enter chat ID manually.')
   const val = await terminal.text({
-    message: 'Supergroup chat ID (e.g. -1001234567890):',
+    message: 'Group chat ID (e.g. -1001234567890):',
     validate: (v) => {
       const n = Number(v.trim())
       if (isNaN(n) || !Number.isInteger(n)) return 'Chat ID must be an integer'
