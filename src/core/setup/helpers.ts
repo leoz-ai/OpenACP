@@ -78,9 +78,9 @@ export async function summarizeConfig(config: Config, settingsManager?: Settings
 
   const channelStatuses: string[] = [];
   for (const def of channelDefs) {
-    const legacyCh = config.channels[def.id] as Record<string, unknown> | undefined;
-    let configured = !!legacyCh && Object.keys(legacyCh).length > 1;
-    let enabled = (legacyCh?.enabled as boolean) === true;
+    // Read channel status from plugin settings (channels migrated out of config.json)
+    let configured = false;
+    let enabled = false;
 
     if (settingsManager) {
       const ps = await settingsManager.loadSettings(def.pluginName);
