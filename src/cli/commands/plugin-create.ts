@@ -28,7 +28,7 @@ function parseCreateArgs(args: string[]): { name?: string; description?: string;
     else if ((arg === '--description' || arg === '-d') && next) { parsed.description = next; i++ }
     else if ((arg === '--author' || arg === '-a') && next) { parsed.author = next; i++ }
     else if ((arg === '--license' || arg === '-l') && next) { parsed.license = next; i++ }
-    else if ((arg === '--dir') && next) { parsed.dir = next; i++ }
+    else if ((arg === '--output' || arg === '-o') && next) { parsed.dir = next; i++ }
     else if (!arg.startsWith('-') && !parsed.name) { parsed.name = arg } // positional: first non-flag = name
   }
   return parsed
@@ -66,13 +66,13 @@ export async function cmdPluginCreate(args: string[] = []): Promise<void> {
   -d, --description <desc>     Short description
   -a, --author <author>        Author name and email
   -l, --license <license>      License: MIT, Apache-2.0, ISC, UNLICENSED (default: MIT)
-      --dir <path>             Target directory (default: ./<plugin-name>)
+  -o, --output <path>           Target directory (default: ./<plugin-name>)
   -h, --help                   Show this help message
 
 \x1b[1mExamples:\x1b[0m
   openacp plugin create
   openacp plugin create --name @myorg/my-plugin --description "My plugin" --license MIT
-  openacp plugin create -n my-plugin -d "My plugin" --dir ./plugins/my-plugin
+  openacp plugin create -n my-plugin -d "My plugin" -o ./plugins/my-plugin
 `)
     return
   }
@@ -203,7 +203,7 @@ export async function cmdPluginCreate(args: string[] = []): Promise<void> {
     spinner.stop('Plugin scaffolded!')
   }
 
-  const displayDir = cliArgs.dir ?? dirName
+  const displayDir = cliArgs.dir ?? `./${dirName}`
   if (isInteractive) {
     p.note(
       [
@@ -217,8 +217,8 @@ export async function cmdPluginCreate(args: string[] = []): Promise<void> {
       ].join('\n'),
       'Next steps',
     )
-    p.outro(`Plugin ${pluginName} created in ./${displayDir}`)
+    p.outro(`Plugin ${pluginName} created in ${displayDir}`)
   } else {
-    console.log(`✅ Plugin ${pluginName} created in ./${displayDir}`)
+    console.log(`✅ Plugin ${pluginName} created in ${displayDir}`)
   }
 }
