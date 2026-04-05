@@ -502,8 +502,8 @@ function buildHandoffItem(agentKey: string, spec: AgentIntegrationSpec): Integra
           existsSync(join(hooksDir, "openacp-handoff.sh"))
         );
       }
-      const commandPath = expandPath(join(spec.commandsPath, spec.handoffCommandFile));
-      const pluginPath = expandPath(join(spec.pluginsPath, spec.pluginFileName));
+      const commandPath = join(expandPath(spec.commandsPath), spec.handoffCommandFile);
+      const pluginPath = join(expandPath(spec.pluginsPath), spec.pluginFileName);
       return existsSync(commandPath) && existsSync(pluginPath);
     },
     install: () => installIntegration(agentKey, spec),
