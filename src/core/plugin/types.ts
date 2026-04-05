@@ -154,7 +154,6 @@ export interface InstallContext {
   pluginName: string
   terminal: TerminalIO
   settings: SettingsAPI
-  legacyConfig?: Record<string, unknown>
   dataDir: string
   log: Logger
   /** Root of the OpenACP instance directory (e.g. ~/.openacp) */
