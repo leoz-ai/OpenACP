@@ -239,8 +239,10 @@ export async function sessionRoutes(
       if (body.feedback) {
         // Abort current turn so the agent doesn't respond about the refusal,
         // then queue feedback as next prompt.
-        session.abortPrompt().catch(() => {});
-        session.enqueuePrompt(body.feedback).catch(() => {});
+        await session.abortPrompt().catch((err: unknown) => {
+          request.log.warn({ err }, 'Failed to abort prompt before feedback enqueue');
+        });
+        await session.enqueuePrompt(body.feedback, undefined, { sourceAdapterId: 'api' });
       }
 
       return { ok: true };
