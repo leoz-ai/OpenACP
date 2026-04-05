@@ -63,7 +63,7 @@ export async function validateChatId(
 export async function validateBotAdmin(
   token: string,
   chatId: number,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; canManageTopics: boolean } | { ok: false; error: string }> {
   try {
     // Get bot's own user ID
     const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
@@ -85,7 +85,7 @@ export async function validateBotAdmin(
     );
     const data = (await res.json()) as {
       ok: boolean;
-      result?: { status: string };
+      result?: { status: string; can_manage_topics?: boolean };
       description?: string;
     };
     if (!data.ok || !data.result) {
@@ -96,8 +96,12 @@ export async function validateBotAdmin(
     }
 
     const { status } = data.result;
-    if (status === "administrator" || status === "creator") {
-      return { ok: true };
+    if (status === "creator") {
+      // Group creator has all permissions
+      return { ok: true, canManageTopics: true };
+    }
+    if (status === "administrator") {
+      return { ok: true, canManageTopics: data.result.can_manage_topics === true };
     }
     return {
       ok: false,
