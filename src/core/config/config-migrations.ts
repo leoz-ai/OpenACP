@@ -121,6 +121,7 @@ export const migrations: Migration[] = [
         const cfg = channelCfg as Record<string, unknown>;
         if (cfg.displayVerbosity && !cfg.outputMode) {
           cfg.outputMode = cfg.displayVerbosity;
+          delete cfg.displayVerbosity;
           changed = true;
         }
       }

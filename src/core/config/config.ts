@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { applyMigrations } from "./config-migrations.js";
 import { createChildLogger } from "../utils/log.js";
@@ -282,7 +283,9 @@ export class ConfigManager extends EventEmitter {
       log.error({ errors: result.error.issues }, "Config validation failed, not saving");
       return;
     }
-    fs.writeFileSync(this.configPath, JSON.stringify(raw, null, 2));
+    const tmpPath = this.configPath + `.tmp.${randomBytes(4).toString('hex')}`;
+    fs.writeFileSync(tmpPath, JSON.stringify(raw, null, 2), "utf-8");
+    fs.renameSync(tmpPath, this.configPath);
     this.config = result.data;
     // Emit change event if path provided
     if (changePath) {
@@ -483,7 +486,9 @@ export class ConfigManager extends EventEmitter {
     target: Record<string, unknown>,
     source: Record<string, unknown>,
   ): void {
+    const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
     for (const key of Object.keys(source)) {
+      if (DANGEROUS_KEYS.has(key)) continue;
       const val = source[key];
       if (val && typeof val === "object" && !Array.isArray(val)) {
         if (!target[key]) target[key] = {};

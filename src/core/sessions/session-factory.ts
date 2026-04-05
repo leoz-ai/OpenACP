@@ -136,28 +136,12 @@ export class SessionFactory {
         message: guidanceLines.join("\n"),
       };
 
-      // Create a lightweight "failed" session context so UIs listening on the event bus
-      // still receive a message in the right channel/thread.
-      const failedSession = new Session({
-        id: createParams.existingSessionId,
-        channelId: createParams.channelId,
-        agentName: createParams.agentName,
-        workingDirectory: createParams.workingDirectory,
-        // Dummy agent instance — will never be prompted
-        agentInstance: {
-          sessionId: "",
-          prompt: async () => {},
-          cancel: async () => {},
-          destroy: async () => {},
-          on: () => {},
-          off: () => {},
-        } as any,
-        speechService: this.speechService,
-      });
-      this.sessionManager.registerSession(failedSession);
-      failedSession.emit("agent_event", guidance);
+      // Emit the error event directly on the event bus so UIs (SSE, adapters) can
+      // display it. We intentionally do NOT register a session — the dummy session
+      // would never be cleaned up, leaking memory in SessionManager.
+      const failedSessionId = createParams.existingSessionId ?? `failed-${Date.now()}`;
       this.eventBus.emit("agent:event", {
-        sessionId: failedSession.id,
+        sessionId: failedSessionId,
         event: guidance,
       });
 
