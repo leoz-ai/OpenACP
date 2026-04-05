@@ -127,9 +127,8 @@ export function setupSettingsCallbacks(
           const speechSettings = await sm.loadSettings('@openacp/speech');
           hasApiKey = !!(speechSettings.groqApiKey as string);
         } else {
-          const config = core.configManager.get();
-          const providerConfig = config.speech?.stt?.providers?.[newValue];
-          hasApiKey = !!providerConfig?.apiKey;
+          // speech config migrated to plugin settings; no API key available without settingsManager
+          hasApiKey = false;
         }
         if (!hasApiKey) {
           // No API key — delegate to assistant to collect it

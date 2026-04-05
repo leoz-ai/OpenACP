@@ -1,6 +1,6 @@
 import path from 'node:path'
 import type { OpenACPPlugin, InstallContext } from '../../core/plugin/types.js'
-import type { TunnelConfig } from '../../core/config/config.js'
+import type { TunnelConfig } from './tunnel-service.js'
 import type { ApiServerService } from '../api-server/service.js'
 import { MAX_RETRIES } from './tunnel-registry.js'
 import { createViewerRoutes } from './viewer-routes.js'

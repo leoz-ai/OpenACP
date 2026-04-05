@@ -51,10 +51,10 @@ type ConfigUpdates = Record<string, unknown>
 // --- Edit: Telegram ---
 
 async function editTelegram(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  const tg = (config.channels?.telegram ?? {}) as Record<string, unknown>
-  let currentToken = (tg.botToken as string) ?? ''
-  let currentChatId = (tg.chatId as number) ?? 0
-  let currentEnabled = (tg.enabled as boolean) ?? false
+  // channels migrated out of config.json — read from plugin settings only
+  let currentToken = ''
+  let currentChatId = 0
+  let currentEnabled = false
 
   if (settingsManager) {
     const ps = await settingsManager.loadSettings('@openacp/telegram')
@@ -246,8 +246,9 @@ async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<vo
 // --- Edit: Channels (parent menu) ---
 
 async function editChannels(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  let tgConfigured = !!(config.channels?.telegram as Record<string, unknown> | undefined)
-  let dcConfigured = !!(config.channels?.discord as Record<string, unknown> | undefined)
+  // channels migrated out of config.json — read from plugin settings only
+  let tgConfigured = false
+  let dcConfigured = false
 
   if (settingsManager) {
     const tgPs = await settingsManager.loadSettings('@openacp/telegram')
@@ -282,7 +283,8 @@ async function editChannels(config: Config, updates: ConfigUpdates, settingsMana
 // --- Edit: Agent ---
 
 async function editAgent(config: Config, updates: ConfigUpdates): Promise<void> {
-  const agentNames = Object.keys(config.agents ?? {})
+  // agents migrated out of config.json — read from agents.json
+  const agentNames: string[] = []
   const currentDefault = config.defaultAgent
 
   console.log(header('Agent'))
@@ -340,7 +342,8 @@ async function editWorkspace(config: Config, updates: ConfigUpdates): Promise<vo
 // --- Edit: Security ---
 
 async function editSecurity(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  let sec = config.security ?? { allowedUserIds: [], maxConcurrentSessions: 20, sessionTimeoutMinutes: 60 }
+  // security migrated out of config.json — read from plugin settings only
+  let sec = { allowedUserIds: [] as string[], maxConcurrentSessions: 20, sessionTimeoutMinutes: 60 }
 
   if (settingsManager) {
     const ps = await settingsManager.loadSettings('@openacp/security')
@@ -562,7 +565,8 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
 // --- Edit: API ---
 
 async function editApi(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  let api = config.api ?? { port: 21420, host: '127.0.0.1' }
+  // api migrated out of config.json — read from plugin settings only
+  let api = { port: 21420, host: '127.0.0.1' }
 
   if (settingsManager) {
     const ps = await settingsManager.loadSettings('@openacp/api-server')
@@ -597,7 +601,8 @@ async function editApi(config: Config, updates: ConfigUpdates, settingsManager?:
 // --- Edit: Tunnel ---
 
 async function editTunnel(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
-  let tunnel = config.tunnel ?? { enabled: false, port: 3100, provider: 'cloudflare', options: {}, storeTtlMinutes: 60, auth: { enabled: false } }
+  // tunnel migrated out of config.json — read from plugin settings only
+  let tunnel = { enabled: false, port: 3100, provider: 'cloudflare', options: {} as Record<string, unknown>, storeTtlMinutes: 60, auth: { enabled: false } }
 
   if (settingsManager) {
     const ps = await settingsManager.loadSettings('@openacp/tunnel')

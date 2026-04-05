@@ -461,7 +461,7 @@ export async function startServer(opts?: StartServerOptions) {
     }
 
     const apiSvc = core.lifecycleManager.serviceRegistry.get<import('./plugins/api-server/service.js').ApiServerService>('api-server')
-    const apiPort = apiSvc ? apiSvc.getPort() : (config.api?.port ?? 21420)
+    const apiPort = apiSvc ? apiSvc.getPort() : 21420
     if (apiSvc) ok(`API server on port ${apiPort}`)
 
     // Links as plain text — easily copyable
@@ -474,7 +474,7 @@ export async function startServer(opts?: StartServerOptions) {
     console.log(`\nOpenACP is running. Press Ctrl+C to stop.\n`)
     unmuteLogger()
   }
-  log.debug({ agents: Object.keys(config.agents) }, 'OpenACP started')
+  log.debug('OpenACP started')
 }
 
 /**

@@ -35,7 +35,7 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
       } catch {
         /* fallback */
       }
-      return Object.keys(config.agents ?? {});
+      return [];
     },
     scope: "safe",
     hotReload: true,
