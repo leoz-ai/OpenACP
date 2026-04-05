@@ -542,7 +542,6 @@ async function autoRegisterBuiltinPlugins(
             pluginName: plugin.name,
             settingsManager,
             basePath: settingsManager.getBasePath(),
-            legacyConfig,
           })
           // Override terminal to be silent
           ctx.terminal = createSilentTerminal()

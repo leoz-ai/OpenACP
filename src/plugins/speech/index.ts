@@ -18,27 +18,8 @@ const speechPlugin: OpenACPPlugin = {
   inheritableKeys: ['ttsProvider', 'ttsVoice'],
 
   async install(ctx: InstallContext) {
-    const { terminal, settings, legacyConfig } = ctx
+    const { terminal, settings } = ctx
     const pluginsDir = ctx.instanceRoot ? path.join(ctx.instanceRoot, 'plugins') : undefined
-
-    // Migrate from legacy config if present
-    if (legacyConfig) {
-      const speechCfg = legacyConfig.speech as Record<string, unknown> | undefined
-      if (speechCfg) {
-        const stt = speechCfg.stt as Record<string, unknown> | undefined
-        const tts = speechCfg.tts as Record<string, unknown> | undefined
-        const groqProviders = stt?.providers as Record<string, unknown> | undefined
-        const groqConfig = groqProviders?.groq as Record<string, unknown> | undefined
-        await settings.setAll({
-          sttProvider: stt?.provider ?? null,
-          groqApiKey: groqConfig?.apiKey ?? '',
-          ttsProvider: tts?.provider ?? 'edge-tts',
-          ttsVoice: '',
-        })
-        terminal.log.success('Speech settings migrated from legacy config')
-        return
-      }
-    }
 
     // Interactive setup
     const enableStt = await terminal.confirm({
@@ -138,24 +119,15 @@ const speechPlugin: OpenACPPlugin = {
   },
 
   async setup(ctx) {
+    ctx.registerEditableFields([
+      { key: 'sttProvider', displayName: 'Speech to Text', type: 'select', scope: 'safe', hotReload: true, options: ['groq'] },
+      { key: 'groqApiKey', displayName: 'STT API Key', type: 'string', scope: 'sensitive', hotReload: true },
+      { key: 'ttsProvider', displayName: 'Text to Speech', type: 'select', scope: 'safe', hotReload: true, options: ['edge-tts'] },
+    ])
+
     const pluginsDir = ctx.instanceRoot ? path.join(ctx.instanceRoot, 'plugins') : undefined
     const config = ctx.pluginConfig as Record<string, unknown>
-    let groqApiKey = config.groqApiKey as string | undefined
-
-    // Backward-compat: fall back to legacy config.json if plugin settings don't have the key.
-    // This handles users who upgraded without reinstalling the speech plugin (migration not triggered).
-    if (!groqApiKey) {
-      try {
-        const mainConfig = (ctx.config as { get(): Record<string, unknown> }).get()
-        const legacyStt = ((mainConfig?.speech as Record<string, unknown> | undefined)?.stt) as Record<string, unknown> | undefined
-        const legacyGroq = (legacyStt?.providers as Record<string, unknown> | undefined)?.groq as Record<string, unknown> | undefined
-        const legacyKey = legacyGroq?.apiKey as string | undefined
-        if (legacyKey) {
-          groqApiKey = legacyKey
-          ctx.log.warn('STT: groqApiKey missing from plugin settings, using legacy config.json. Run `openacp plugin configure @openacp/speech` to migrate permanently.')
-        }
-      } catch { /* ctx.config unavailable in some test environments */ }
-    }
+    const groqApiKey = config.groqApiKey as string | undefined
 
     const sttProvider = groqApiKey ? 'groq' : null
     const speechConfig: SpeechServiceConfig = {
