@@ -86,7 +86,7 @@ export function registerSessionCommands(registry: CommandRegistry, _core: unknow
       if (!core.assistantManager) return { type: 'error', message: 'Assistant not available' }
       const assistant = core.assistantManager.get(args.channelId)
       if (!assistant) return { type: 'error', message: 'No assistant session for this channel.' }
-      await core.assistantManager.respawn(args.channelId, assistant.threadId)
+      await core.assistantManager.getOrSpawn(args.channelId, assistant.threadId)
       return { type: 'text', text: '✅ Assistant history cleared.' }
     },
   })
