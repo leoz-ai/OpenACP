@@ -863,6 +863,14 @@ export class TelegramAdapter extends MessagingAdapter {
 
   private setupRoutes(): void {
     this.bot.on("message:text", async (ctx) => {
+      // Guard: topics not yet initialized — non-command messages would use stale/zero topic IDs
+      if (!this._topicsInitialized) {
+        await ctx.reply(
+          "⏳ OpenACP is still setting up. Check the General topic for instructions.",
+        ).catch(() => {});
+        return;
+      }
+
       const threadId = ctx.message.message_thread_id;
       const text = ctx.message.text;
 
