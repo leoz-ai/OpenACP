@@ -684,7 +684,7 @@ export class TelegramAdapter extends MessagingAdapter {
     });
 
     const schedule = [5_000, 10_000, 30_000];
-    let attempt = 0;
+    let attempt = 1;
 
     const retry = async () => {
       if (this._prerequisiteWatcher === null) return; // cancelled by stop()
