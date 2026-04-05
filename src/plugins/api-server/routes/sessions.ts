@@ -96,7 +96,9 @@ export async function sessionRoutes(
       });
     }
 
-    // Resolve adapter: use explicit channel if provided, otherwise fall back to first registered adapter
+    // Resolve adapter: use explicit channel if provided, otherwise create a headless API session.
+    // Omitting channel is intentional — API callers interact via SSE + POST /prompt.
+    // Use POST /sessions/:id/attach to wire an adapter thread after creation.
     let adapterId: string | null = null;
     let adapter: InstanceType<any> | null = null;
 
@@ -110,11 +112,6 @@ export async function sessionRoutes(
       }
       adapterId = body.channel;
       adapter = deps.core.adapters.get(body.channel) ?? null;
-    } else {
-      const firstEntry = deps.core.adapters.entries().next().value;
-      if (firstEntry) {
-        [adapterId, adapter] = firstEntry;
-      }
     }
 
     const channelId = adapterId ?? 'api';

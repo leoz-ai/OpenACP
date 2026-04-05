@@ -235,6 +235,38 @@ describe('session routes', () => {
 
       expect(response.statusCode).toBe(400);
     });
+
+    it('creates headless API session when no channel is provided, even if adapters are registered', async () => {
+      // Simulate a Telegram adapter being registered
+      (deps.core.adapters as Map<string, any>).set('telegram', {} as any);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { agent: 'claude' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(deps.core.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: 'api', createThread: false }),
+      );
+    });
+
+    it('creates adapter session when explicit channel is provided', async () => {
+      const mockAdapter = {} as any;
+      (deps.core.adapters as Map<string, any>).set('telegram', mockAdapter);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { agent: 'claude', channel: 'telegram' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(deps.core.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: 'telegram', createThread: true }),
+      );
+    });
   });
 
   describe('POST /api/v1/sessions/adopt', () => {
