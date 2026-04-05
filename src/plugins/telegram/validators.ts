@@ -111,3 +111,45 @@ export async function validateBotAdmin(
     return { ok: false, error: (err as Error).message };
   }
 }
+
+export async function checkTopicsPrerequisites(
+  token: string,
+  chatId: number,
+): Promise<{ ok: true } | { ok: false; issues: string[] }> {
+  const issues: string[] = [];
+
+  // Check 1: Topics enabled
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      result?: { is_forum?: boolean };
+    };
+    if (data.ok && data.result && !data.result.is_forum) {
+      issues.push(
+        '❌ Topics are not enabled on this group.\n→ Go to Group Settings → Edit → enable "Topics"',
+      );
+    }
+  } catch {
+    issues.push('❌ Could not check if Topics are enabled (network error).');
+  }
+
+  // Check 2 & 3: Bot is admin + can_manage_topics
+  const adminResult = await validateBotAdmin(token, chatId);
+  if (!adminResult.ok) {
+    issues.push(
+      `❌ Bot is not an admin.\n→ Go to Group Settings → Administrators → add the bot → save`,
+    );
+  } else if (!adminResult.canManageTopics) {
+    issues.push(
+      '❌ Bot cannot manage topics.\n→ In Admin settings, enable the "Manage Topics" permission',
+    );
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true };
+}

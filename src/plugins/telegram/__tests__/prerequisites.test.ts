@@ -58,3 +58,81 @@ describe('validateBotAdmin', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+import { checkTopicsPrerequisites } from '../validators.js'
+
+function makeChatResponse(type: string, isForum: boolean) {
+  return {
+    ok: true, status: 200,
+    json: async () => ({
+      ok: true,
+      result: { type, is_forum: isForum, title: 'My Group' },
+    }),
+  }
+}
+
+describe('checkTopicsPrerequisites', () => {
+  beforeEach(() => mockFetch.mockReset())
+
+  it('returns ok:true when all checks pass', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeChatResponse('supergroup', true))   // getChat
+      .mockResolvedValueOnce(makeMeResponse(42))                      // getMe (inside validateBotAdmin)
+      .mockResolvedValueOnce(makeMemberResponse('administrator', true)) // getChatMember
+
+    const result = await checkTopicsPrerequisites('token', -1001234)
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('returns issues when topics not enabled', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeChatResponse('supergroup', false))
+      .mockResolvedValueOnce(makeMeResponse(42))
+      .mockResolvedValueOnce(makeMemberResponse('administrator', true))
+
+    const result = await checkTopicsPrerequisites('token', -1001234)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some(i => i.includes('Topics'))).toBe(true)
+    }
+  })
+
+  it('returns issues when bot is not admin', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeChatResponse('supergroup', true))
+      .mockResolvedValueOnce(makeMeResponse(42))
+      .mockResolvedValueOnce(makeMemberResponse('member', false))
+
+    const result = await checkTopicsPrerequisites('token', -1001234)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some(i => i.toLowerCase().includes('admin'))).toBe(true)
+    }
+  })
+
+  it('returns issues when bot lacks can_manage_topics', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeChatResponse('supergroup', true))
+      .mockResolvedValueOnce(makeMeResponse(42))
+      .mockResolvedValueOnce(makeMemberResponse('administrator', false))
+
+    const result = await checkTopicsPrerequisites('token', -1001234)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some(i => i.toLowerCase().includes('manage topics'))).toBe(true)
+    }
+  })
+
+  it('returns multiple issues when multiple checks fail', async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeChatResponse('supergroup', false))
+      .mockResolvedValueOnce(makeMeResponse(42))
+      .mockResolvedValueOnce(makeMemberResponse('member', false))
+
+    const result = await checkTopicsPrerequisites('token', -1001234)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.length).toBeGreaterThanOrEqual(2)
+    }
+  })
+})
