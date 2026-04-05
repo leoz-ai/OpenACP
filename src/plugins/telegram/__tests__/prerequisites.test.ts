@@ -57,6 +57,16 @@ describe('validateBotAdmin', () => {
     const result = await validateBotAdmin('token123', -1001234)
     expect(result.ok).toBe(false)
   })
+
+  it('returns ok:false when fetch throws (network error)', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Network timeout'))
+
+    const result = await validateBotAdmin('token123', -1001234)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('Network timeout')
+    }
+  })
 })
 
 import { checkTopicsPrerequisites } from '../validators.js'

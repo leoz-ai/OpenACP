@@ -540,6 +540,7 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   private async initTopicDependentFeatures(): Promise<void> {
+    if (this._topicsInitialized) return; // idempotent guard
     // Ensure system topics exist (retry on transient network failures)
     const topics = await this.retryWithBackoff(
       () => ensureTopics(
@@ -675,7 +676,7 @@ export class TelegramAdapter extends MessagingAdapter {
     const setupMessage =
       `⚠️ <b>OpenACP needs setup before it can start.</b>\n\n` +
       issues.join('\n\n') +
-      `\n\nOpenACP will automatically retry every 30 seconds.`;
+      `\n\nOpenACP will automatically retry until this is resolved.`;
 
     this.bot.api.sendMessage(this.telegramConfig.chatId, setupMessage, {
       parse_mode: 'HTML',
