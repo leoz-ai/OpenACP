@@ -47,7 +47,7 @@ export async function validateChatId(
     if (data.result.type !== "supergroup") {
       return {
         ok: false,
-        error: `Chat is "${data.result.type}", must be a supergroup`,
+        error: `Chat must be a group (not a channel or private chat). Got: "${data.result.type}"`,
       };
     }
     return {

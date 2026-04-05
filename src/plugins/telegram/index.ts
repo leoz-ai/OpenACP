@@ -8,7 +8,7 @@ function createTelegramPlugin(): OpenACPPlugin {
   return {
     name: '@openacp/telegram',
     version: '1.0.0',
-    description: 'Telegram adapter with forum topics',
+    description: 'Telegram adapter with Topics support',
     essential: true,
     pluginDependencies: {
       '@openacp/security': '^1.0.0',
@@ -55,7 +55,7 @@ function createTelegramPlugin(): OpenACPPlugin {
       }
 
       // Chat ID detection
-      terminal.log.info('Send a message in your Telegram supergroup to detect the chat ID,')
+      terminal.log.info('Send a message in your Telegram group to detect the chat ID,')
       terminal.log.info('or enter the chat ID manually.')
 
       const chatIdMethod = await terminal.select({
@@ -69,7 +69,7 @@ function createTelegramPlugin(): OpenACPPlugin {
       let chatId: number
       if (chatIdMethod === 'manual') {
         const val = await terminal.text({
-          message: 'Supergroup chat ID (e.g. -1001234567890):',
+          message: 'Group chat ID (e.g. -1001234567890):',
           validate: (v) => {
             const n = Number(v.trim())
             if (isNaN(n) || !Number.isInteger(n)) return 'Chat ID must be an integer'
@@ -262,7 +262,7 @@ async function detectChatIdViaPolling(
   // Fallback to manual
   terminal.log.warning('Timed out waiting for messages. Enter chat ID manually.')
   const val = await terminal.text({
-    message: 'Supergroup chat ID (e.g. -1001234567890):',
+    message: 'Group chat ID (e.g. -1001234567890):',
     validate: (v) => {
       const n = Number(v.trim())
       if (isNaN(n) || !Number.isInteger(n)) return 'Chat ID must be an integer'
