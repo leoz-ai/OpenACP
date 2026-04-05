@@ -11,6 +11,8 @@ export async function agentRoutes(
 ): Promise<void> {
   // GET /agents — list all available agents
   app.get('/', { preHandler: requireScopes('agents:read') }, async () => {
+    // Re-read agents.json so newly installed agents are picked up without a server restart
+    deps.core.agentCatalog.load();
     const agents = deps.core.agentManager.getAvailableAgents();
     const defaultAgent = deps.core.configManager.get().defaultAgent;
     const agentsWithCaps = agents.map((a) => ({
@@ -18,6 +20,18 @@ export async function agentRoutes(
       capabilities: getAgentCapabilities(a.name),
     }));
     return { agents: agentsWithCaps, default: defaultAgent };
+  });
+
+  // POST /agents/reload — explicitly reload agent catalog from disk
+  app.post('/reload', { preHandler: requireScopes('agents:read') }, async () => {
+    deps.core.agentCatalog.load();
+    const agents = deps.core.agentManager.getAvailableAgents();
+    const defaultAgent = deps.core.configManager.get().defaultAgent;
+    const agentsWithCaps = agents.map((a) => ({
+      ...a,
+      capabilities: getAgentCapabilities(a.name),
+    }));
+    return { agents: agentsWithCaps, default: defaultAgent, reloaded: true };
   });
 
   // GET /agents/:name — get a single agent by name
