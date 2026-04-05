@@ -82,6 +82,23 @@ export interface SettingsAPI {
   has(key: string): Promise<boolean>
 }
 
+// ─── Plugin Field Declaration ───
+
+/** Describes a settings field that a plugin exposes as editable via API/UI */
+export interface FieldDef {
+  /** Settings key (matches the key in plugin settings.json) */
+  key: string
+  /** Human-readable label for UI display */
+  displayName: string
+  type: "toggle" | "select" | "number" | "string"
+  /** safe = readable via API; sensitive = write-only (e.g., tokens) */
+  scope: "safe" | "sensitive"
+  /** Whether the change takes effect without restart. Default: false */
+  hotReload?: boolean
+  /** Valid values for "select" type */
+  options?: string[]
+}
+
 // ─── Terminal I/O (interactive CLI for plugins) ───
 
 export interface TerminalIO {
@@ -284,6 +301,12 @@ export interface PluginContext {
   registerAssistantSection(section: import('../assistant/assistant-registry.js').AssistantSection): void
   /** Unregister an assistant section by id. Requires 'commands:register'. */
   unregisterAssistantSection(id: string): void
+  /**
+   * Declare this plugin's settings fields as editable via API/UI.
+   * Call in setup() after registering services.
+   * Requires 'commands:register'.
+   */
+  registerEditableFields(fields: FieldDef[]): void
   /** Plugin-scoped storage. Requires 'storage:read' and/or 'storage:write'. */
   storage: PluginStorage
   /** Plugin-scoped logger. Always available (no permission needed). */

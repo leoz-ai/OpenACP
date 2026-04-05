@@ -14,6 +14,7 @@ import { registerSystemCommands } from './core/commands/index.js'
 import type { IChannelAdapter } from './core/channel.js'
 import type { TunnelService } from './plugins/tunnel/tunnel-service.js'
 import { InstanceRegistry } from './core/instance/instance-registry.js'
+import { PluginFieldRegistry } from './core/plugin/plugin-field-registry.js'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 
@@ -128,6 +129,9 @@ export async function startServer(opts?: StartServerOptions) {
   const commandRegistry = new CommandRegistry()
   const serviceRegistry = core.lifecycleManager.serviceRegistry
   serviceRegistry.register('command-registry', commandRegistry, 'core')
+
+  const fieldRegistry = new PluginFieldRegistry()
+  serviceRegistry.register('field-registry', fieldRegistry, 'core')
 
   // 3c. Register system commands
   registerSystemCommands(commandRegistry, core)

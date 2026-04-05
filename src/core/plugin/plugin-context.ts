@@ -192,6 +192,15 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
       assistantRegistry.unregister(`${pluginName}:${id}`)
     },
 
+    registerEditableFields(fields: import('./types.js').FieldDef[]): void {
+      requirePermission(permissions, 'commands:register', 'registerEditableFields()')
+      const registry = serviceRegistry.get<{ register(pluginName: string, fields: import('./types.js').FieldDef[]): void }>('field-registry')
+      if (registry && typeof registry.register === 'function') {
+        registry.register(pluginName, fields)
+        log.debug(`Registered ${fields.length} editable field(s) for ${pluginName}`)
+      }
+    },
+
     get sessions() {
       requirePermission(permissions, 'kernel:access', 'sessions')
       return sessions as any
