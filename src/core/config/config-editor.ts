@@ -114,7 +114,7 @@ async function editTelegram(config: Config, updates: ConfigUpdates, settingsMana
 
 // --- Edit: Discord (delegates to plugin's configure()) ---
 
-const DISCORD_PACKAGE = '@openacp/adapter-discord'
+const DISCORD_PACKAGE = '@openacp/discord-adapter'
 
 async function ensureDiscordPlugin(): Promise<any | null> {
   try {
@@ -179,7 +179,7 @@ async function editChannels(config: Config, updates: ConfigUpdates, settingsMana
     const tgPs = await settingsManager.loadSettings('@openacp/telegram')
     if (tgPs.botToken && tgPs.chatId) tgConfigured = true
 
-    const dcPs = await settingsManager.loadSettings('@openacp/adapter-discord')
+    const dcPs = await settingsManager.loadSettings('@openacp/discord-adapter')
     if (dcPs.guildId || dcPs.token) dcConfigured = true
   }
 

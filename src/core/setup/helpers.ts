@@ -73,7 +73,7 @@ export async function summarizeConfig(config: Config, settingsManager?: Settings
   // Channels — check plugin settings (new-style) before falling back to config.channels (legacy)
   const channelDefs: Array<{ id: string; label: string; pluginName: string; keys: string[] }> = [
     { id: "telegram", label: "Telegram", pluginName: "@openacp/telegram", keys: ["botToken", "chatId"] },
-    { id: "discord", label: "Discord", pluginName: "@openacp/adapter-discord", keys: ["guildId", "token"] },
+    { id: "discord", label: "Discord", pluginName: "@openacp/discord-adapter", keys: ["guildId", "token"] },
   ];
 
   const channelStatuses: string[] = [];

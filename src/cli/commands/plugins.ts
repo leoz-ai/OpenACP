@@ -96,12 +96,12 @@ export async function cmdPlugin(args: string[] = [], instanceRoot?: string): Pro
 \x1b[1mExamples:\x1b[0m
   openacp plugin list
   openacp plugin search telegram
-  openacp plugin add @openacp/adapter-discord
+  openacp plugin add @openacp/discord-adapter
   openacp plugin add translator@1.2.0
   openacp plugin add ./my-plugin            Install from local directory
-  openacp plugin enable @openacp/adapter-discord
-  openacp plugin configure @openacp/adapter-discord
-  openacp plugin remove @openacp/adapter-discord --purge
+  openacp plugin enable @openacp/discord-adapter
+  openacp plugin configure @openacp/discord-adapter
+  openacp plugin remove @openacp/discord-adapter --purge
 `)
     return
   }
