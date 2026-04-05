@@ -58,6 +58,7 @@ function mockStore(): SessionStore {
     }),
     remove: vi.fn(async (id: string) => { records.delete(id) }),
     flush: vi.fn(),
+    findAssistant: vi.fn().mockReturnValue(undefined),
   } as unknown as SessionStore
 }
 

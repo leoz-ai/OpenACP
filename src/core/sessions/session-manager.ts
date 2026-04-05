@@ -215,7 +215,7 @@ export class SessionManager {
     }
 
     // Fallback: no store — return live sessions only
-    let live = Array.from(this.sessions.values());
+    let live = Array.from(this.sessions.values()).filter(s => !s.isAssistant);
     if (channelId) live = live.filter((s) => s.channelId === channelId);
     return live.map((s) => ({
       id: s.id,
