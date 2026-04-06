@@ -716,10 +716,22 @@ ensure_default_node_active_shell() {
         return 0
     fi
 
-    # Try sourcing nvm
+    # Try sourcing nvm.
+    # Check NVM_DIR first, then fall back to the default ~/.nvm location.
+    # The fallback is critical: in non-login shells (e.g. when launched from a
+    # GUI app like the OpenACP desktop), ~/.zshrc is never sourced so NVM_DIR
+    # is unset even when nvm is properly installed.
+    local nvm_sh=""
     if [[ -n "${NVM_DIR:-}" && -s "${NVM_DIR}/nvm.sh" ]]; then
+        nvm_sh="${NVM_DIR}/nvm.sh"
+    elif [[ -s "${HOME}/.nvm/nvm.sh" ]]; then
+        nvm_sh="${HOME}/.nvm/nvm.sh"
+    elif [[ -n "${XDG_CONFIG_HOME:-}" && -s "${XDG_CONFIG_HOME}/nvm/nvm.sh" ]]; then
+        nvm_sh="${XDG_CONFIG_HOME}/nvm/nvm.sh"
+    fi
+    if [[ -n "$nvm_sh" ]]; then
         # shellcheck source=/dev/null
-        source "${NVM_DIR}/nvm.sh" 2>/dev/null || true
+        source "$nvm_sh" 2>/dev/null || true
         if node_is_at_least_required; then
             return 0
         fi
