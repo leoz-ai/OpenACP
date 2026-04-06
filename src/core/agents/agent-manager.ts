@@ -22,19 +22,21 @@ export class AgentManager {
   async spawn(
     agentName: string,
     workingDirectory: string,
+    allowedPaths?: string[],
   ): Promise<AgentInstance> {
     const agentDef = this.getAgent(agentName);
     if (!agentDef) throw new Error(`Agent "${agentName}" is not installed. Run "openacp agents install ${agentName}" to add it.`);
-    return AgentInstance.spawn(agentDef, workingDirectory);
+    return AgentInstance.spawn(agentDef, workingDirectory, undefined, allowedPaths);
   }
 
   async resume(
     agentName: string,
     workingDirectory: string,
     agentSessionId: string,
+    allowedPaths?: string[],
   ): Promise<AgentInstance> {
     const agentDef = this.getAgent(agentName);
     if (!agentDef) throw new Error(`Agent "${agentName}" is not installed. Run "openacp agents install ${agentName}" to add it.`);
-    return AgentInstance.resume(agentDef, workingDirectory, agentSessionId);
+    return AgentInstance.resume(agentDef, workingDirectory, agentSessionId, undefined, allowedPaths);
   }
 }

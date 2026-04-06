@@ -71,7 +71,7 @@ describe("SessionFactory — Comprehensive Tests", () => {
         workingDirectory: "/workspace",
       });
 
-      expect(agentManager.spawn).toHaveBeenCalledWith("claude", "/workspace");
+      expect(agentManager.spawn).toHaveBeenCalledWith("claude", "/workspace", []);
       expect(agentManager.resume).not.toHaveBeenCalled();
       expect(session).toBeInstanceOf(Session);
     });
@@ -88,6 +88,7 @@ describe("SessionFactory — Comprehensive Tests", () => {
         "claude",
         "/workspace",
         "old-agent-sess",
+        [],
       );
       expect(agentManager.spawn).not.toHaveBeenCalled();
     });
@@ -194,7 +195,7 @@ describe("SessionFactory — Comprehensive Tests", () => {
       });
 
       expect(session.agentSessionId).toBe("new-sess");
-      expect(agentManager.spawn).toHaveBeenCalledWith("claude", "/workspace");
+      expect(agentManager.spawn).toHaveBeenCalledWith("claude", "/workspace", []);
     });
   });
 

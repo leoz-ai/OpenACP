@@ -53,7 +53,13 @@ export class Session extends TypedEmitter<SessionEvents> {
   }
   agentName: string;
   workingDirectory: string;
-  agentInstance: AgentInstance;
+  private _agentInstance!: AgentInstance;
+  get agentInstance(): AgentInstance { return this._agentInstance; }
+  set agentInstance(agent: AgentInstance) {
+    this._agentInstance = agent;
+    this.wireAgentRelay();
+    this.wireCommandsBuffer();
+  }
   agentSessionId: string = "";
   private _status: SessionStatus = "initializing";
   name?: string;
@@ -115,8 +121,6 @@ export class Session extends TypedEmitter<SessionEvents> {
       },
     );
 
-    this.wireAgentRelay();
-    this.wireCommandsBuffer();
   }
 
   /** Wire the agent→session event relay on the current agentInstance.
@@ -126,11 +130,12 @@ export class Session extends TypedEmitter<SessionEvents> {
   private agentRelayCleanup?: () => void;
   private wireAgentRelay(): void {
     this.agentRelayCleanup?.();
+    const instance = this._agentInstance;
     const handler = (event: AgentEvent) => {
       this.emit(SessionEv.AGENT_EVENT, event);
     };
-    this.agentInstance.on(SessionEv.AGENT_EVENT, handler);
-    this.agentRelayCleanup = () => this.agentInstance.off(SessionEv.AGENT_EVENT, handler);
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.agentRelayCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   /** Wire a listener on the current agentInstance to buffer commands_update events.
@@ -139,13 +144,14 @@ export class Session extends TypedEmitter<SessionEvents> {
   private wireCommandsBuffer(): void {
     // Remove previous listener (if switching agents) to avoid leaks
     this.commandsBufferCleanup?.();
+    const instance = this._agentInstance;
     const handler = (event: AgentEvent) => {
       if (event.type === "commands_update") {
         this.latestCommands = event.commands;
       }
     };
-    this.agentInstance.on(SessionEv.AGENT_EVENT, handler);
-    this.commandsBufferCleanup = () => this.agentInstance.off(SessionEv.AGENT_EVENT, handler);
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.commandsBufferCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   // --- State Machine ---
@@ -658,8 +664,6 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.configOptions = [];
     this.latestCommands = null;
     this.applySpawnResponse(newAgent.initialSessionResponse, newAgent.agentCapabilities);
-    this.wireAgentRelay();
-    this.wireCommandsBuffer();
 
     this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }

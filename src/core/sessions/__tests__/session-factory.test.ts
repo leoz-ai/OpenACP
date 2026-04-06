@@ -72,6 +72,7 @@ describe("SessionFactory", () => {
       expect(deps.agentManager.spawn).toHaveBeenCalledWith(
         "claude",
         "/tmp/test",
+        [],
       );
     });
 
@@ -87,8 +88,8 @@ describe("SessionFactory", () => {
         resumeAgentSessionId: "expired-session-id",
       });
 
-      expect(deps.agentManager.resume).toHaveBeenCalledWith("claude", "/tmp/test", "expired-session-id");
-      expect(deps.agentManager.spawn).toHaveBeenCalledWith("claude", "/tmp/test");
+      expect(deps.agentManager.resume).toHaveBeenCalledWith("claude", "/tmp/test", "expired-session-id", []);
+      expect(deps.agentManager.spawn).toHaveBeenCalledWith("claude", "/tmp/test", []);
       expect(session.agentSessionId).toBe("new-spawn-session");
     });
 
@@ -116,6 +117,7 @@ describe("SessionFactory", () => {
         "claude",
         "/tmp/test",
         "old-session-id",
+        [],
       );
       expect(session.agentSessionId).toBe("agent-session-1");
     });

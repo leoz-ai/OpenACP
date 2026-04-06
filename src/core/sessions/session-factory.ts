@@ -92,6 +92,9 @@ export class SessionFactory {
     }
 
     // 1. Spawn or resume agent
+    // Include config-level allowedPaths so agents can read whitelisted directories from startup
+    const configAllowedPaths = this.configManager?.get().workspace?.security?.allowedPaths ?? [];
+
     let agentInstance;
     try {
       if (createParams.resumeAgentSessionId) {
@@ -100,6 +103,7 @@ export class SessionFactory {
             createParams.agentName,
             createParams.workingDirectory,
             createParams.resumeAgentSessionId,
+            configAllowedPaths,
           );
         } catch (resumeErr) {
           // Resume failed (session expired after restart) — fall back to fresh spawn
@@ -110,12 +114,14 @@ export class SessionFactory {
           agentInstance = await this.agentManager.spawn(
             createParams.agentName,
             createParams.workingDirectory,
+            configAllowedPaths,
           );
         }
       } else {
         agentInstance = await this.agentManager.spawn(
           createParams.agentName,
           createParams.workingDirectory,
+          configAllowedPaths,
         );
       }
     } catch (err) {

@@ -24,6 +24,7 @@ import type {
   SetConfigOptionValue,
 } from "../types.js";
 import { readTextFileWithRange } from "../utils/read-text-file.js";
+import { SUPPORTED_IMAGE_MIMES, buildAttachmentNote } from "./attachment-blocks.js";
 import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { TerminalManager } from "../sessions/terminal-manager.js";
@@ -185,6 +186,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
   private static async spawnSubprocess(
     agentDef: AgentDefinition,
     workingDirectory: string,
+    allowedPaths: string[] = [],
   ): Promise<AgentInstance> {
     const instance = new AgentInstance(agentDef.name);
     const resolved = resolveAgentCommand(agentDef.command);
@@ -200,10 +202,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     const ignorePatterns = PathGuard.loadIgnoreFile(workingDirectory);
     instance.pathGuard = new PathGuard({
       cwd: workingDirectory,
-      // allowedPaths is wired from workspace.security.allowedPaths config;
-      // spawnSubprocess would need to receive a SecurityConfig param to use it.
-      // Tracked as follow-up: pass workspace security config through spawn/resume call chain.
-      allowedPaths: [],
+      allowedPaths,
       ignorePatterns,
     });
 
@@ -332,6 +331,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     agentDef: AgentDefinition,
     workingDirectory: string,
     mcpServers?: McpServerConfig[],
+    allowedPaths?: string[],
   ): Promise<AgentInstance> {
     log.debug(
       { agentName: agentDef.name, command: agentDef.command },
@@ -342,6 +342,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     const instance = await AgentInstance.spawnSubprocess(
       agentDef,
       workingDirectory,
+      allowedPaths,
     );
 
     const resolvedMcp = AgentInstance.mcpManager.resolve(mcpServers);
@@ -373,6 +374,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     workingDirectory: string,
     agentSessionId: string,
     mcpServers?: McpServerConfig[],
+    allowedPaths?: string[],
   ): Promise<AgentInstance> {
     log.debug({ agentName: agentDef.name, agentSessionId }, "Resuming agent");
     const spawnStart = Date.now();
@@ -380,6 +382,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
     const instance = await AgentInstance.spawnSubprocess(
       agentDef,
       workingDirectory,
+      allowedPaths,
     );
 
     const resolvedMcp = AgentInstance.mcpManager.resolve(mcpServers);
@@ -776,14 +779,17 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
 
   async prompt(text: string, attachments?: Attachment[]): Promise<PromptResponse> {
     const contentBlocks: Array<Record<string, unknown>> = [{ type: "text", text }];
-
-    // MIME types supported by Claude API for base64 image content
-    const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+    const capabilities = this.promptCapabilities ?? {};
 
     for (const att of attachments ?? []) {
-      const tooLarge = att.size > 10 * 1024 * 1024; // 10MB base64 guard
+      // Check if this attachment should be skipped (too large, unsupported format)
+      const skipNote = buildAttachmentNote(att, capabilities);
+      if (skipNote !== null) {
+        (contentBlocks[0] as { text: string }).text += `\n\n${skipNote}`;
+        continue;
+      }
 
-      if (att.type === "image" && this.promptCapabilities?.image && !tooLarge && SUPPORTED_IMAGE_MIMES.has(att.mimeType)) {
+      if (att.type === "image" && capabilities.image && SUPPORTED_IMAGE_MIMES.has(att.mimeType)) {
         const attCheck = this.pathGuard.validatePath(att.filePath, "read");
         if (!attCheck.allowed) {
           (contentBlocks[0] as { text: string }).text += `\n\n[Attachment access denied: ${attCheck.reason}]`;
@@ -791,7 +797,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         }
         const data = await fs.promises.readFile(att.filePath);
         contentBlocks.push({ type: "image", data: data.toString("base64"), mimeType: att.mimeType });
-      } else if (att.type === "audio" && this.promptCapabilities?.audio && !tooLarge) {
+      } else if (att.type === "audio" && capabilities.audio) {
         const attCheck = this.pathGuard.validatePath(att.filePath, "read");
         if (!attCheck.allowed) {
           (contentBlocks[0] as { text: string }).text += `\n\n[Attachment access denied: ${attCheck.reason}]`;
@@ -801,9 +807,9 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         contentBlocks.push({ type: "audio", data: data.toString("base64"), mimeType: att.mimeType });
       } else {
         // Fallback: append file path to text so agent can read from disk
-        if ((att.type === "image" || att.type === "audio") && !tooLarge) {
+        if (att.type === "image" || att.type === "audio") {
           log.debug(
-            { type: att.type, capabilities: this.promptCapabilities ?? {} },
+            { type: att.type, capabilities },
             "Agent does not support %s content, falling back to file path",
             att.type,
           );

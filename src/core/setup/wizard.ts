@@ -429,7 +429,7 @@ export async function runSetup(
     const config: Config = {
       instanceName,
       defaultAgent,
-      workspace: { ...workspace, security: { allowedPaths: [], envWhitelist: [] } },
+      workspace: { ...workspace, allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
       logging: {
         level: "info",
         logDir: path.join(instanceRoot, "logs"),

@@ -107,11 +107,12 @@ export class AgentSwitchHandler {
 
     // 4. Switch agent on session (with rollback on failure)
     const fileService = this.deps.getService<import('../plugins/file-service/file-service.js').FileService>('file-service');
+    const configAllowedPaths = configManager.get().workspace?.security?.allowedPaths ?? [];
     try {
       await session.switchAgent(toAgent, async () => {
         if (canResume) {
           try {
-            const instance = await agentManager.resume(toAgent, session.workingDirectory, lastEntry!.agentSessionId);
+            const instance = await agentManager.resume(toAgent, session.workingDirectory, lastEntry!.agentSessionId, configAllowedPaths);
             if (fileService) instance.addAllowedPath(fileService.baseDir);
             resumed = true;
             return instance;
@@ -121,7 +122,7 @@ export class AgentSwitchHandler {
           }
         }
 
-        const instance = await agentManager.spawn(toAgent, session.workingDirectory);
+        const instance = await agentManager.spawn(toAgent, session.workingDirectory, configAllowedPaths);
         if (fileService) instance.addAllowedPath(fileService.baseDir);
         try {
           const contextService = this.deps.getService<ContextManager>('context');

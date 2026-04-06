@@ -55,15 +55,34 @@ describe('ConfigManager.resolveWorkspace', () => {
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('rejects absolute path outside baseDir', async () => {
+  it('allows absolute path outside baseDir when allowExternalWorkspaces is true (default)', async () => {
     await configManager.load()
-    expect(() => configManager.resolveWorkspace('/tmp/outside-workspace')).toThrow(/outside base directory/)
+    // /tmp exists on all systems; with allowExternalWorkspaces: true (default) it should be accepted
+    const result = configManager.resolveWorkspace('/tmp')
+    expect(result).toBe('/tmp')
   })
 
-  it('rejects tilde path outside baseDir', async () => {
-    await configManager.load()
-    // Use a tilde path that resolves outside the tmpDir-based baseDir
-    expect(() => configManager.resolveWorkspace('~/outside-workspace-openacp-test')).toThrow(/outside base directory/)
+  it('rejects absolute path outside baseDir when allowExternalWorkspaces is false', async () => {
+    // Write config with allowExternalWorkspaces: false
+    const configPath = path.join(tmpDir, 'config.json')
+    fs.writeFileSync(configPath, JSON.stringify({
+      defaultAgent: 'claude',
+      workspace: { baseDir: path.join(tmpDir, 'workspace'), allowExternalWorkspaces: false },
+    }, null, 2))
+    const restrictedManager = new ConfigManager(configPath)
+    await restrictedManager.load()
+    expect(() => restrictedManager.resolveWorkspace('/tmp/outside-workspace')).toThrow(/outside base directory/)
+  })
+
+  it('rejects tilde path outside baseDir when allowExternalWorkspaces is false', async () => {
+    const configPath = path.join(tmpDir, 'config.json')
+    fs.writeFileSync(configPath, JSON.stringify({
+      defaultAgent: 'claude',
+      workspace: { baseDir: path.join(tmpDir, 'workspace'), allowExternalWorkspaces: false },
+    }, null, 2))
+    const restrictedManager = new ConfigManager(configPath)
+    await restrictedManager.load()
+    expect(() => restrictedManager.resolveWorkspace('~/outside-workspace-openacp-test')).toThrow(/outside base directory/)
   })
 
   it('allows absolute path under baseDir', async () => {
