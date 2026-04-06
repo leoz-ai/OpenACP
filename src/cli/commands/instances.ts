@@ -174,13 +174,27 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   } else if (noInteractive || !process.stdin.isTTY) {
     // Minimal config for non-interactive mode
     fs.mkdirSync(instanceRoot, { recursive: true })
-    const config: Record<string, unknown> = { instanceName: name, runMode: 'daemon', defaultAgent: agent || 'claude' }
+    const config: Record<string, unknown> = {
+      channels: { sse: { enabled: true } },
+      defaultAgent: agent || 'claude',
+      workspace: { baseDir: '~/openacp-workspace' },
+      runMode: 'daemon',
+      autoStart: false,
+      instanceName: name,
+    }
     fs.writeFileSync(path.join(instanceRoot, 'config.json'), JSON.stringify(config, null, 2))
     fs.writeFileSync(path.join(instanceRoot, 'plugins.json'), JSON.stringify({ version: 1, installed: {} }, null, 2))
   } else {
     // Interactive wizard — requires plugin system; fall back to minimal config
     fs.mkdirSync(instanceRoot, { recursive: true })
-    const config: Record<string, unknown> = { instanceName: name, runMode: 'daemon', defaultAgent: agent || 'claude' }
+    const config: Record<string, unknown> = {
+      channels: { sse: { enabled: true } },
+      defaultAgent: agent || 'claude',
+      workspace: { baseDir: '~/openacp-workspace' },
+      runMode: 'daemon',
+      autoStart: false,
+      instanceName: name,
+    }
     fs.writeFileSync(path.join(instanceRoot, 'config.json'), JSON.stringify(config, null, 2))
     fs.writeFileSync(path.join(instanceRoot, 'plugins.json'), JSON.stringify({ version: 1, installed: {} }, null, 2))
     console.log(`Instance created at ${resolvedDir}. Run 'openacp setup' inside that directory to configure it.`)
