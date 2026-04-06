@@ -33,6 +33,7 @@ import { createChildLogger } from "./utils/log.js";
 import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import type { InstanceContext } from "./instance/instance-context.js";
+import { Hook, BusEvent, SessionEv } from "./events.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -327,7 +328,7 @@ export class OpenACPCore {
     // Hook: message:incoming — modifiable, can block
     if (this.lifecycleManager?.middlewareChain) {
       const result = await this.lifecycleManager.middlewareChain.execute(
-        'message:incoming',
+        Hook.MESSAGE_INCOMING,
         message,
         async (msg) => msg,
       );
@@ -388,7 +389,7 @@ export class OpenACPCore {
     const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
     if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
       const turnId = nanoid(8);
-      this.eventBus.emit("message:queued", {
+      this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
         sessionId: session.id,
         turnId,
         text,
@@ -491,7 +492,7 @@ export class OpenACPCore {
       });
       // Signal that thread is ready — all listeners (adapters, plugins, etc.) can react
       if (params.createThread && session.threadId) {
-        this.eventBus.emit("session:threadReady", {
+        this.eventBus.emit(BusEvent.SESSION_THREAD_READY, {
           sessionId: session.id,
           channelId: params.channelId,
           threadId: session.threadId,
@@ -522,20 +523,20 @@ export class OpenACPCore {
       // Persist session name and notify SSE clients when autoName fires.
       // For bridged sessions this is handled by SessionBridge's "named" listener;
       // headless sessions have no bridge so we wire it here instead.
-      session.on("named", async (name: string) => {
+      session.on(SessionEv.NAMED, async (name: string) => {
         await this.sessionManager.patchRecord(session.id, { name });
-        this.eventBus.emit("session:updated", { sessionId: session.id, name });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, name });
       });
 
       // Forward agent events to EventBus so SSE clients can observe the session.
       // Also handles session lifecycle transitions (session_end → finish, error → fail)
       // and fires agent:beforeEvent middleware — all normally handled by SessionBridge.
       const mw = () => this.lifecycleManager?.middlewareChain;
-      session.on("agent_event", async (event: AgentEvent) => {
+      session.on(SessionEv.AGENT_EVENT, async (event: AgentEvent) => {
         let processedEvent = event;
         const chain = mw();
         if (chain) {
-          const result = await chain.execute('agent:beforeEvent', { sessionId: session.id, event }, async (e) => e);
+          const result = await chain.execute(Hook.AGENT_BEFORE_EVENT, { sessionId: session.id, event }, async (e) => e);
           if (!result) return; // blocked by middleware
           processedEvent = result.event;
         }
@@ -544,20 +545,20 @@ export class OpenACPCore {
         } else if (processedEvent.type === "error") {
           session.fail((processedEvent as { message: string }).message);
         }
-        this.eventBus.emit("agent:event", { sessionId: session.id, event: processedEvent });
+        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, event: processedEvent });
       });
 
       // Persist status changes and notify SSE clients — normally wired by SessionBridge.
-      session.on("status_change", (_from: SessionStatus, to: SessionStatus) => {
+      session.on(SessionEv.STATUS_CHANGE, (_from: SessionStatus, to: SessionStatus) => {
         this.sessionManager.patchRecord(session.id, {
           status: to,
           lastActiveAt: new Date().toISOString(),
         });
-        this.eventBus.emit("session:updated", { sessionId: session.id, status: to });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, status: to });
       });
 
       // Persist prompt count after each prompt — normally wired by SessionBridge.
-      session.on("prompt_count_changed", (count: number) => {
+      session.on(SessionEv.PROMPT_COUNT_CHANGED, (count: number) => {
         this.sessionManager.patchRecord(session.id, { currentPromptCount: count });
       });
     }

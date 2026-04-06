@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import { filterEnv } from "../security/env-filter.js";
+import { Hook } from "../events.js";
 
 interface TerminalState {
   process: ChildProcess;
@@ -51,7 +52,7 @@ export class TerminalManager {
     if (middlewareChain) {
       const envRecord: Record<string, string> = {};
       for (const ev of termEnvArr) { envRecord[ev.name] = ev.value; }
-      const result = await middlewareChain.execute('terminal:beforeCreate', {
+      const result = await middlewareChain.execute(Hook.TERMINAL_BEFORE_CREATE, {
         sessionId,
         command: termCommand,
         args: termArgs as string[],
@@ -110,7 +111,7 @@ export class TerminalManager {
     childProcess.on("exit", (code, signal) => {
       state.exitStatus = { exitCode: code, signal };
       if (middlewareChain) {
-        middlewareChain.execute('terminal:afterExit', {
+        middlewareChain.execute(Hook.TERMINAL_AFTER_EXIT, {
           sessionId,
           terminalId,
           command: state.command,

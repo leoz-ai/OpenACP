@@ -14,6 +14,7 @@ import type { ContextManager } from "../../plugins/context/context-manager.js";
 import type { ContextQuery, ContextOptions, ContextResult } from "../../plugins/context/context-provider.js";
 import { Session } from "./session.js";
 import { createChildLogger } from "../utils/log.js";
+import { Hook, BusEvent, SessionEv } from "../events.js";
 
 const log = createChildLogger({ module: "session-factory" });
 
@@ -79,7 +80,7 @@ export class SessionFactory {
         channelId: params.channelId,
         threadId: '', // threadId is assigned after session creation
       };
-      const result = await this.middlewareChain.execute('session:beforeCreate', payload, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.SESSION_BEFORE_CREATE, payload, async (p) => p);
       if (!result) throw new Error("Session creation blocked by middleware");
       // Apply any middleware modifications back to create params
       createParams = {
@@ -155,7 +156,7 @@ export class SessionFactory {
       // display it. We intentionally do NOT register a session — the dummy session
       // would never be cleaned up, leaking memory in SessionManager.
       const failedSessionId = createParams.existingSessionId ?? `failed-${Date.now()}`;
-      this.eventBus.emit("agent:event", {
+      this.eventBus.emit(BusEvent.AGENT_EVENT, {
         sessionId: failedSessionId,
         event: guidance,
       });
@@ -195,7 +196,7 @@ export class SessionFactory {
     // 4. Register in SessionManager
     this.sessionManager.registerSession(session);
     if (!session.isAssistant) {
-      this.eventBus.emit("session:created", {
+      this.eventBus.emit(BusEvent.SESSION_CREATED, {
         sessionId: session.id,
         agent: session.agentName,
         status: session.status,
@@ -506,9 +507,9 @@ export class SessionFactory {
 
   wireSideEffects(session: Session, deps: SideEffectDeps): void {
     // Wire usage tracking via event bus (consumed by usage plugin)
-    session.on("agent_event", (event: AgentEvent) => {
+    session.on(SessionEv.AGENT_EVENT, (event: AgentEvent) => {
       if (event.type !== "usage") return;
-      deps.eventBus.emit("usage:recorded", {
+      deps.eventBus.emit(BusEvent.USAGE_RECORDED, {
         sessionId: session.id,
         agentName: session.agentName,
         timestamp: new Date().toISOString(),
@@ -519,7 +520,7 @@ export class SessionFactory {
     });
 
     // Clean up user tunnels when session ends
-    session.on("status_change", (_from, to) => {
+    session.on(SessionEv.STATUS_CHANGE, (_from, to) => {
       if ((to === "finished" || to === "cancelled") && deps.tunnelService) {
         deps.tunnelService
           .stopBySession(session.id)

@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { OpenACPPlugin, InstallContext } from '../../core/plugin/types.js'
 import type { OpenACPCore } from '../../core/core.js'
+import { BusEvent } from '../../core/events.js'
 import type { TopicManager } from '../telegram/topic-manager.js'
 import type { CommandRegistry } from '../../core/command-registry.js'
 import type { ContextManager } from '../context/context-manager.js'
@@ -370,7 +371,7 @@ function createApiServerPlugin(): OpenACPPlugin {
       cleanupInterval = setInterval(() => tokenStore.cleanup(), 60 * 60 * 1000)
 
       // Start on system:ready
-      ctx.on('system:ready', async () => {
+      ctx.on(BusEvent.SYSTEM_READY, async () => {
         log.info(
           { configPort: apiConfig.port, configHost: apiConfig.host },
           'API server starting...',

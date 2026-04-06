@@ -10,6 +10,7 @@ import type { AgentEvent } from "./types.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { createChildLogger } from "./utils/log.js";
+import { Hook, BusEvent, SessionEv } from "./events.js";
 
 const log = createChildLogger({ module: "agent-switch" });
 
@@ -56,7 +57,7 @@ export class AgentSwitchHandler {
 
     // 1. Middleware: agent:beforeSwitch (blocking)
     const middlewareChain = this.deps.getMiddlewareChain();
-    const result = await middlewareChain?.execute('agent:beforeSwitch', {
+    const result = await middlewareChain?.execute(Hook.AGENT_BEFORE_SWITCH, {
       sessionId,
       fromAgent,
       toAgent,
@@ -74,9 +75,9 @@ export class AgentSwitchHandler {
       type: "system_message",
       message: `Switching from ${fromAgent} to ${toAgent}...`,
     };
-    session.emit("agent_event", startEvent);
-    eventBus.emit("agent:event", { sessionId, event: startEvent });
-    eventBus.emit("session:agentSwitch", {
+    session.emit(SessionEv.AGENT_EVENT, startEvent);
+    eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: startEvent });
+    eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
       sessionId,
       fromAgent,
       toAgent,
@@ -148,9 +149,9 @@ export class AgentSwitchHandler {
           ? `Switched to ${toAgent} (resumed previous session).`
           : `Switched to ${toAgent} (new session).`,
       };
-      session.emit("agent_event", successEvent);
-      eventBus.emit("agent:event", { sessionId, event: successEvent });
-      eventBus.emit("session:agentSwitch", {
+      session.emit(SessionEv.AGENT_EVENT, successEvent);
+      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: successEvent });
+      eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
         sessionId,
         fromAgent,
         toAgent,
@@ -164,9 +165,9 @@ export class AgentSwitchHandler {
         type: "system_message",
         message: `Failed to switch to ${toAgent}: ${errorMessage}`,
       };
-      session.emit("agent_event", failedEvent);
-      eventBus.emit("agent:event", { sessionId, event: failedEvent });
-      eventBus.emit("session:agentSwitch", {
+      session.emit(SessionEv.AGENT_EVENT, failedEvent);
+      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: failedEvent });
+      eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
         sessionId,
         fromAgent,
         toAgent,
@@ -224,7 +225,7 @@ export class AgentSwitchHandler {
     });
 
     // 7. Middleware: agent:afterSwitch (fire-and-forget)
-    middlewareChain?.execute('agent:afterSwitch', {
+    middlewareChain?.execute(Hook.AGENT_AFTER_SWITCH, {
       sessionId,
       fromAgent,
       toAgent,

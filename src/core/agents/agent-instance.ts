@@ -36,6 +36,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { createDebugTracer, type DebugTracer } from "../utils/debug-tracer.js";
 import { createChildLogger } from "../utils/log.js";
+import { Hook, SessionEv } from "../events.js";
 const log = createChildLogger({ module: "agent-instance" });
 
 /** Find the nearest ancestor directory containing package.json */
@@ -313,7 +314,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       if (signal === "SIGINT" || signal === "SIGTERM") return;
       if ((code !== 0 && code !== null) || signal) {
         const stderr = this.stderrCapture.getLastLines();
-        this.emit('agent_event', {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "error",
           message: signal
             ? `Agent killed by signal ${signal}\n${stderr}`
@@ -593,7 +594,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         }
 
         if (event !== null) {
-          self.emit('agent_event', event);
+          self.emit(SessionEv.AGENT_EVENT, event);
         }
       },
 
@@ -626,7 +627,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         }
         // Hook: fs:beforeRead — modifiable, can block
         if (self.middlewareChain) {
-          const result = await self.middlewareChain.execute('fs:beforeRead', { sessionId: self.sessionId, path: p.path, line: p.line, limit: p.limit }, async (r) => r);
+          const result = await self.middlewareChain.execute(Hook.FS_BEFORE_READ, { sessionId: self.sessionId, path: p.path, line: p.line, limit: p.limit }, async (r) => r);
           if (!result) return { content: "" }; // blocked by middleware
           p.path = result.path;
         }
@@ -647,7 +648,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         }
         // Hook: fs:beforeWrite — modifiable, can block
         if (self.middlewareChain) {
-          const result = await self.middlewareChain.execute('fs:beforeWrite', { sessionId: self.sessionId, path: writePath, content: writeContent }, async (r) => r);
+          const result = await self.middlewareChain.execute(Hook.FS_BEFORE_WRITE, { sessionId: self.sessionId, path: writePath, content: writeContent }, async (r) => r);
           if (!result) return {}; // blocked by middleware
           writePath = result.path;
           writeContent = result.content;

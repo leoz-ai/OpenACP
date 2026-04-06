@@ -1,5 +1,6 @@
 import { Bot, InputFile } from "grammy";
 import path from "node:path";
+import { BusEvent } from "../../core/events.js";
 import type {
   OpenACPCore,
   OutgoingMessage,
@@ -645,7 +646,7 @@ export class TelegramAdapter extends MessagingAdapter {
         log.warn({ err, sessionId }, 'Failed to send initial messages for new session');
       });
     };
-    this.core.eventBus.on("session:threadReady", this._threadReadyHandler);
+    this.core.eventBus.on(BusEvent.SESSION_THREAD_READY, this._threadReadyHandler);
 
     // Update control message when config changes via commands (/model, /mode, /bypass, etc.)
     this._configChangedHandler = ({ sessionId }) => {
@@ -758,7 +759,7 @@ export class TelegramAdapter extends MessagingAdapter {
 
     // Remove direct eventBus listeners
     if (this._threadReadyHandler) {
-      this.core.eventBus.off("session:threadReady", this._threadReadyHandler);
+      this.core.eventBus.off(BusEvent.SESSION_THREAD_READY, this._threadReadyHandler);
       this._threadReadyHandler = undefined;
     }
     if (this._configChangedHandler) {
