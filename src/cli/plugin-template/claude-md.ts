@@ -223,7 +223,7 @@ Declare in \`permissions\` array. Only request what you need.
 
 Calling a method without the required permission throws \`PluginPermissionError\`.
 
-## Middleware Hooks (20 total)
+## Middleware Hooks (19 total)
 
 Register with \`ctx.registerMiddleware(hook, { priority?, handler })\`. Return \`null\` to block the flow, call \`next()\` to continue.
 

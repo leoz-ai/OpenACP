@@ -75,7 +75,7 @@ src/
 
 All features are plugins. Core only provides infrastructure (ServiceRegistry, MiddlewareChain, EventBus, LifecycleManager). Plugins register services, commands, and middleware in their `setup()` hook.
 
-- 18 middleware hook points (message:incoming, agent:beforePrompt, permission:beforeRequest, etc.)
+- 19 middleware hook points (message:incoming, agent:beforePrompt, permission:beforeRequest, etc.)
 - 9 permission types (events:read, services:register, commands:register, etc.)
 - Per-plugin settings via SettingsManager (~/.openacp/plugins/<name>/settings.json)
 

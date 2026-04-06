@@ -6,6 +6,7 @@ import { EntireProvider } from './entire/entire-provider.js'
 import { HistoryProvider } from './history/history-provider.js'
 import { HistoryRecorder } from './history/history-recorder.js'
 import { HistoryStore } from './history/history-store.js'
+import { Hook } from '../../core/events.js'
 
 const contextPlugin: OpenACPPlugin = {
   name: '@openacp/context',
@@ -64,16 +65,16 @@ const contextPlugin: OpenACPPlugin = {
     ctx.registerService('context', manager)
 
     // Middleware: capture user prompts
-    ctx.registerMiddleware('agent:beforePrompt', {
+    ctx.registerMiddleware(Hook.AGENT_BEFORE_PROMPT, {
       priority: 200,
       handler: async (payload, next) => {
-        recorder.onBeforePrompt(payload.sessionId, payload.text, payload.attachments)
+        recorder.onBeforePrompt(payload.sessionId, payload.text, payload.attachments, payload.sourceAdapterId)
         return next()
       },
     })
 
     // Middleware: capture agent events
-    ctx.registerMiddleware('agent:afterEvent', {
+    ctx.registerMiddleware(Hook.AGENT_AFTER_EVENT, {
       priority: 200,
       handler: async (payload, next) => {
         recorder.onAfterEvent(payload.sessionId, payload.event)
@@ -82,7 +83,7 @@ const contextPlugin: OpenACPPlugin = {
     })
 
     // Middleware: finalize turn and write to disk
-    ctx.registerMiddleware('turn:end', {
+    ctx.registerMiddleware(Hook.TURN_END, {
       priority: 200,
       handler: async (payload, next) => {
         await recorder.onTurnEnd(payload.sessionId, payload.stopReason)
@@ -91,7 +92,7 @@ const contextPlugin: OpenACPPlugin = {
     })
 
     // Middleware: capture permission resolutions
-    ctx.registerMiddleware('permission:afterResolve', {
+    ctx.registerMiddleware(Hook.PERMISSION_AFTER_RESOLVE, {
       priority: 200,
       handler: async (payload, next) => {
         recorder.onPermissionResolved(payload.sessionId, payload.requestId, payload.decision)
@@ -100,7 +101,7 @@ const contextPlugin: OpenACPPlugin = {
     })
 
     // Middleware: flush in-progress turn and clean up on session destroy
-    ctx.registerMiddleware('session:afterDestroy', {
+    ctx.registerMiddleware(Hook.SESSION_AFTER_DESTROY, {
       priority: 200,
       handler: async (payload, next) => {
         await recorder.onSessionDestroy(payload.sessionId)

@@ -17,6 +17,7 @@ import { InstanceRegistry } from './core/instance/instance-registry.js'
 import { PluginFieldRegistry } from './core/plugin/plugin-field-registry.js'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
+import { BusEvent } from './core/events.js'
 
 export const RESTART_EXIT_CODE = 75
 let shuttingDown = false
@@ -139,7 +140,7 @@ export async function startServer(opts?: StartServerOptions) {
   // 4. Boot all plugins (services, infrastructure, adapters)
   try {
     // Emit kernel:booted before plugin boot
-    core.eventBus.emit('kernel:booted')
+    core.eventBus.emit(BusEvent.KERNEL_BOOTED)
 
     // Pass settingsManager and pluginRegistry to LifecycleManager
     ;(core.lifecycleManager as any).settingsManager = settingsManager
@@ -287,9 +288,9 @@ export async function startServer(opts?: StartServerOptions) {
     }
 
     // Emit system:commands-ready with all registered commands
-    core.eventBus.emit('system:commands-ready', { commands: commandRegistry.getAll() })
+    core.eventBus.emit(BusEvent.SYSTEM_COMMANDS_READY, { commands: commandRegistry.getAll() })
 
-    core.eventBus.emit('system:ready')
+    core.eventBus.emit(BusEvent.SYSTEM_READY)
   } catch (err) {
     if (spinner) {
       spinner.fail('Plugin boot failed')

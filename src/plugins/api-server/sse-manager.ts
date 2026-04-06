@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { EventBus, EventBusEvents } from "../../core/event-bus.js";
+import { BusEvent } from "../../core/events.js";
 
 interface SSEResponse extends http.ServerResponse {
   sessionFilter?: string;
@@ -35,14 +36,14 @@ export class SSEManager {
     if (!this.eventBus) return;
 
     const events = [
-      "session:created",
-      "session:updated",
-      "session:deleted",
-      "agent:event",
-      "permission:request",
-      "permission:resolved",
-      "message:queued",
-      "message:processing",
+      BusEvent.SESSION_CREATED,
+      BusEvent.SESSION_UPDATED,
+      BusEvent.SESSION_DELETED,
+      BusEvent.AGENT_EVENT,
+      BusEvent.PERMISSION_REQUEST,
+      BusEvent.PERMISSION_RESOLVED,
+      BusEvent.MESSAGE_QUEUED,
+      BusEvent.MESSAGE_PROCESSING,
     ] as const;
 
     for (const eventName of events) {
@@ -118,13 +119,13 @@ export class SSEManager {
   broadcast(event: string, data: unknown): void {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     // Events that carry sessionId and should be filtered
-    const sessionEvents = [
-      "agent:event",
-      "permission:request",
-      "permission:resolved",
-      "session:updated",
-      "message:queued",
-      "message:processing",
+    const sessionEvents: string[] = [
+      BusEvent.AGENT_EVENT,
+      BusEvent.PERMISSION_REQUEST,
+      BusEvent.PERMISSION_RESOLVED,
+      BusEvent.SESSION_UPDATED,
+      BusEvent.MESSAGE_QUEUED,
+      BusEvent.MESSAGE_PROCESSING,
     ];
     for (const res of this.sseConnections) {
       const filter = (res as SSEResponse).sessionFilter;

@@ -129,7 +129,7 @@ describe('AgentSwitchHandler — resume logic without promptCount restriction', 
     const handler = new AgentSwitchHandler(deps as any);
     await handler.switch('session-1', 'gemini');
 
-    expect(agentManager.resume).toHaveBeenCalledWith('gemini', '/workspace', 'old-gemini-session');
+    expect(agentManager.resume).toHaveBeenCalledWith('gemini', '/workspace', 'old-gemini-session', []);
   });
 
   it('falls back to spawn with context when resume fails (e.g., session expired)', async () => {
@@ -147,7 +147,7 @@ describe('AgentSwitchHandler — resume logic without promptCount restriction', 
     await handler.switch('session-1', 'gemini');
 
     // Should fall back to spawn
-    expect(agentManager.spawn).toHaveBeenCalledWith('gemini', '/workspace');
+    expect(agentManager.spawn).toHaveBeenCalledWith('gemini', '/workspace', []);
     // And inject context since it's a new agent
     expect(contextService.buildContext).toHaveBeenCalled();
   });

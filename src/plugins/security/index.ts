@@ -2,6 +2,7 @@ import type { OpenACPPlugin, InstallContext, MiddlewarePayloadMap } from '../../
 import { SecurityGuard } from './security-guard.js'
 import type { SecurityConfig } from './security-guard.js'
 import type { IncomingMessage } from '../../core/types.js'
+import { Hook } from '../../core/events.js'
 
 // Structural type for the core fields SecurityGuard needs, avoiding
 // a direct dependency on OpenACPCore's full interface.
@@ -115,7 +116,7 @@ function createSecurityPlugin(): OpenACPPlugin {
       const guard = new SecurityGuard(getSecurityConfig, core.sessionManager)
 
       // Register middleware for message:incoming — block unauthorized users
-      ctx.registerMiddleware('message:incoming', {
+      ctx.registerMiddleware(Hook.MESSAGE_INCOMING, {
         handler: async (payload: MiddlewarePayloadMap['message:incoming'], next) => {
           const access = await guard.checkAccess(payload as unknown as IncomingMessage)
           if (!access.allowed) {

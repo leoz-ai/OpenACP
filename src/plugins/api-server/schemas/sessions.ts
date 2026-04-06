@@ -7,14 +7,10 @@ export const ListSessionsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-// Workspace names must be relative (no leading / or ~) to prevent path injection.
-// Absolute paths would let an authenticated caller point the AI agent at sensitive
-// system directories (e.g. workspace: "/").  Relative names are resolved by
-// ConfigManager.resolveWorkspace() into the configured base directory.
-const WorkspaceNameSchema = z.string().optional().refine(
-  (v) => v === undefined || (!v.startsWith('/') && !v.startsWith('~')),
-  { message: 'workspace must be a relative name, not an absolute path' },
-);
+// Workspace names may be relative (resolved under baseDir) or absolute paths.
+// Absolute path validation is handled by ConfigManager.resolveWorkspace(), which
+// enforces the allowExternalWorkspaces flag and verifies the path exists on disk.
+const WorkspaceNameSchema = z.string().optional();
 
 export const CreateSessionBodySchema = z.object({
   agent: z.string().max(200).optional(),
@@ -32,14 +28,11 @@ export const AdoptSessionBodySchema = z.object({
 });
 
 // Attachment input: base64-encoded file sent alongside a prompt.
-// fileName is restricted to safe characters — the raw value is forwarded to the agent.
+// fileName accepts any non-empty string up to 255 chars — file-service sanitizes it before writing to disk.
 // mimeType must be structurally valid (type/subtype) to prevent misleading agent processing.
 // data is capped at ~10 MB base64 (~13.3 MB string); actual Fastify bodyLimit enforced per-route.
 const AttachmentInputSchema = z.object({
-  fileName: z
-    .string()
-    .regex(/^[a-zA-Z0-9._-]+$/, 'fileName must contain only alphanumeric, dot, dash, or underscore characters')
-    .max(255),
+  fileName: z.string().min(1).max(255),
   mimeType: z
     .string()
     .regex(/^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$/, 'mimeType must be a valid MIME type')

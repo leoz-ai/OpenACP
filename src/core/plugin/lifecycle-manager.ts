@@ -6,6 +6,7 @@ import { createPluginContext } from './plugin-context.js'
 import type { OpenACPPlugin, EventBus, Logger, MigrateContext } from './types.js'
 import type { SettingsManager } from './settings-manager.js'
 import type { PluginRegistry } from './plugin-registry.js'
+import { BusEvent } from '../events.js'
 
 const SETUP_TIMEOUT_MS = 30_000
 const TEARDOWN_TIMEOUT_MS = 10_000
@@ -192,7 +193,7 @@ export class LifecycleManager {
       // Check if disabled in registry
       const registryEntry = this.pluginRegistry?.get(plugin.name)
       if (registryEntry && registryEntry.enabled === false) {
-        this.eventBus?.emit('plugin:disabled', { name: plugin.name })
+        this.eventBus?.emit(BusEvent.PLUGIN_DISABLED, { name: plugin.name })
         continue
       }
 
@@ -241,7 +242,7 @@ export class LifecycleManager {
         if (!validation.valid) {
           this._failed.add(plugin.name)
           this.getPluginLogger(plugin.name).error(`Settings validation failed: ${validation.errors?.join('; ')}`)
-          this.eventBus?.emit('plugin:failed', { name: plugin.name, error: `Settings validation failed: ${validation.errors?.join('; ')}` })
+          this.eventBus?.emit(BusEvent.PLUGIN_FAILED, { name: plugin.name, error: `Settings validation failed: ${validation.errors?.join('; ')}` })
           continue
         }
       }
@@ -267,13 +268,13 @@ export class LifecycleManager {
         await withTimeout(plugin.setup(ctx), SETUP_TIMEOUT_MS, `${plugin.name}.setup()`)
         this.contexts.set(plugin.name, ctx)
         this._loaded.add(plugin.name)
-        this.eventBus?.emit('plugin:loaded', { name: plugin.name, version: plugin.version })
+        this.eventBus?.emit(BusEvent.PLUGIN_LOADED, { name: plugin.name, version: plugin.version })
       } catch (err) {
         this._failed.add(plugin.name)
         ctx.cleanup()
         console.error(`[lifecycle] Plugin ${plugin.name} setup() FAILED:`, err)
         this.getPluginLogger(plugin.name).error(`setup() failed: ${err}`)
-        this.eventBus?.emit('plugin:failed', { name: plugin.name, error: String(err) })
+        this.eventBus?.emit(BusEvent.PLUGIN_FAILED, { name: plugin.name, error: String(err) })
       }
     }
   }
@@ -301,7 +302,7 @@ export class LifecycleManager {
     this._failed.delete(name)
     this.loadOrder = this.loadOrder.filter(p => p.name !== name)
 
-    this.eventBus?.emit('plugin:unloaded', { name })
+    this.eventBus?.emit(BusEvent.PLUGIN_UNLOADED, { name })
   }
 
   async shutdown(): Promise<void> {
@@ -326,7 +327,7 @@ export class LifecycleManager {
         this.contexts.delete(plugin.name)
       }
 
-      this.eventBus?.emit('plugin:unloaded', { name: plugin.name })
+      this.eventBus?.emit(BusEvent.PLUGIN_UNLOADED, { name: plugin.name })
     }
 
     this._loaded.clear()

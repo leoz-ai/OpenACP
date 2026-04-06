@@ -14,7 +14,7 @@ import type { FileServiceInterface } from "./plugin/types.js";
 import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
 import type { SecurityGuard } from "../plugins/security/security-guard.js";
 import { SessionFactory } from "./sessions/session-factory.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, AgentEvent, SessionStatus } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentSwitchHandler } from "./agent-switch-handler.js";
@@ -33,6 +33,7 @@ import { createChildLogger } from "./utils/log.js";
 import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import type { InstanceContext } from "./instance/instance-context.js";
+import { Hook, BusEvent, SessionEv } from "./events.js";
 const log = createChildLogger({ module: "core" });
 
 export class OpenACPCore {
@@ -47,7 +48,7 @@ export class OpenACPCore {
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
-  private sessionStore: SessionStore | null = null;
+  sessionStore: SessionStore | null = null;
   eventBus: EventBus;
   sessionFactory: SessionFactory;
   readonly lifecycleManager: LifecycleManager;
@@ -327,7 +328,7 @@ export class OpenACPCore {
     // Hook: message:incoming — modifiable, can block
     if (this.lifecycleManager?.middlewareChain) {
       const result = await this.lifecycleManager.middlewareChain.execute(
-        'message:incoming',
+        Hook.MESSAGE_INCOMING,
         message,
         async (msg) => msg,
       );
@@ -386,9 +387,13 @@ export class OpenACPCore {
     // Emit message:queued immediately (before awaiting the queue) so SSE clients see the
     // incoming message right away, not after the AI finishes processing.
     const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
+    // Merge sourceAdapterId into routing so middleware (e.g. history recorder) receives it
+    const routing = sourceAdapterId !== message.routing?.sourceAdapterId
+      ? { ...message.routing, sourceAdapterId }
+      : message.routing;
     if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
       const turnId = nanoid(8);
-      this.eventBus.emit("message:queued", {
+      this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
         sessionId: session.id,
         turnId,
         text,
@@ -398,9 +403,9 @@ export class OpenACPCore {
         queueDepth: session.queueDepth,
       });
       // Pass pre-generated turnId so message:processing shares the same ID
-      await session.enqueuePrompt(text, message.attachments, message.routing, turnId);
+      await session.enqueuePrompt(text, message.attachments, routing, turnId);
     } else {
-      await session.enqueuePrompt(text, message.attachments, message.routing);
+      await session.enqueuePrompt(text, message.attachments, routing);
     }
   }
 
@@ -415,6 +420,7 @@ export class OpenACPCore {
     createThread?: boolean;
     initialName?: string;
     threadId?: string;
+    isAssistant?: boolean;
   }): Promise<Session> {
     // 1-3. Spawn/resume agent, create Session, register in SessionManager
     const session = await this.sessionFactory.create(params);
@@ -470,6 +476,7 @@ export class OpenACPCore {
       createdAt: session.createdAt.toISOString(),
       lastActiveAt: new Date().toISOString(),
       name: session.name,
+      isAssistant: params.isAssistant,
       platform,
       platforms,
       firstAgent: session.firstAgent,
@@ -489,7 +496,7 @@ export class OpenACPCore {
       });
       // Signal that thread is ready — all listeners (adapters, plugins, etc.) can react
       if (params.createThread && session.threadId) {
-        this.eventBus.emit("session:threadReady", {
+        this.eventBus.emit(BusEvent.SESSION_THREAD_READY, {
           sessionId: session.id,
           channelId: params.channelId,
           threadId: session.threadId,
@@ -497,9 +504,10 @@ export class OpenACPCore {
       }
     }
 
-    // 6b. Headless sessions (no adapter): auto-approve safe permissions so agents don't hang.
-    // Permissions without an explicit allow option are NOT auto-approved — they will time out.
+    // 6b. Headless sessions (no adapter): wire fallbacks normally handled by SessionBridge.
     if (!adapter) {
+      // Auto-approve safe permissions so agents don't hang.
+      // Permissions without an explicit allow option are NOT auto-approved — they will time out.
       session.agentInstance.onPermissionRequest = async (permRequest) => {
         const allowOption = permRequest.options.find((o) => o.isAllow);
         if (!allowOption) {
@@ -515,6 +523,48 @@ export class OpenACPCore {
         );
         return allowOption.id;
       };
+
+      // Persist session name and notify SSE clients when autoName fires.
+      // For bridged sessions this is handled by SessionBridge's "named" listener;
+      // headless sessions have no bridge so we wire it here instead.
+      session.on(SessionEv.NAMED, async (name: string) => {
+        await this.sessionManager.patchRecord(session.id, { name });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, name });
+      });
+
+      // Forward agent events to EventBus so SSE clients can observe the session.
+      // Also handles session lifecycle transitions (session_end → finish, error → fail)
+      // and fires agent:beforeEvent middleware — all normally handled by SessionBridge.
+      const mw = () => this.lifecycleManager?.middlewareChain;
+      session.on(SessionEv.AGENT_EVENT, async (event: AgentEvent) => {
+        let processedEvent = event;
+        const chain = mw();
+        if (chain) {
+          const result = await chain.execute(Hook.AGENT_BEFORE_EVENT, { sessionId: session.id, event }, async (e) => e);
+          if (!result) return; // blocked by middleware
+          processedEvent = result.event;
+        }
+        if (processedEvent.type === "session_end") {
+          session.finish((processedEvent as { reason?: string }).reason);
+        } else if (processedEvent.type === "error") {
+          session.fail((processedEvent as { message: string }).message);
+        }
+        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, event: processedEvent });
+      });
+
+      // Persist status changes and notify SSE clients — normally wired by SessionBridge.
+      session.on(SessionEv.STATUS_CHANGE, (_from: SessionStatus, to: SessionStatus) => {
+        this.sessionManager.patchRecord(session.id, {
+          status: to,
+          lastActiveAt: new Date().toISOString(),
+        });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, status: to });
+      });
+
+      // Persist prompt count after each prompt — normally wired by SessionBridge.
+      session.on(SessionEv.PROMPT_COUNT_CHANGED, (count: number) => {
+        this.sessionManager.patchRecord(session.id, { currentPromptCount: count });
+      });
     }
 
     // 6c. Wire usage tracking and tunnel cleanup

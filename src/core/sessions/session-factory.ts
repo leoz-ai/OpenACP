@@ -14,6 +14,7 @@ import type { ContextManager } from "../../plugins/context/context-manager.js";
 import type { ContextQuery, ContextOptions, ContextResult } from "../../plugins/context/context-provider.js";
 import { Session } from "./session.js";
 import { createChildLogger } from "../utils/log.js";
+import { Hook, BusEvent, SessionEv } from "../events.js";
 
 const log = createChildLogger({ module: "session-factory" });
 
@@ -24,6 +25,7 @@ export interface SessionCreateParams {
   resumeAgentSessionId?: string;
   existingSessionId?: string;
   initialName?: string;
+  isAssistant?: boolean;
 }
 
 export interface SideEffectDeps {
@@ -78,7 +80,7 @@ export class SessionFactory {
         channelId: params.channelId,
         threadId: '', // threadId is assigned after session creation
       };
-      const result = await this.middlewareChain.execute('session:beforeCreate', payload, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.SESSION_BEFORE_CREATE, payload, async (p) => p);
       if (!result) throw new Error("Session creation blocked by middleware");
       // Apply any middleware modifications back to create params
       createParams = {
@@ -90,6 +92,9 @@ export class SessionFactory {
     }
 
     // 1. Spawn or resume agent
+    // Include config-level allowedPaths so agents can read whitelisted directories from startup
+    const configAllowedPaths = this.configManager?.get().workspace?.security?.allowedPaths ?? [];
+
     let agentInstance;
     try {
       if (createParams.resumeAgentSessionId) {
@@ -98,6 +103,7 @@ export class SessionFactory {
             createParams.agentName,
             createParams.workingDirectory,
             createParams.resumeAgentSessionId,
+            configAllowedPaths,
           );
         } catch (resumeErr) {
           // Resume failed (session expired after restart) — fall back to fresh spawn
@@ -108,12 +114,14 @@ export class SessionFactory {
           agentInstance = await this.agentManager.spawn(
             createParams.agentName,
             createParams.workingDirectory,
+            configAllowedPaths,
           );
         }
       } else {
         agentInstance = await this.agentManager.spawn(
           createParams.agentName,
           createParams.workingDirectory,
+          configAllowedPaths,
         );
       }
     } catch (err) {
@@ -154,7 +162,7 @@ export class SessionFactory {
       // display it. We intentionally do NOT register a session — the dummy session
       // would never be cleaned up, leaking memory in SessionManager.
       const failedSessionId = createParams.existingSessionId ?? `failed-${Date.now()}`;
-      this.eventBus.emit("agent:event", {
+      this.eventBus.emit(BusEvent.AGENT_EVENT, {
         sessionId: failedSessionId,
         event: guidance,
       });
@@ -193,11 +201,13 @@ export class SessionFactory {
 
     // 4. Register in SessionManager
     this.sessionManager.registerSession(session);
-    this.eventBus.emit("session:created", {
-      sessionId: session.id,
-      agent: session.agentName,
-      status: session.status,
-    });
+    if (!session.isAssistant) {
+      this.eventBus.emit(BusEvent.SESSION_CREATED, {
+        sessionId: session.id,
+        agent: session.agentName,
+        status: session.status,
+      });
+    }
 
     return session;
   }
@@ -219,6 +229,7 @@ export class SessionFactory {
     if (!this.sessionStore || !this.createFullSession) return null;
     const record = this.sessionStore.get(sessionId);
     if (!record) return null;
+    if (record.isAssistant) return null;
     if (record.status === "error" || record.status === "cancelled") return null;
 
     // Deduplicate concurrent resumes for the same session
@@ -297,6 +308,7 @@ export class SessionFactory {
       log.debug({ threadId, channelId }, "No session record found for thread");
       return null;
     }
+    if (record.isAssistant) return null;
 
     // Don't resume errored or cancelled sessions
     if (record.status === "error" || record.status === "cancelled") {
@@ -501,9 +513,9 @@ export class SessionFactory {
 
   wireSideEffects(session: Session, deps: SideEffectDeps): void {
     // Wire usage tracking via event bus (consumed by usage plugin)
-    session.on("agent_event", (event: AgentEvent) => {
+    session.on(SessionEv.AGENT_EVENT, (event: AgentEvent) => {
       if (event.type !== "usage") return;
-      deps.eventBus.emit("usage:recorded", {
+      deps.eventBus.emit(BusEvent.USAGE_RECORDED, {
         sessionId: session.id,
         agentName: session.agentName,
         timestamp: new Date().toISOString(),
@@ -514,7 +526,7 @@ export class SessionFactory {
     });
 
     // Clean up user tunnels when session ends
-    session.on("status_change", (_from, to) => {
+    session.on(SessionEv.STATUS_CHANGE, (_from, to) => {
       if ((to === "finished" || to === "cancelled") && deps.tunnelService) {
         deps.tunnelService
           .stopBySession(session.id)

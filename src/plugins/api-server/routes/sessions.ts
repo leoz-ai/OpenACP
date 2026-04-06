@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
-import { NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
 import { resolveAttachments } from './attachment-utils.js';
 import {
@@ -121,16 +121,24 @@ export async function sessionRoutes(
 
     const resolvedAgent = body.agent || deps.core.configManager.get().defaultAgent;
     const agentDef = deps.core.agentCatalog.resolve(resolvedAgent);
-    const resolvedWorkspace = deps.core.configManager.resolveWorkspace(
-      body.workspace || agentDef?.workingDirectory,
-    );
+
+    let resolvedWorkspace: string;
+    try {
+      resolvedWorkspace = deps.core.configManager.resolveWorkspace(
+        body.workspace || agentDef?.workingDirectory,
+      );
+    } catch (err) {
+      throw new BadRequestError(
+        'INVALID_WORKSPACE',
+        err instanceof Error ? err.message : 'Invalid workspace path',
+      );
+    }
 
     const session = await deps.core.createSession({
       channelId,
       agentName: resolvedAgent,
       workingDirectory: resolvedWorkspace,
       createThread: !!adapter,
-      initialName: `🔄 ${resolvedAgent} — New Session`,
     });
 
     return {

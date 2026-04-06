@@ -10,6 +10,7 @@ import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import * as fs from "node:fs";
 import type { TurnRouting } from "./turn-context.js";
 import { createTurnContext, type TurnContext } from "./turn-context.js";
+import { Hook, SessionEv } from "../events.js";
 const moduleLog = createChildLogger({ module: "session" });
 
 // TTS constants
@@ -52,7 +53,13 @@ export class Session extends TypedEmitter<SessionEvents> {
   }
   agentName: string;
   workingDirectory: string;
-  agentInstance: AgentInstance;
+  private _agentInstance!: AgentInstance;
+  get agentInstance(): AgentInstance { return this._agentInstance; }
+  set agentInstance(agent: AgentInstance) {
+    this._agentInstance = agent;
+    this.wireAgentRelay();
+    this.wireCommandsBuffer();
+  }
   agentSessionId: string = "";
   private _status: SessionStatus = "initializing";
   name?: string;
@@ -76,9 +83,6 @@ export class Session extends TypedEmitter<SessionEvents> {
   threadIds: Map<string, string> = new Map();
   /** Active turn context — sealed on prompt dequeue, cleared on turn end */
   activeTurnContext: TurnContext | null = null;
-  /** The agentInstance for which the agent→session event relay is wired (prevents duplicate relays from multiple bridges).
-   *  When the agent is swapped, the relay must be re-wired to the new instance. */
-  agentRelaySource: AgentInstance | null = null;
 
   readonly permissionGate = new PermissionGate();
   private readonly queue: PromptQueue;
@@ -113,11 +117,25 @@ export class Session extends TypedEmitter<SessionEvents> {
         this.log.error({ err }, "Prompt execution failed");
         const message = err instanceof Error ? err.message : String(err);
         this.fail(message);
-        this.emit("agent_event", { type: "error", message: `Prompt execution failed: ${message}` });
+        this.emit(SessionEv.AGENT_EVENT, { type: "error", message: `Prompt execution failed: ${message}` });
       },
     );
 
-    this.wireCommandsBuffer();
+  }
+
+  /** Wire the agent→session event relay on the current agentInstance.
+   *  Removes any previous relay first to avoid duplicates on agent switch.
+   *  This relay ensures session.emit("agent_event") fires for ALL sessions,
+   *  including headless API sessions that have no SessionBridge attached. */
+  private agentRelayCleanup?: () => void;
+  private wireAgentRelay(): void {
+    this.agentRelayCleanup?.();
+    const instance = this._agentInstance;
+    const handler = (event: AgentEvent) => {
+      this.emit(SessionEv.AGENT_EVENT, event);
+    };
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.agentRelayCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   /** Wire a listener on the current agentInstance to buffer commands_update events.
@@ -126,13 +144,14 @@ export class Session extends TypedEmitter<SessionEvents> {
   private wireCommandsBuffer(): void {
     // Remove previous listener (if switching agents) to avoid leaks
     this.commandsBufferCleanup?.();
+    const instance = this._agentInstance;
     const handler = (event: AgentEvent) => {
       if (event.type === "commands_update") {
         this.latestCommands = event.commands;
       }
     };
-    this.agentInstance.on("agent_event", handler);
-    this.commandsBufferCleanup = () => this.agentInstance.off("agent_event", handler);
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.commandsBufferCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   // --- State Machine ---
@@ -151,13 +170,13 @@ export class Session extends TypedEmitter<SessionEvents> {
   fail(reason: string): void {
     if (this._status === "error") return;
     this.transition("error");
-    this.emit("error", new Error(reason));
+    this.emit(SessionEv.ERROR, new Error(reason));
   }
 
   /** Transition to finished — from active only. Emits session_end for backward compat. */
   finish(reason?: string): void {
     this.transition("finished");
-    this.emit("session_end", reason ?? "completed");
+    this.emit(SessionEv.SESSION_END, reason ?? "completed");
   }
 
   /** Transition to cancelled — from active only (terminal session cancel) */
@@ -175,7 +194,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
     this._status = to;
     this.log.debug({ from, to }, "Session status transition");
-    this.emit("status_change", from, to);
+    this.emit(SessionEv.STATUS_CHANGE, from, to);
   }
 
   /** Number of prompts waiting in queue */
@@ -207,8 +226,8 @@ export class Session extends TypedEmitter<SessionEvents> {
     const turnId = externalTurnId ?? nanoid(8);
     // Hook: agent:beforePrompt — modifiable, can block
     if (this.middlewareChain) {
-      const payload = { text, attachments, sessionId: this.id };
-      const result = await this.middlewareChain.execute('agent:beforePrompt', payload, async (p) => p);
+      const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId };
+      const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_PROMPT, payload, async (p) => p);
       if (!result) return turnId; // blocked by middleware
       text = result.text;
       attachments = result.attachments;
@@ -230,10 +249,10 @@ export class Session extends TypedEmitter<SessionEvents> {
     );
 
     // Emit turn_started so SessionBridge can emit message:processing on EventBus
-    this.emit("turn_started", this.activeTurnContext);
+    this.emit(SessionEv.TURN_STARTED, this.activeTurnContext);
 
     this.promptCount++;
-    this.emit('prompt_count_changed', this.promptCount);
+    this.emit(SessionEv.PROMPT_COUNT_CHANGED, this.promptCount);
 
     if (this._status === "initializing" || this._status === "cancelled" || this._status === "error") {
       this.activate();
@@ -272,12 +291,27 @@ export class Session extends TypedEmitter<SessionEvents> {
       : null;
 
     if (accumulatorListener) {
-      this.on("agent_event", accumulatorListener);
+      this.on(SessionEv.AGENT_EVENT, accumulatorListener);
+    }
+
+    // Hook: agent:afterEvent — fire for every agent event, including headless API sessions.
+    // Listens directly on agentInstance so it works regardless of whether a SessionBridge is connected.
+    // The bridge previously fired this hook from dispatchAgentEvent, but that path is skipped when
+    // no adapter is attached (headless), causing AI response steps to be missing from history.
+    const mw = this.middlewareChain;
+    const afterEventListener = mw
+      ? (event: AgentEvent) => {
+          mw.execute(Hook.AGENT_AFTER_EVENT, { sessionId: this.id, event, outgoingMessage: { type: 'text' as const, text: '' } }, async (e) => e).catch(() => {});
+        }
+      : null;
+
+    if (afterEventListener) {
+      this.agentInstance.on(SessionEv.AGENT_EVENT, afterEventListener);
     }
 
     // Hook: turn:start — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute('turn:start', { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.TURN_START, { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount }, async (p) => p).catch(() => {});
     }
 
     let stopReason: string = 'end_turn';
@@ -300,11 +334,14 @@ export class Session extends TypedEmitter<SessionEvents> {
       promptError = err;
     } finally {
       if (accumulatorListener) {
-        this.off("agent_event", accumulatorListener);
+        this.off(SessionEv.AGENT_EVENT, accumulatorListener);
+      }
+      if (afterEventListener) {
+        this.agentInstance.off(SessionEv.AGENT_EVENT, afterEventListener);
       }
       // Hook: turn:end — always fires, even on error
       if (this.middlewareChain) {
-        this.middlewareChain.execute('turn:end', { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
       }
       // Always clear turn context so routing state is never stale after a failed turn
       this.activeTurnContext = null;
@@ -365,7 +402,7 @@ export class Session extends TypedEmitter<SessionEvents> {
         const result = await this.speechService.transcribe(audioBuffer, audioMime);
         this.log.info({ provider: "stt", duration: result.duration }, "Voice transcribed");
         // Notify user of transcription result
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "system_message",
           message: `🎤 You said: ${result.text}`,
         });
@@ -376,7 +413,7 @@ export class Session extends TypedEmitter<SessionEvents> {
           : result.text;
       } catch (err) {
         this.log.warn({ err }, "STT transcription failed, keeping audio attachment");
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "error",
           message: `Voice transcription failed: ${(err as Error).message}`,
         });
@@ -415,12 +452,12 @@ export class Session extends TypedEmitter<SessionEvents> {
           timeoutPromise,
         ]);
         const base64 = result.audioBuffer.toString("base64");
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "audio_content",
           data: base64,
           mimeType: result.mimeType,
         });
-        this.emit("agent_event", { type: "tts_strip" });
+        this.emit(SessionEv.AGENT_EVENT, { type: "tts_strip" });
         this.log.info("TTS synthesis completed");
       } finally {
         clearTimeout(ttsTimer!);
@@ -444,8 +481,8 @@ export class Session extends TypedEmitter<SessionEvents> {
     // Pause the session emitter so agent_event emissions from SessionBridge
     // don't reach the adapter during auto-name. The AgentInstance emitter
     // stays active — we just intercept with our capture handler.
-    this.pause((event) => event !== "agent_event");
-    this.agentInstance.on("agent_event", captureHandler);
+    this.pause((event) => event !== SessionEv.AGENT_EVENT);
+    this.agentInstance.on(SessionEv.AGENT_EVENT, captureHandler);
 
     try {
       await this.agentInstance.prompt(
@@ -455,11 +492,11 @@ export class Session extends TypedEmitter<SessionEvents> {
       this.log.info({ name: this.name }, "Session auto-named");
 
       // Emit named event — SessionBridge listens to rename the thread
-      this.emit("named", this.name);
+      this.emit(SessionEv.NAMED, this.name);
     } catch {
       this.name = `Session ${this.id.slice(0, 6)}`;
     } finally {
-      this.agentInstance.off("agent_event", captureHandler);
+      this.agentInstance.off(SessionEv.AGENT_EVENT, captureHandler);
       // Discard buffered auto-name agent_events, then resume normal delivery
       this.clearBuffer();
       this.resume();
@@ -528,7 +565,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   /** Set session name explicitly and emit 'named' event */
   setName(name: string): void {
     this.name = name;
-    this.emit("named", name);
+    this.emit(SessionEv.NAMED, name);
   }
 
   /** Send a config option change to the agent and update local state from the response. */
@@ -548,7 +585,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   async updateConfigOptions(options: ConfigOption[]): Promise<void> {
     // Hook: config:beforeChange — await-able, can block
     if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('config:beforeChange', { sessionId: this.id, configId: 'options', oldValue: this.configOptions, newValue: options }, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.CONFIG_BEFORE_CHANGE, { sessionId: this.id, configId: 'options', oldValue: this.configOptions, newValue: options }, async (p) => p);
       if (!result) return; // blocked by middleware
     }
     this.configOptions = options;
@@ -572,7 +609,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   async abortPrompt(): Promise<void> {
     // Hook: agent:beforeCancel — modifiable, can block
     if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('agent:beforeCancel', { sessionId: this.id }, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_CANCEL, { sessionId: this.id }, async (p) => p);
       if (!result) return; // blocked by middleware
     }
     this.queue.clear();
@@ -627,7 +664,6 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.configOptions = [];
     this.latestCommands = null;
     this.applySpawnResponse(newAgent.initialSessionResponse, newAgent.agentCapabilities);
-    this.wireCommandsBuffer();
 
     this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }

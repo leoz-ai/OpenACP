@@ -4,6 +4,7 @@ import type { SessionStore } from "./session-store.js";
 import type { EventBus } from "../event-bus.js";
 import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import type { SessionStatus, ConfigOption, AgentCapabilities } from "../types.js";
+import { Hook, BusEvent } from "../events.js";
 
 export interface SessionSummary {
   id: string;
@@ -161,19 +162,19 @@ export class SessionManager {
     }
     // Hook: session:afterDestroy — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute('session:afterDestroy', { sessionId }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.SESSION_AFTER_DESTROY, { sessionId }, async (p) => p).catch(() => {});
     }
   }
 
   listSessions(channelId?: string): Session[] {
-    const all = Array.from(this.sessions.values());
+    const all = Array.from(this.sessions.values()).filter(s => !s.isAssistant);
     if (channelId) return all.filter((s) => s.channelId === channelId);
     return all;
   }
 
   listAllSessions(channelId?: string): SessionSummary[] {
     if (this.store) {
-      let records = this.store.list();
+      let records = this.store.list().filter(r => !r.isAssistant);
       if (channelId) records = records.filter((r) => r.channelId === channelId);
       return records.map((record) => {
         const live = this.sessions.get(record.sessionId);
@@ -215,7 +216,7 @@ export class SessionManager {
     }
 
     // Fallback: no store — return live sessions only
-    let live = Array.from(this.sessions.values());
+    let live = Array.from(this.sessions.values()).filter(s => !s.isAssistant);
     if (channelId) live = live.filter((s) => s.channelId === channelId);
     return live.map((s) => ({
       id: s.id,
@@ -239,7 +240,7 @@ export class SessionManager {
     statuses?: string[];
   }): import("../types.js").SessionRecord[] {
     if (!this.store) return [];
-    let records = this.store.list();
+    let records = this.store.list().filter(r => !r.isAssistant);
     if (filter?.statuses?.length) {
       records = records.filter((r) => filter.statuses!.includes(r.status));
     }
@@ -249,7 +250,7 @@ export class SessionManager {
   async removeRecord(sessionId: string): Promise<void> {
     if (!this.store) return;
     await this.store.remove(sessionId);
-    this.eventBus?.emit("session:deleted", { sessionId });
+    this.eventBus?.emit(BusEvent.SESSION_DELETED, { sessionId });
   }
 
   /**
@@ -300,7 +301,7 @@ export class SessionManager {
     // Hook: session:afterDestroy — read-only, fire-and-forget
     if (this.middlewareChain) {
       for (const sessionId of sessionIds) {
-        this.middlewareChain.execute('session:afterDestroy', { sessionId }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.SESSION_AFTER_DESTROY, { sessionId }, async (p) => p).catch(() => {});
       }
     }
   }

@@ -3,6 +3,7 @@ import type { CommandResponse } from '../plugin/types.js'
 import type { OpenACPCore } from '../core.js'
 import type { ConfigSelectChoice, ConfigSelectGroup } from '../types.js'
 import { createChildLogger } from '../utils/log.js'
+import { BusEvent } from '../events.js'
 
 const log = createChildLogger({ module: 'commands/config' })
 
@@ -125,7 +126,7 @@ function registerCategoryCommand(
 
       try {
         await session.setConfigOption(configOption.id, { type: 'select', value: raw })
-        core.eventBus.emit('session:configChanged', { sessionId: session.id })
+        core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
         return { type: 'text', text: labels.successMsg(match.name, configOption.name) } satisfies CommandResponse
       } catch (err) {
         log.error({ err, commandName, configId: configOption.id }, 'setConfigOption failed')
@@ -210,7 +211,7 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
         try {
           const targetValue = wantOn ? bypassValue : nonBypassDefault!
           await session.setConfigOption(modeConfig.id, { type: 'select', value: targetValue })
-          core.eventBus.emit('session:configChanged', { sessionId: session.id })
+          core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
           return {
             type: 'text',
             text: wantOn
@@ -232,7 +233,7 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
       await core.sessionManager.patchRecord(session.id, {
         clientOverrides: { ...session.clientOverrides },
       })
-      core.eventBus.emit('session:configChanged', { sessionId: session.id })
+      core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
       return {
         type: 'text',
         text: wantOn

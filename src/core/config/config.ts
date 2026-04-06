@@ -29,6 +29,7 @@ export const ConfigSchema = z.object({
   workspace: z
     .object({
       baseDir: z.string().default("~/openacp-workspace"),
+      allowExternalWorkspaces: z.boolean().default(true),
       security: z
         .object({
           allowedPaths: z.array(z.string()).default([]),
@@ -194,18 +195,30 @@ export class ConfigManager extends EventEmitter {
       return resolved;
     }
 
-    // Absolute or tilde paths: must resolve under baseDir
+    // Absolute or tilde paths
     if (input.startsWith("/") || input.startsWith("~")) {
       const resolved = expandHome(input);
       const base = expandHome(this.config.workspace.baseDir);
-      // Allow baseDir itself and paths under it
-      if (resolved === base || resolved.startsWith(base + path.sep)) {
-        fs.mkdirSync(resolved, { recursive: true });
+      const isInternal = resolved === base || resolved.startsWith(base + path.sep);
+
+      if (!isInternal) {
+        if (!this.config.workspace.allowExternalWorkspaces) {
+          throw new Error(
+            `Workspace path "${input}" is outside base directory "${this.config.workspace.baseDir}". Set allowExternalWorkspaces: true to allow this.`,
+          );
+        }
+        // External paths must already exist — we do not auto-create arbitrary directories
+        if (!fs.existsSync(resolved)) {
+          throw new Error(
+            `Workspace path "${input}" does not exist.`,
+          );
+        }
         return resolved;
       }
-      throw new Error(
-        `Workspace path "${input}" is outside base directory "${this.config.workspace.baseDir}".`,
-      );
+
+      // Internal paths (under baseDir): auto-create as before
+      fs.mkdirSync(resolved, { recursive: true });
+      return resolved;
     }
 
     // Named workspace: alphanumeric, hyphens, underscores only
