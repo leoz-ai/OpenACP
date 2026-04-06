@@ -33,7 +33,7 @@ export async function buildInstanceListEntries(): Promise<InstanceListEntry[]> {
   })
 }
 
-export async function cmdInstances(args: string[] = []): Promise<void> {
+export async function cmdInstances(args: string[] = [], parentFlags?: { dir?: string; from?: string; name?: string }): Promise<void> {
   if (wantsHelp(args)) {
     printInstancesHelp()
     return
@@ -41,6 +41,13 @@ export async function cmdInstances(args: string[] = []): Promise<void> {
 
   const sub = args[0]
   const subArgs = args.slice(1)
+
+  // Re-inject flags that were consumed by top-level parser
+  if (parentFlags) {
+    if (parentFlags.dir && !subArgs.includes('--dir')) subArgs.push('--dir', parentFlags.dir)
+    if (parentFlags.from && !subArgs.includes('--from')) subArgs.push('--from', parentFlags.from)
+    if (parentFlags.name && !subArgs.includes('--name')) subArgs.push('--name', parentFlags.name)
+  }
 
   if (!sub || sub === 'list') return cmdInstancesList(subArgs)
   if (sub === 'create') return cmdInstancesCreate(subArgs)
