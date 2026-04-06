@@ -130,7 +130,6 @@ export async function sessionRoutes(
       agentName: resolvedAgent,
       workingDirectory: resolvedWorkspace,
       createThread: !!adapter,
-      initialName: `🔄 ${resolvedAgent} — New Session`,
     });
 
     return {
