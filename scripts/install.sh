@@ -1035,10 +1035,6 @@ install_git() {
 }
 
 fix_npm_permissions() {
-    if [[ "$OS" != "linux" ]]; then
-        return 0
-    fi
-
     local npm_prefix
     npm_prefix="$(npm config get prefix 2>/dev/null || true)"
     if [[ -z "$npm_prefix" ]]; then
