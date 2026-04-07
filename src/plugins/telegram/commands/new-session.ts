@@ -375,6 +375,17 @@ export function setupNewSessionCallbacks(
   chatId: number,
   getAssistantSession?: () => { topicId: number; enqueuePrompt: (p: string) => Promise<string> } | undefined,
 ): void {
+  // Intercept replies to force-reply messages (custom path input)
+  bot.on("message:text", async (ctx, next) => {
+    _pruneExpiredForceReplies()
+    const replyToId = ctx.message.reply_to_message?.message_id
+    if (replyToId === undefined) return next()
+    const entry = _forceReplyMap.get(replyToId)
+    if (!entry) return next()
+    _forceReplyMap.delete(replyToId)
+    await _handleCustomPathReply(ctx, core, chatId, entry)
+  })
+
   // Agent picker (also triggered from m: handler callback case)
   bot.callbackQuery('ns:start', async (ctx) => {
     try { await ctx.answerCallbackQuery() } catch { /* expired */ }
