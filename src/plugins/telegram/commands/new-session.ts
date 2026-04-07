@@ -380,7 +380,7 @@ export function setupNewSessionCallbacks(
     const replyToId = ctx.message.reply_to_message?.message_id
     if (replyToId === undefined) return next()
     const entry = _forceReplyMap.get(replyToId)
-    if (!entry) return next()
+    if (!entry || entry.chatId !== ctx.message.chat.id) return next()
     _forceReplyMap.delete(replyToId)
     await _handleCustomPathReply(ctx, core, chatId, entry)
   })
