@@ -15,7 +15,7 @@ ERROR='\033[38;2;239;68;68m'           # red #ef4444
 MUTED='\033[38;2;90;100;128m'          # text-muted #5a6480
 NC='\033[0m'
 
-INSTALLER_VERSION="1.0.2"
+INSTALLER_VERSION="1.0.3"
 
 DEFAULT_TAGLINE="AI coding agents, anywhere."
 NODE_DEFAULT_MAJOR=20
@@ -698,11 +698,13 @@ node_is_at_least_required() {
 
 check_node() {
     if command -v node &>/dev/null; then
+        local node_path
+        node_path="$(command -v node)"
         if node_is_at_least_required; then
-            ui_success "Node.js v$(node -v | cut -d'v' -f2) found"
+            ui_success "Node.js v$(node -v | cut -d'v' -f2) found (${node_path})"
             return 0
         else
-            ui_info "Node.js $(node -v) found, need v${NODE_MIN_VERSION}+"
+            ui_info "Node.js $(node -v) found at ${node_path}, need v${NODE_MIN_VERSION}+"
             return 1
         fi
     else
