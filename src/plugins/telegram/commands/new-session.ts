@@ -373,7 +373,6 @@ export function setupNewSessionCallbacks(
   bot: Bot,
   core: OpenACPCore,
   chatId: number,
-  getAssistantSession?: () => { topicId: number; enqueuePrompt: (p: string) => Promise<string> } | undefined,
 ): void {
   // Intercept replies to force-reply messages (custom path input)
   bot.on("message:text", async (ctx, next) => {
