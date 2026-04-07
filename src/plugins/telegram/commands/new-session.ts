@@ -441,27 +441,17 @@ export function setupNewSessionCallbacks(
     const agentKey = ctx.callbackQuery.data.replace('ns:custom:', '')
     try { await ctx.answerCallbackQuery() } catch { /* expired */ }
 
-    const assistant = getAssistantSession?.()
-    if (assistant) {
-      try {
-        await ctx.editMessageText(
-          `<b>🆕 New Session</b>\n` +
-          `Agent: <code>${escapeHtml(agentKey)}</code>\n\n` +
-          `💬 Type your workspace path in the chat below.`,
-          { parse_mode: 'HTML' },
-        )
-      } catch { /* ignore */ }
-      await assistant.enqueuePrompt(
-        `User wants to create a new session with agent "${agentKey}". Ask them for the workspace (project directory) path, then create the session.`
+    // Remove inline keyboard from wizard message so user can't click stale buttons
+    try {
+      await ctx.editMessageText(
+        `<b>🆕 New Session</b>\n` +
+        `Agent: <code>${escapeHtml(agentKey)}</code>\n\n` +
+        `⌨️ Waiting for workspace path...`,
+        { parse_mode: 'HTML' },
       )
-    } else {
-      try {
-        await ctx.editMessageText(
-          `Usage: <code>/new ${escapeHtml(agentKey)} &lt;workspace-path&gt;</code>`,
-          { parse_mode: 'HTML' },
-        )
-      } catch { /* ignore */ }
-    }
+    } catch { /* ignore */ }
+
+    await _sendCustomPathPrompt(ctx, chatId, agentKey)
   })
 }
 
