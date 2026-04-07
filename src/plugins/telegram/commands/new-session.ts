@@ -242,7 +242,7 @@ export async function _sendCustomPathPrompt(
       `Reply to this message with your path.`,
     {
       parse_mode: 'HTML',
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true },
       ...(threadId !== undefined ? { message_thread_id: threadId } : {}),
     },
   );
