@@ -29,7 +29,7 @@ type AgentStoreData = z.infer<typeof AgentStoreSchema>;
 
 export class AgentStore {
   private data: AgentStoreData = { version: 1, installed: {} };
-  private filePath: string;
+  readonly filePath: string;
 
   constructor(filePath?: string) {
     this.filePath = filePath ?? path.join(os.homedir(), ".openacp", "agents.json");

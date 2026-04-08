@@ -100,6 +100,7 @@ export class OpenACPCore {
       ctx?.paths.agentsDir,
     );
     this.agentCatalog.load();
+
     this.agentManager = new AgentManager(this.agentCatalog);
     const storePath = ctx?.paths.sessions ?? path.join(os.homedir(), ".openacp", "sessions.json");
     this.sessionStore = new JsonFileSessionStore(
