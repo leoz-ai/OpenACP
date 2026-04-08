@@ -89,3 +89,48 @@ export function resolveInstanceRoot(opts: ResolveOpts): string | null {
 export function getGlobalRoot(): string {
   return path.join(os.homedir(), '.openacp')
 }
+
+/**
+ * Walk up directory tree from `cwd` looking for a running `.openacp/` instance.
+ * Skips instances that exist but aren't running (dead daemon).
+ * Falls back to global `~/.openacp/` if no local instance found.
+ * Returns the instance root path, or null if nothing is running.
+ */
+export async function resolveRunningInstance(cwd: string): Promise<string | null> {
+  const globalRoot = getGlobalRoot()
+  let dir = path.resolve(cwd)
+
+  while (true) {
+    const candidate = path.join(dir, '.openacp')
+    // Skip global root during walk-up — checked as fallback at the end
+    if (candidate !== globalRoot && fs.existsSync(candidate)) {
+      if (await isInstanceRunning(candidate)) return candidate
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break // filesystem root
+    dir = parent
+  }
+
+  // Fallback: global instance
+  if (fs.existsSync(globalRoot) && await isInstanceRunning(globalRoot)) return globalRoot
+
+  return null
+}
+
+async function isInstanceRunning(instanceRoot: string): Promise<boolean> {
+  const portFile = path.join(instanceRoot, 'api.port')
+  try {
+    const content = fs.readFileSync(portFile, 'utf-8').trim()
+    const port = parseInt(content, 10)
+    if (isNaN(port)) return false
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 2000)
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/system/health`, {
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    return res.ok
+  } catch {
+    return false
+  }
+}
