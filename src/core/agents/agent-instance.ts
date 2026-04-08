@@ -100,13 +100,19 @@ function resolveAgentCommand(cmd: string): { command: string; args: string[] } {
   try {
     const fullPath = execFileSync("which", [cmd], { encoding: "utf-8" }).trim();
     if (fullPath) {
-      const content = fs.readFileSync(fullPath, "utf-8");
-      if (content.startsWith("#!/usr/bin/env node")) {
-        return { command: process.execPath, args: [fullPath] };
+      try {
+        const content = fs.readFileSync(fullPath, "utf-8");
+        if (content.startsWith("#!/usr/bin/env node")) {
+          return { command: process.execPath, args: [fullPath] };
+        }
+      } catch {
+        // Binary file (not readable as utf-8) — use full path directly
       }
+      // Found via PATH but not a node script — use the resolved full path
+      return { command: fullPath, args: [] };
     }
   } catch {
-    // which failed
+    // which failed — command not on PATH
   }
 
   // 4. For npx/uvx: derive from the running Node's bin directory.
@@ -115,10 +121,27 @@ function resolveAgentCommand(cmd: string): { command: string; args: string[] } {
   //    shell PATH may not include that directory (common with nvm in non-interactive
   //    shells), so resolve it explicitly.
   if (cmd === "npx" || cmd === "uvx") {
-    const sibling = path.join(path.dirname(process.execPath), cmd);
-    if (fs.existsSync(sibling)) {
-      return { command: sibling, args: [] };
+    // Collect candidate directories: process.execPath, its realpath, and well-known locations
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+    const addCandidate = (dir: string) => {
+      if (!seen.has(dir)) { seen.add(dir); candidates.push(dir); }
+    };
+
+    addCandidate(path.dirname(process.execPath));
+    try { addCandidate(path.dirname(fs.realpathSync(process.execPath))); } catch { /* ignore */ }
+    // Well-known Node.js install locations on macOS/Linux
+    addCandidate("/opt/homebrew/bin");
+    addCandidate("/usr/local/bin");
+
+    for (const dir of candidates) {
+      const candidate = path.join(dir, cmd);
+      if (fs.existsSync(candidate)) {
+        log.info({ cmd, resolved: candidate }, "Resolved package runner from fallback search");
+        return { command: candidate, args: [] };
+      }
     }
+    log.warn({ cmd, execPath: process.execPath, candidates }, "Could not find package runner");
   }
 
   // 5. Fallback: use command as-is
