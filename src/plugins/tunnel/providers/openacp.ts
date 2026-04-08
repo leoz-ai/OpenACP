@@ -78,7 +78,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
     return this.publicUrl
   }
 
-  async stop(force = false): Promise<void> {
+  async stop(force = false, preserveState = false): Promise<void> {
     this.stopHeartbeat()
 
     const child = this.child
@@ -100,7 +100,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
       }
     }
 
-    if (tunnelId) {
+    if (tunnelId && !preserveState) {
       this.deleteFromWorker(tunnelId).catch(err => {
         log.warn({ err: (err as Error).message }, 'Failed to delete tunnel from worker')
       })
@@ -110,7 +110,7 @@ export class OpenACPTunnelProvider implements TunnelProvider {
       await this.storage.set(STORAGE_KEY, all)
     }
 
-    log.info({ localPort }, 'OpenACP tunnel stopped')
+    log.info({ localPort, preserveState }, 'OpenACP tunnel stopped')
   }
 
   getPublicUrl(): string {
