@@ -18,12 +18,16 @@ export async function promptForInstance(opts: {
   const cwd = process.cwd()
   const localRoot = path.join(cwd, '.openacp')
 
-  // Nothing exists anywhere — go to global (setup wizard will handle first-time)
-  if (!globalConfigExists) return globalRoot
+  // Walk up from CWD to find nearest parent .openacp/
+  const detectedParent = findParentInstance(cwd, globalRoot)
 
-  // Non-interactive: default to global
+  // Nothing exists anywhere — go to global (setup wizard will handle first-time)
+  // But if a parent instance exists, prefer it
+  if (!globalConfigExists) return detectedParent ?? globalRoot
+
+  // Non-interactive: prefer detected parent over global
   const isTTY = process.stdin.isTTY && process.stdout.isTTY
-  if (!isTTY) return globalRoot
+  if (!isTTY) return detectedParent ?? globalRoot
 
   // Collect existing instances from registry
   const registryPath = path.join(globalRoot, 'instances.json')
@@ -32,18 +36,33 @@ export async function promptForInstance(opts: {
   const instances = registry.list().filter(e => fs.existsSync(e.root))
 
   // Format labels: "Name (global — path)" or "Name (local — path)"
-  const instanceOptions = instances.map(e => {
-    let name = e.id
+  const instanceOptions = instances
+    // Exclude detected parent — it will be added at the top separately
+    .filter(e => !detectedParent || e.root !== detectedParent)
+    .map(e => {
+      let name = e.id
+      try {
+        const raw = fs.readFileSync(path.join(e.root, 'config.json'), 'utf-8')
+        const parsed = JSON.parse(raw)
+        if (parsed.instanceName) name = parsed.instanceName
+      } catch { /* use id */ }
+      const isGlobal = e.root === globalRoot
+      const displayPath = e.root.replace(os.homedir(), '~')
+      const type = isGlobal ? 'global' : 'local'
+      return { value: e.root, label: `${name} workspace (${type} — ${displayPath})` }
+    })
+
+  // Prepend detected parent instance at the top
+  if (detectedParent) {
+    let name = path.basename(path.dirname(detectedParent))
     try {
-      const raw = fs.readFileSync(path.join(e.root, 'config.json'), 'utf-8')
+      const raw = fs.readFileSync(path.join(detectedParent, 'config.json'), 'utf-8')
       const parsed = JSON.parse(raw)
       if (parsed.instanceName) name = parsed.instanceName
-    } catch { /* use id */ }
-    const isGlobal = e.root === globalRoot
-    const displayPath = e.root.replace(os.homedir(), '~')
-    const type = isGlobal ? 'global' : 'local'
-    return { value: e.root, label: `${name} workspace (${type} — ${displayPath})` }
-  })
+    } catch { /* use dir name */ }
+    const displayPath = detectedParent.replace(os.homedir(), '~')
+    instanceOptions.unshift({ value: detectedParent, label: `${name} workspace (detected — ${displayPath})` })
+  }
 
   // Fallback if registry is empty but global config exists
   if (instanceOptions.length === 0) {
@@ -82,4 +101,21 @@ export async function promptForInstance(opts: {
   }
 
   return choice as string
+}
+
+/**
+ * Walk up from `cwd` looking for a parent directory containing `.openacp/`.
+ * Skips exact CWD (already handled by resolveInstanceRoot) and global root.
+ * Returns the `.openacp/` path if found, or null.
+ */
+export function findParentInstance(cwd: string, globalRoot: string): string | null {
+  let dir = path.dirname(cwd) // start from parent, not CWD itself
+  while (true) {
+    const candidate = path.join(dir, '.openacp')
+    if (candidate !== globalRoot && fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
 }
