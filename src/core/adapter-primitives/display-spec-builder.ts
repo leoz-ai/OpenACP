@@ -4,6 +4,7 @@ import { KIND_ICONS } from "./format-types.js";
 import type { OutputMode, ViewerLinks } from "./format-types.js";
 import type { ToolEntry } from "./stream-accumulator.js";
 import type { TunnelServiceInterface } from "../plugin/types.js";
+import { isApplyPatchOtherTool } from "../utils/apply-patch-detection.js";
 
 // ─── Output spec interfaces ────────────────────────────────────────────────
 
@@ -93,6 +94,22 @@ function buildTitle(entry: ToolEntry, kind: string): string {
   const input = asRecord(entry.rawInput);
   const nameLower = entry.name.toLowerCase();
 
+  // apply_patch: keep title parsing based on patchText even when we map display
+  // kind to "edit" for simpler icon/label compatibility.
+  if (isApplyPatchOtherTool(entry.kind, entry.name, entry.rawInput)) {
+    const patchText = getStringField(input, ["patchText", "patch_text"]);
+    if (patchText) {
+      const targets = parseApplyPatchTargets(patchText);
+      if (targets.length === 1) return targets[0];
+      if (targets.length > 1) {
+        const shown = targets.slice(0, 2).join(", ");
+        const rest = targets.length - 2;
+        return rest > 0 ? `${shown} (+${rest} more)` : shown;
+      }
+    }
+    return "apply_patch";
+  }
+
   if (kind === "read") {
     // Support both snake_case (Claude Code) and camelCase (OpenCode) field names
     const filePath = getStringField(input, ["file_path", "filePath", "path"]);
@@ -155,39 +172,6 @@ function buildTitle(entry: ToolEntry, kind: string): string {
     return capitalize(entry.name);
   }
 
-  // Fallbacks for tools that often come through with kind="other"
-  if (nameLower === "apply_patch") {
-    const patchText = getStringField(input, ["patchText", "patch_text"]);
-    if (patchText) {
-      const targets = parseApplyPatchTargets(patchText);
-      if (targets.length === 1) return targets[0];
-      if (targets.length > 1) {
-        const shown = targets.slice(0, 2).join(", ");
-        const remaining = targets.length - 2;
-        return remaining > 0 ? `${shown} (+${remaining} more)` : shown;
-      }
-    }
-    return "apply_patch";
-  }
-
-  if (nameLower === "todowrite") {
-    const todos = Array.isArray(input.todos) ? input.todos : [];
-    if (todos.length > 0) {
-      const inProgress = todos.filter((t) => {
-        if (!t || typeof t !== "object") return false;
-        const status = (t as Record<string, unknown>).status;
-        return status === "in_progress";
-      }).length;
-      const completed = todos.filter((t) => {
-        if (!t || typeof t !== "object") return false;
-        const status = (t as Record<string, unknown>).status;
-        return status === "completed";
-      }).length;
-      return `Todo list (${completed}/${todos.length} done${inProgress > 0 ? `, ${inProgress} active` : ""})`;
-    }
-    return "Todo list";
-  }
-
   if (kind === "fetch" || kind === "web") {
     const url = typeof input.url === "string" ? input.url : null;
     if (url && url !== "undefined") return url.length > 60 ? url.slice(0, 57) + "..." : url;
@@ -199,22 +183,6 @@ function buildTitle(entry: ToolEntry, kind: string): string {
   // Show skill name for Skill tool calls (e.g. Claude Code's Skill tool)
   if (nameLower === "skill" && typeof input.skill === "string" && input.skill) {
     return input.skill;
-  }
-
-  // apply_patch: well-known tool used by multiple agents (OpenCode, Codex, etc.)
-  // Extract target file paths from the patch text for a meaningful title.
-  if (nameLower === "apply_patch") {
-    const patchText = getStringField(input, ["patchText", "patch_text"]);
-    if (patchText) {
-      const targets = parseApplyPatchTargets(patchText);
-      if (targets.length === 1) return targets[0];
-      if (targets.length > 1) {
-        const shown = targets.slice(0, 2).join(", ");
-        const rest = targets.length - 2;
-        return rest > 0 ? `${shown} (+${rest} more)` : shown;
-      }
-    }
-    return "apply_patch";
   }
 
   // todowrite / TodoWrite: well-known todo list tool (Claude Code, others)
@@ -261,7 +229,7 @@ export class DisplaySpecBuilder {
     mode: OutputMode,
     sessionContext?: { id: string; workingDirectory: string },
   ): ToolDisplaySpec {
-    const effectiveKind = entry.displayKind ?? entry.kind;
+    const effectiveKind = entry.displayKind ?? (isApplyPatchOtherTool(entry.kind, entry.name, entry.rawInput) ? "edit" : entry.kind);
     const icon = KIND_ICONS[effectiveKind] ?? KIND_ICONS["other"] ?? "🛠️";
     const title = buildTitle(entry, effectiveKind);
     const isHidden = entry.isNoise && mode !== "high";

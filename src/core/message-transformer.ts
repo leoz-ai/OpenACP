@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { AgentEvent, OutgoingMessage } from "./types.js";
 import type { TunnelServiceInterface } from "./plugin/types.js";
 import { extractFileInfo } from "./utils/extract-file-info.js";
+import { isApplyPatchOtherTool } from "./utils/apply-patch-detection.js";
 import { createChildLogger } from "./utils/log.js";
 
 const log = createChildLogger({ module: "message-transformer" });
@@ -44,6 +45,93 @@ function computeLineDiff(oldStr: string, newStr: string): { added: number; remov
     added: Math.max(0, newLines.length - prefixLen - suffixLen),
     removed: Math.max(0, oldLines.length - prefixLen - suffixLen),
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asNonNegativeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * OpenCode ACP apply_patch may include diff counts in rawOutput.metadata:
+ * - metadata.files[].additions/deletions
+ * - metadata.additions/deletions
+ */
+function extractDiffStatsFromRawOutput(rawOutput: unknown): { added: number; removed: number } | null {
+  const output = asRecord(rawOutput);
+  const metadata = asRecord(output?.metadata);
+  if (!metadata) return null;
+
+  const files = Array.isArray(metadata.files) ? metadata.files : null;
+  if (files && files.length > 0) {
+    let added = 0;
+    let removed = 0;
+    let hasAny = false;
+
+    for (const file of files) {
+      const fileMeta = asRecord(file);
+      if (!fileMeta) continue;
+
+      const fileAdded = asNonNegativeNumber(fileMeta.additions);
+      const fileRemoved = asNonNegativeNumber(fileMeta.deletions);
+      if (fileAdded === null && fileRemoved === null) continue;
+
+      added += fileAdded ?? 0;
+      removed += fileRemoved ?? 0;
+      hasAny = true;
+    }
+
+    if (hasAny && (added > 0 || removed > 0)) return { added, removed };
+  }
+
+  const added = asNonNegativeNumber(metadata.additions);
+  const removed = asNonNegativeNumber(metadata.deletions);
+  if (added === null && removed === null) return null;
+  if ((added ?? 0) === 0 && (removed ?? 0) === 0) return null;
+
+  return {
+    added: added ?? 0,
+    removed: removed ?? 0,
+  };
+}
+
+function extractDiffStatsFromToolPayload(
+  name: string,
+  kind: string | undefined,
+  rawInput: unknown,
+  rawOutput: unknown,
+): { added: number; removed: number } | null {
+  if (kind === "edit" || kind === "write") {
+    const ri = asRecord(rawInput);
+    if (!ri) return null;
+
+    const oldStr = typeof ri.old_string === "string" ? ri.old_string : typeof ri.oldText === "string" ? ri.oldText : null;
+    const newStr = typeof ri.new_string === "string" ? ri.new_string : typeof ri.newText === "string" ? ri.newText : typeof ri.content === "string" ? ri.content : null;
+
+    if (oldStr !== null && newStr !== null) {
+      const stats = computeLineDiff(oldStr, newStr);
+      return stats.added > 0 || stats.removed > 0 ? stats : null;
+    }
+
+    if (oldStr === null && newStr !== null && kind === "write") {
+      // New file creation — no old content, count all new lines as added
+      const added = newStr.split("\n").length;
+      return added > 0 ? { added, removed: 0 } : null;
+    }
+
+    return null;
+  }
+
+  if (isApplyPatchOtherTool(kind, name, rawInput)) {
+    return extractDiffStatsFromRawOutput(rawOutput);
+  }
+
+  return null;
 }
 
 export class MessageTransformer {
@@ -218,24 +306,13 @@ export class MessageTransformer {
     metadata: Record<string, unknown>,
     sessionContext?: { id: string; workingDirectory: string },
   ): void {
-    // Compute diffStats from rawInput even without tunnelService
+    const name = "name" in event ? event.name || "" : "";
+    // Compute diffStats from tool payload even without tunnelService.
+    // Includes edit/write rawInput and apply_patch rawOutput compatibility.
     const kind = "kind" in event ? event.kind : undefined;
-    if (!metadata.diffStats && (kind === "edit" || kind === "write")) {
-      const ri = event.rawInput as Record<string, unknown> | undefined;
-      if (ri) {
-        const oldStr = typeof ri.old_string === "string" ? ri.old_string : typeof ri.oldText === "string" ? ri.oldText : null;
-        const newStr = typeof ri.new_string === "string" ? ri.new_string : typeof ri.newText === "string" ? ri.newText : typeof ri.content === "string" ? ri.content : null;
-        if (oldStr !== null && newStr !== null) {
-          const stats = computeLineDiff(oldStr, newStr);
-          if (stats.added > 0 || stats.removed > 0) {
-            metadata.diffStats = stats;
-          }
-        } else if (oldStr === null && newStr !== null && kind === "write") {
-          // New file creation — no old content, count all new lines as added
-          const added = newStr.split("\n").length;
-          if (added > 0) metadata.diffStats = { added, removed: 0 };
-        }
-      }
+    if (!metadata.diffStats) {
+      const stats = extractDiffStatsFromToolPayload(name, kind, event.rawInput, event.rawOutput);
+      if (stats) metadata.diffStats = stats;
     }
 
     if (!this.tunnelService || !sessionContext) {
@@ -245,8 +322,6 @@ export class MessageTransformer {
       );
       return;
     }
-
-    const name = "name" in event ? event.name || "" : "";
 
     log.debug(
       { name, kind, status: event.status, hasContent: !!event.content, hasRawInput: !!event.rawInput },
@@ -259,6 +334,7 @@ export class MessageTransformer {
       event.content,
       event.rawInput,
       event.meta,
+      event.rawOutput,
     );
     if (!fileInfo) {
       log.debug(

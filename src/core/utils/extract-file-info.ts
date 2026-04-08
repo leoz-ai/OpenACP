@@ -1,3 +1,5 @@
+import { isApplyPatchOtherTool } from './apply-patch-detection.js'
+
 export interface FileInfo {
   filePath: string
   content: string
@@ -12,6 +14,7 @@ export interface FileInfo {
  * - Content wrapper: [{ type: "content", content: { type: "text", text: "..." } }]
  * - Text block: { type: "text", text: "..." }
  * - rawInput: { file_path: "...", content: "..." }
+ * - rawOutput (OpenCode apply_patch): { metadata: { files: [{ filePath, before, after }] } }
  */
 export function extractFileInfo(
   name: string,
@@ -19,8 +22,12 @@ export function extractFileInfo(
   content: unknown,
   rawInput?: unknown,
   meta?: unknown,
+  rawOutput?: unknown,
 ): FileInfo | null {
   // Only process file-related tool kinds
+  if (isApplyPatchOtherTool(kind, name, rawInput)) {
+    return parseApplyPatchRawOutput(rawOutput)
+  }
   if (kind && !['read', 'edit', 'write'].includes(kind)) return null
 
   let info: Partial<FileInfo> | null = null
@@ -98,6 +105,51 @@ export function extractFileInfo(
 
   if (!info.filePath || !info.content) return null
   return info as FileInfo
+}
+
+function parseApplyPatchRawOutput(rawOutput: unknown): FileInfo | null {
+  if (!rawOutput || typeof rawOutput !== 'object' || Array.isArray(rawOutput)) return null
+
+  const output = rawOutput as Record<string, unknown>
+  const metadata = output.metadata
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+
+  const files = (metadata as Record<string, unknown>).files
+  if (!Array.isArray(files)) return null
+
+  const sortedFiles = [...files].sort((a, b) => getApplyPatchFileScore(b) - getApplyPatchFileScore(a))
+
+  for (const file of sortedFiles) {
+    if (!file || typeof file !== 'object' || Array.isArray(file)) continue
+    const f = file as Record<string, unknown>
+
+    const filePath = typeof f.filePath === 'string'
+      ? f.filePath
+      : typeof f.relativePath === 'string'
+        ? f.relativePath
+        : null
+    if (!filePath) continue
+
+    const after = typeof f.after === 'string' ? f.after : null
+    if (!after) continue
+
+    const before = typeof f.before === 'string' ? f.before : undefined
+    return {
+      filePath,
+      content: after,
+      oldContent: before,
+    }
+  }
+
+  return null
+}
+
+function getApplyPatchFileScore(file: unknown): number {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) return 0
+  const f = file as Record<string, unknown>
+  const additions = typeof f.additions === 'number' && Number.isFinite(f.additions) && f.additions >= 0 ? f.additions : 0
+  const deletions = typeof f.deletions === 'number' && Number.isFinite(f.deletions) && f.deletions >= 0 ? f.deletions : 0
+  return additions + deletions
 }
 
 /**
