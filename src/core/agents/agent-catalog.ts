@@ -28,6 +28,7 @@ interface RegistryCache {
 
 export class AgentCatalog {
   private store: AgentStore;
+  private globalStore: AgentStore | null = null;
   private registryAgents: RegistryAgent[] = [];
   private cachePath: string;
   private agentsDir: string | undefined;
@@ -36,10 +37,18 @@ export class AgentCatalog {
     this.store = store ?? new AgentStore();
     this.cachePath = cachePath ?? path.join(os.homedir(), ".openacp", "registry-cache.json");
     this.agentsDir = agentsDir;
+
+    // If the instance store is NOT the global one, load global as fallback
+    const globalPath = path.join(os.homedir(), ".openacp", "agents.json");
+    const storePath = (store as any)?.filePath;
+    if (storePath && path.resolve(storePath) !== path.resolve(globalPath)) {
+      this.globalStore = new AgentStore(globalPath);
+    }
   }
 
   load(): void {
     this.store.load();
+    this.globalStore?.load();
     this.loadRegistryFromCacheOrSnapshot();
     this.enrichInstalledFromRegistry();
   }
@@ -87,18 +96,19 @@ export class AgentCatalog {
     return this.registryAgents.find((a) => getAgentAlias(a.id) === keyOrId);
   }
 
-  // --- Installed ---
+  // --- Installed (instance-first, global-fallback) ---
 
   getInstalled(): InstalledAgent[] {
-    return Object.values(this.store.getInstalled());
+    const merged = { ...this.globalStore?.getInstalled(), ...this.store.getInstalled() };
+    return Object.values(merged);
   }
 
   getInstalledEntries(): Record<string, InstalledAgent> {
-    return this.store.getInstalled();
+    return { ...this.globalStore?.getInstalled(), ...this.store.getInstalled() };
   }
 
   getInstalledAgent(key: string): InstalledAgent | undefined {
-    return this.store.getAgent(key);
+    return this.store.getAgent(key) ?? this.globalStore?.getAgent(key);
   }
 
   // --- Discovery ---
