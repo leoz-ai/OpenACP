@@ -496,6 +496,48 @@ describe('TunnelRegistry — restore', () => {
     expect(registry.list(true)).toHaveLength(0)
   })
 
+  it('restores multiple user tunnels in parallel (not sequentially)', async () => {
+    const persisted = [
+      { port: 3200, type: 'user', provider: 'cloudflare', label: 'app-a', createdAt: new Date().toISOString() },
+      { port: 3300, type: 'user', provider: 'cloudflare', label: 'app-b', createdAt: new Date().toISOString() },
+      { port: 3400, type: 'user', provider: 'cloudflare', label: 'app-c', createdAt: new Date().toISOString() },
+    ]
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(persisted))
+
+    // Track the order of start() calls — all should be called before any resolves
+    const startOrder: number[] = []
+    let resolvers: Array<(url: string) => void> = []
+
+    vi.mocked(CloudflareTunnelProvider).mockImplementation(function (this: any) {
+      const mock = createMockProvider()
+      mock.start = vi.fn().mockImplementation((port: number) => {
+        startOrder.push(port)
+        return new Promise<string>(resolve => { resolvers.push(resolve) })
+      })
+      return mock as any
+    })
+
+    const registry = new TunnelRegistry()
+    const restorePromise = registry.restore()
+
+    // All 3 starts should have been called concurrently
+    await vi.advanceTimersByTimeAsync(0)
+    expect(startOrder).toHaveLength(3)
+    expect(startOrder).toEqual([3200, 3300, 3400])
+
+    // Resolve them
+    resolvers.forEach(r => r('https://test.trycloudflare.com'))
+    await restorePromise
+
+    expect(registry.list(false)).toHaveLength(3)
+
+    // Restore default mock so subsequent tests aren't affected
+    vi.mocked(CloudflareTunnelProvider).mockImplementation(function (this: any) {
+      return createProviderFromOverrideOrDefault()
+    })
+  })
+
   it('restores user tunnels without sessionId (sessions do not survive restart)', async () => {
     const persisted = [
       { port: 3200, type: 'user', provider: 'cloudflare', label: 'my-app', sessionId: 'sess-old', createdAt: new Date().toISOString() },

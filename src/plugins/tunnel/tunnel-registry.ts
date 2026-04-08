@@ -319,16 +319,21 @@ export class TunnelRegistry {
 
       // Only restore user tunnels — system tunnel is registered separately by TunnelService.start()
       const userEntries = raw.filter(e => e.type === 'user')
-      for (const persisted of userEntries) {
-        try {
-          await this.add(persisted.port, {
+      const results = await Promise.allSettled(
+        userEntries.map(persisted =>
+          this.add(persisted.port, {
             type: persisted.type,
             provider: persisted.provider,
             label: persisted.label,
             // sessionId intentionally omitted — sessions don't survive restart
           })
-        } catch (err) {
-          log.warn({ port: persisted.port, err: (err as Error).message }, 'Failed to restore tunnel')
+        )
+      )
+
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'rejected') {
+          const reason = (results[i] as PromiseRejectedResult).reason as Error
+          log.warn({ port: userEntries[i].port, err: reason.message }, 'Failed to restore tunnel')
         }
       }
     } catch (err) {
