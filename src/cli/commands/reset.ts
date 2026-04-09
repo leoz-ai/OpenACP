@@ -15,9 +15,8 @@ start fresh with the setup wizard. The daemon must be stopped first.
 `)
     return
   }
-  const os = await import('node:os')
   const path = await import('node:path')
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
 
   const { getStatus, getPidPath } = await import('../daemon.js')
   const status = getStatus(getPidPath(root))

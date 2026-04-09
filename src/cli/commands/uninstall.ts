@@ -1,7 +1,6 @@
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 import { wantsHelp } from './helpers.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
 
@@ -9,7 +8,7 @@ export async function cmdUninstall(args: string[], instanceRoot?: string): Promi
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const pluginsDir = path.join(root, 'plugins')
 
   if (!json && wantsHelp(args)) {

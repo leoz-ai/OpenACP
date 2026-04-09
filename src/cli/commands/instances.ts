@@ -164,13 +164,12 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
     fs.mkdirSync(instanceRoot, { recursive: true })
     const { copyInstance } = await import('../../core/instance/instance-copy.js')
     await copyInstance(fromRoot, instanceRoot, {})
-    // Update config for new instance: name + workspace dir
+    // Update config for new instance name
     const configPath = path.join(instanceRoot, 'config.json')
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
       config.instanceName = name
-      if (!config.workspace) config.workspace = {}
-      config.workspace.baseDir = resolvedDir
+      delete config.workspace
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
     } catch {}
   } else if (noInteractive || !process.stdin.isTTY) {
@@ -179,7 +178,6 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
     const config: Record<string, unknown> = {
       channels: { sse: { enabled: true } },
       defaultAgent: agent || 'claude',
-      workspace: { baseDir: resolvedDir },
       runMode: 'daemon',
       autoStart: false,
       instanceName: name,
@@ -192,7 +190,6 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
     const config: Record<string, unknown> = {
       channels: { sse: { enabled: true } },
       defaultAgent: agent || 'claude',
-      workspace: { baseDir: resolvedDir },
       runMode: 'daemon',
       autoStart: false,
       instanceName: name,

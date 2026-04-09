@@ -1,7 +1,6 @@
 import { checkAndPromptUpdate } from '../version.js'
 import { printHelp } from './help.js'
 import path from 'node:path'
-import os from 'node:os'
 import fs from 'node:fs'
 import { createInstanceContext, getGlobalRoot } from '../../core/instance/instance-context.js'
 import { InstanceRegistry } from '../../core/instance/instance-registry.js'
@@ -14,7 +13,7 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const pluginsDataDir = path.join(root, 'plugins', 'data')
   const registryPath = path.join(root, 'plugins.json')
   const forceForeground = command === '--foreground'

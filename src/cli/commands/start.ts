@@ -3,14 +3,13 @@ import { wantsHelp } from './helpers.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
 import { printInstanceHint } from '../instance-hint.js'
 import path from 'node:path'
-import os from 'node:os'
 import fs from 'node:fs'
 
 export async function cmdStart(args: string[] = [], instanceRoot?: string): Promise<void> {
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   if (!json && wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp start\x1b[0m — Start OpenACP as a background daemon

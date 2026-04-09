@@ -21,11 +21,10 @@ Shows all plugins registered in the plugin registry.
     return
   }
 
-  const os = await import('node:os')
   const path = await import('node:path')
   const { PluginRegistry } = await import('../../core/plugin/plugin-registry.js')
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const registryPath = path.join(root, 'plugins.json')
   const registry = new PluginRegistry(registryPath)
   await registry.load()
@@ -189,11 +188,10 @@ export async function cmdPlugin(args: string[] = [], instanceRoot?: string): Pro
 async function setPluginEnabled(name: string, enabled: boolean, instanceRoot?: string, json = false): Promise<void> {
   if (json) await muteForJson()
 
-  const os = await import('node:os')
   const path = await import('node:path')
   const { PluginRegistry } = await import('../../core/plugin/plugin-registry.js')
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const registryPath = path.join(root, 'plugins.json')
   const registry = new PluginRegistry(registryPath)
   await registry.load()
@@ -212,7 +210,6 @@ async function setPluginEnabled(name: string, enabled: boolean, instanceRoot?: s
 }
 
 async function configurePlugin(name: string, instanceRoot?: string): Promise<void> {
-  const os = await import('node:os')
   const path = await import('node:path')
   const { corePlugins } = await import('../../plugins/core-plugins.js')
   const { SettingsManager } = await import('../../core/plugin/settings-manager.js')
@@ -224,7 +221,7 @@ async function configurePlugin(name: string, instanceRoot?: string): Promise<voi
     process.exit(1)
   }
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const basePath = path.join(root, 'plugins', 'data')
   const settingsManager = new SettingsManager(basePath)
   const ctx = createInstallContext({ pluginName: name, settingsManager, basePath })
@@ -241,7 +238,6 @@ async function configurePlugin(name: string, instanceRoot?: string): Promise<voi
 async function installPlugin(input: string, instanceRoot?: string, json = false): Promise<void> {
   if (json) await muteForJson()
 
-  const os = await import('node:os')
   const path = await import('node:path')
   const { execFileSync } = await import('node:child_process')
   const { getCurrentVersion } = await import('../version.js')
@@ -249,7 +245,7 @@ async function installPlugin(input: string, instanceRoot?: string, json = false)
   const { createInstallContext } = await import('../../core/plugin/install-context.js')
   const { PluginRegistry } = await import('../../core/plugin/plugin-registry.js')
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
 
   // Parse input: "translator", "translator@1.2.0", "@lucas/pkg@2.0.0"
   let pkgName: string
@@ -405,12 +401,11 @@ async function installPlugin(input: string, instanceRoot?: string, json = false)
 async function uninstallPlugin(name: string, purge: boolean, instanceRoot?: string, json = false): Promise<void> {
   if (json) await muteForJson()
 
-  const os = await import('node:os')
   const path = await import('node:path')
   const fs = await import('node:fs')
   const { PluginRegistry } = await import('../../core/plugin/plugin-registry.js')
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   const registryPath = path.join(root, 'plugins.json')
   const registry = new PluginRegistry(registryPath)
   await registry.load()

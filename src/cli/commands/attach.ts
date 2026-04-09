@@ -1,9 +1,8 @@
 import { wantsHelp } from './helpers.js'
 import path from 'node:path'
-import os from 'node:os'
 
 export async function cmdAttach(args: string[] = [], instanceRoot?: string): Promise<void> {
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   if (wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp attach\x1b[0m — Attach to a running daemon

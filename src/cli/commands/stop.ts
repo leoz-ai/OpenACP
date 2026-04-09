@@ -1,13 +1,10 @@
 import { wantsHelp } from './helpers.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
-import path from 'node:path'
-import os from 'node:os'
-
 export async function cmdStop(args: string[] = [], instanceRoot?: string): Promise<void> {
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   if (!json && wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp stop\x1b[0m — Stop the background daemon

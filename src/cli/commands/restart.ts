@@ -2,7 +2,6 @@ import { wantsHelp } from './helpers.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
 import { printInstanceHint } from '../instance-hint.js'
 import path from 'node:path'
-import os from 'node:os'
 import { createInstanceContext, getGlobalRoot } from '../../core/instance/instance-context.js'
 import { InstanceRegistry } from '../../core/instance/instance-registry.js'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +10,7 @@ export async function cmdRestart(args: string[] = [], instanceRoot?: string): Pr
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   if (!json && wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp restart\x1b[0m — Restart the background daemon
