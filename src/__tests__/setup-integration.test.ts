@@ -167,8 +167,6 @@ describe('runSetup integration', () => {
     // text() call order:
     // 1. Instance name prompt
     mockedText.mockResolvedValueOnce('Main' as any)
-    // 2. setupWorkspace: workspace base dir
-    mockedText.mockResolvedValueOnce('~/my-workspace' as any)
 
     // Confirm call order:
     // 1. Claude CLI integration prompt (decline to avoid needing ClaudeIntegration mock)
@@ -207,9 +205,12 @@ describe('runSetup integration', () => {
     }
 
     const cm = new ConfigManager()
+    const instanceRoot = path.join(tmpDir, '.openacp')
+    fs.mkdirSync(instanceRoot, { recursive: true })
     const shouldStart = await runSetup(cm, {
       settingsManager: mockSettingsManager as any,
       pluginRegistry: mockPluginRegistry as any,
+      instanceRoot,
     })
 
     expect(shouldStart).toBe(true)
@@ -230,7 +231,6 @@ describe('runSetup integration', () => {
 
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     expect(written.defaultAgent).toBe('claude')
-    expect(written.workspace.baseDir).toBe('~/my-workspace')
 
     // Built-in plugins were auto-registered
     expect(mockPluginRegistry.save).toHaveBeenCalled()
@@ -270,7 +270,7 @@ describe('runReconfigure integration', () => {
       },
       agents: {},
       defaultAgent: 'claude',
-      workspace: { baseDir: '~/workspace' },
+      workspace: { allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
       security: {
         allowedUserIds: [],
         maxConcurrentSessions: 20,

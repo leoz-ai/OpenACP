@@ -1,7 +1,6 @@
 export type OnboardSection =
   | "channels"
   | "agents"
-  | "workspace"
   | "runMode"
   | "integrations";
 
@@ -24,7 +23,6 @@ export const ONBOARD_SECTION_OPTIONS: Array<{
 }> = [
   { value: "channels", label: "Channels", hint: "Link/update messaging platforms" },
   { value: "agents", label: "Agents", hint: "Install agents, change default" },
-  { value: "workspace", label: "Workspace", hint: "Set workspace directory" },
   { value: "runMode", label: "Run mode", hint: "Foreground/daemon, auto-start" },
   { value: "integrations", label: "Integrations", hint: "Claude CLI session transfer" },
 ];

@@ -9,7 +9,6 @@ import { ONBOARD_SECTION_OPTIONS } from "./types.js";
 import type { CommunityAdapterOption } from "./types.js";
 import { guardCancel, ok, fail, printStartBanner, summarizeConfig } from "./helpers.js";
 import { setupAgents } from "./setup-agents.js";
-import { setupWorkspace } from "./setup-workspace.js";
 import { setupRunMode } from "./setup-run-mode.js";
 import { setupIntegrations } from "./setup-integrations.js";
 import { configureChannels } from "./setup-channels.js";
@@ -91,13 +90,12 @@ export async function runSetup(
 
     // ─── Instance name prompt ───
 
-    const instanceRoot = opts?.instanceRoot ?? getGlobalRoot();
-    const isGlobal = instanceRoot === getGlobalRoot();
+    const instanceRoot = opts?.instanceRoot!;
 
     let instanceName = opts?.instanceName;
     if (!instanceName) {
-      const defaultName = isGlobal ? 'Global workspace' : path.basename(path.dirname(instanceRoot));
-      const locationHint = isGlobal ? 'global (~/.openacp)' : `local (${instanceRoot.replace(/\/.openacp$/, '').replace(os.homedir(), '~')})`;
+      const defaultName = path.basename(path.dirname(instanceRoot));
+      const locationHint = instanceRoot.replace(/\/.openacp$/, '').replace(os.homedir(), '~');
       const nameResult = await clack.text({
         message: `Name for this workspace (${locationHint})`,
         initialValue: defaultName,
@@ -238,7 +236,7 @@ export async function runSetup(
     // Calculate total steps dynamically: channel(s) + workspace + run mode
     const channelSteps = channelChoices.length;
     const runModeSteps = opts?.skipRunMode ? 0 : 1;
-    const totalSteps = channelSteps + 1 + runModeSteps; // + workspace + optional run mode
+    const totalSteps = channelSteps + runModeSteps;
 
     let currentStep = 0;
 
@@ -408,9 +406,6 @@ export async function runSetup(
     // Offer Claude CLI integration
     await setupIntegrations();
 
-    currentStep++;
-    const workspace = await setupWorkspace({ stepNum: currentStep, totalSteps, isGlobal });
-
     let runMode: 'foreground' | 'daemon' = 'foreground';
     let autoStart = false;
     if (!opts?.skipRunMode) {
@@ -429,7 +424,7 @@ export async function runSetup(
     const config: Config = {
       instanceName,
       defaultAgent,
-      workspace: { ...workspace, allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
+      workspace: { allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
       logging: {
         level: "info",
         logDir: path.join(instanceRoot, "logs"),
@@ -467,12 +462,9 @@ export async function runSetup(
       await instanceRegistry.save();
     }
 
-    // For local instances: protect secrets from git and document in CLAUDE.md
-    const isLocal = instanceRoot !== path.join(getGlobalRoot());
-    if (isLocal) {
-      const projectDir = path.dirname(instanceRoot) // .openacp parent = project dir
-      protectLocalInstance(projectDir)
-    }
+    // Protect secrets from git and document in CLAUDE.md
+    const projectDir = path.dirname(instanceRoot);
+    protectLocalInstance(projectDir);
 
     clack.outro(`Config saved to ${configManager.getConfigPath()}`);
 
@@ -582,14 +574,6 @@ export async function runReconfigure(configManager: ConfigManager, settingsManag
       if (choice === "agents") {
         const { defaultAgent } = await setupAgents();
         await configManager.save({ defaultAgent });
-        config = configManager.get();
-      }
-
-      if (choice === "workspace") {
-        const { baseDir } = await setupWorkspace({
-          existing: config.workspace.baseDir,
-        });
-        await configManager.save({ workspace: { baseDir } });
         config = configManager.get();
       }
 
