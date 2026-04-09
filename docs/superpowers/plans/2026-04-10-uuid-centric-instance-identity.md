@@ -675,61 +675,40 @@ git commit -m "feat: cmdSetup passes id to initInstanceFiles, returns {id,name,d
 
 Three cases to fix: (1) "already registered" becomes idempotent success, (2) ".openacp exists but not registered" passes id to initInstanceFiles, (3) "create new" passes id.
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **Step 1: Update existing test that will break**
 
-Add to `src/core/__tests__/instances-cli.test.ts`:
+The test file has `vi.mock('node:fs')` — all fs calls are mocked. `initInstanceFiles` runs against mocked fs (no-op writes, read errors caught gracefully).
+
+**Update** the existing test at line 114 (`'errors when .openacp already exists and is registered'`). This behavior changes from error to idempotent success — rename and rewrite it:
+
 ```typescript
-describe('cmdInstancesCreate — idempotent on already-registered', () => {
-  let tmpDir: string
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-instances-'))
-    vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-    vi.restoreAllMocks()
-  })
-
-  it('returns existing instance id (not error) when already registered', async () => {
-    const instanceRoot = path.join(tmpDir, '.openacp')
-    fs.mkdirSync(instanceRoot, { recursive: true })
-    fs.writeFileSync(path.join(instanceRoot, 'config.json'), JSON.stringify({ defaultAgent: 'claude' }))
-    fs.writeFileSync(path.join(instanceRoot, 'agents.json'), JSON.stringify({ version: 1, installed: {} }))
-    fs.writeFileSync(path.join(instanceRoot, 'plugins.json'), JSON.stringify({ version: 1, installed: {} }))
-
+  it('returns existing instance idempotently when .openacp exists and is registered', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true)
     const existingId = 'existing-uuid-001'
     const mockRegistry = {
       load: vi.fn(),
-      list: vi.fn().mockReturnValue([{ id: existingId, root: instanceRoot }]),
-      getByRoot: vi.fn().mockReturnValue({ id: existingId, root: instanceRoot }),
+      list: vi.fn().mockReturnValue([]),
+      getByRoot: vi.fn().mockReturnValue({ id: existingId, root: '/path/.openacp' }),
       register: vi.fn(),
       save: vi.fn(),
     }
     vi.mocked(InstanceRegistry).mockImplementation(function() { return mockRegistry } as any)
     vi.mocked(readInstanceInfo).mockReturnValue({
-      name: 'My Workspace', pid: null, apiPort: null,
+      name: 'My Project', pid: null, apiPort: null,
       tunnelPort: null, runMode: null, channels: [],
     })
 
-    const jsonLines: string[] = []
-    const origWrite = process.stdout.write.bind(process.stdout)
-    vi.spyOn(process.stdout, 'write').mockImplementation((data: any) => {
-      if (typeof data === 'string') jsonLines.push(data)
-      return true
-    })
+    const mockLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+    // Must NOT throw / call process.exit
+    await cmdInstancesCreate(['--dir', '/path', '--no-interactive'])
 
-    await cmdInstancesCreate(['--dir', tmpDir, '--no-interactive', '--json'])
-
-    vi.mocked(process.stdout.write).mockRestore()
-
-    const output = jsonLines.join('')
-    const parsed = JSON.parse(output)
-    expect(parsed.success).toBe(true)
-    expect(parsed.data.id).toBe(existingId)
+    // Idempotent: no new registration in registry
+    expect(mockRegistry.register).not.toHaveBeenCalled()
+    expect(mockRegistry.save).not.toHaveBeenCalled()
+    // outputInstance ran: readInstanceInfo was called to build output
+    expect(readInstanceInfo).toHaveBeenCalledWith('/path/.openacp')
+    mockLog.mockRestore()
   })
-})
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -737,7 +716,7 @@ describe('cmdInstancesCreate — idempotent on already-registered', () => {
 ```bash
 pnpm test -- src/core/__tests__/instances-cli.test.ts
 ```
-Expected: test fails — currently the "already registered" case calls `jsonError` and exits.
+Expected: the updated test fails — currently the "already registered" case calls `jsonError` and exits instead of returning.
 
 - [ ] **Step 3: Update `cmdInstancesCreate`**
 
