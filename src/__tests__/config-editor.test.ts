@@ -74,7 +74,7 @@ describe('config-editor', () => {
       load: vi.fn(),
       get: vi.fn(() => ({
         channels: {}, agents: { claude: { command: 'c', args: [], env: {} } },
-        defaultAgent: 'claude', workspace: { baseDir: '~' },
+        defaultAgent: 'claude', workspace: {},
         security: { allowedUserIds: [], maxConcurrentSessions: 5, sessionTimeoutMinutes: 60 },
         logging: { level: 'info', logDir: '~/.openacp/logs', maxFileSize: '10m', maxFiles: 7, sessionLogRetentionDays: 30 },
         runMode: 'foreground', autoStart: false,

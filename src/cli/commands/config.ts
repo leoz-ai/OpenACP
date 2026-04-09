@@ -126,14 +126,12 @@ the API for live updates. When stopped, edits config file directly.
   const { runConfigEditor } = await import('../../core/config/config-editor.js')
   const { ConfigManager } = await import('../../core/config/config.js')
   const { SettingsManager } = await import('../../core/plugin/settings-manager.js')
-  const { getGlobalRoot } = await import('../../core/instance/instance-context.js')
-  const cm = new ConfigManager(instanceRoot ? pathMod.join(instanceRoot, 'config.json') : undefined)
+  const root = instanceRoot!
+  const cm = new ConfigManager(pathMod.join(root, 'config.json'))
   if (!(await cm.exists())) {
     console.error('No config found. Run "openacp" first to set up.')
     process.exit(1)
   }
-
-  const root = instanceRoot ?? getGlobalRoot()
   const settingsManager = new SettingsManager(pathMod.join(root, 'plugins', 'data'))
 
   const port = readApiPort(undefined, instanceRoot)

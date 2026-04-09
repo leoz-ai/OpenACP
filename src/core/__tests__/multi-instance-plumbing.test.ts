@@ -26,7 +26,7 @@ describe('LifecycleManager instanceRoot plumbing', () => {
     expect(capturedCtx[0].instanceRoot).toBe(customRoot)
   })
 
-  it('falls back to ~/.openacp when instanceRoot is not provided', async () => {
+  it('instanceRoot is undefined when not provided', async () => {
     const { LifecycleManager } = await import('../plugin/lifecycle-manager.js')
     const lm = new LifecycleManager()
 
@@ -40,7 +40,7 @@ describe('LifecycleManager instanceRoot plumbing', () => {
     await lm.boot([plugin])
 
     expect(capturedCtx).toHaveLength(1)
-    expect(capturedCtx[0].instanceRoot).toBe(path.join(os.homedir(), '.openacp'))
+    expect(capturedCtx[0].instanceRoot).toBeUndefined()
   })
 })
 

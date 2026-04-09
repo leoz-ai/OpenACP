@@ -1,19 +1,16 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 
-const DEFAULT_ROOT = path.join(os.homedir(), '.openacp')
-
-function defaultPortFile(root?: string): string {
-  return path.join(root ?? DEFAULT_ROOT, 'api.port')
+function defaultPortFile(root: string): string {
+  return path.join(root, 'api.port')
 }
 
-function defaultSecretFile(root?: string): string {
-  return path.join(root ?? DEFAULT_ROOT, 'api-secret')
+function defaultSecretFile(root: string): string {
+  return path.join(root, 'api-secret')
 }
 
 export function readApiPort(portFilePath?: string, instanceRoot?: string): number | null {
-  const filePath = portFilePath ?? defaultPortFile(instanceRoot)
+  const filePath = portFilePath ?? defaultPortFile(instanceRoot!)
   try {
     const content = fs.readFileSync(filePath, 'utf-8').trim()
     const port = parseInt(content, 10)
@@ -24,7 +21,7 @@ export function readApiPort(portFilePath?: string, instanceRoot?: string): numbe
 }
 
 export function readApiSecret(secretFilePath?: string, instanceRoot?: string): string | null {
-  const filePath = secretFilePath ?? defaultSecretFile(instanceRoot)
+  const filePath = secretFilePath ?? defaultSecretFile(instanceRoot!)
   try {
     const content = fs.readFileSync(filePath, 'utf-8').trim()
     return content || null
@@ -34,7 +31,7 @@ export function readApiSecret(secretFilePath?: string, instanceRoot?: string): s
 }
 
 export function removeStalePortFile(portFilePath?: string, instanceRoot?: string): void {
-  const filePath = portFilePath ?? defaultPortFile(instanceRoot)
+  const filePath = portFilePath ?? defaultPortFile(instanceRoot!)
   try {
     fs.unlinkSync(filePath)
   } catch {

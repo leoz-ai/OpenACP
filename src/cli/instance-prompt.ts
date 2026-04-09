@@ -109,7 +109,7 @@ export function findParentInstance(cwd: string, globalRoot: string): string | nu
   let dir = path.dirname(cwd) // start from parent, not CWD itself
   while (true) {
     const candidate = path.join(dir, '.openacp')
-    if (candidate !== globalRoot && fs.existsSync(candidate)) return candidate
+    if (candidate !== globalRoot && fs.existsSync(path.join(candidate, 'config.json'))) return candidate
     const parent = path.dirname(dir)
     if (parent === dir) break
     dir = parent

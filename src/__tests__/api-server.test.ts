@@ -884,7 +884,7 @@ describe("ApiServer", () => {
       },
       channels: { telegram: { botToken: "secret-token" } },
       agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
-      workspace: { baseDir: "~/openacp-workspace" },
+      workspace: {},
       logging: { level: "info", pretty: true },
       runMode: "foreground",
       autoStart: false,

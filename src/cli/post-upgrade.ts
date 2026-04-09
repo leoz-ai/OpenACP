@@ -1,5 +1,3 @@
-import path from "node:path";
-import os from "node:os";
 import { createChildLogger } from "../core/utils/log.js";
 import { commandExists } from "../core/agents/agent-dependencies.js";
 import type { Config } from "../core/config/config.js";
@@ -16,7 +14,7 @@ export async function runPostUpgradeChecks(config: Config, ctx?: InstanceContext
   // 1. Tunnel provider binary — read from plugin settings (tunnel migrated out of config.json)
   try {
     const { SettingsManager } = await import("../core/plugin/settings-manager.js");
-    const pluginsDataPath = ctx?.paths.pluginsData ?? path.join(os.homedir(), '.openacp', 'plugins', 'data');
+    const pluginsDataPath = ctx!.paths.pluginsData;
     const sm = new SettingsManager(pluginsDataPath);
     const tunnelSettings = await sm.loadSettings("@openacp/tunnel");
     const tunnelEnabled = (tunnelSettings.enabled as boolean) ?? false;
@@ -86,7 +84,7 @@ export async function runPostUpgradeChecks(config: Config, ctx?: InstanceContext
   // 4. uvx (needed for Python-based agents)
   try {
     const { AgentStore } = await import("../core/agents/agent-store.js");
-    const store = new AgentStore(ctx?.paths.agents ?? path.join(os.homedir(), '.openacp', 'agents.json'));
+    const store = new AgentStore(ctx!.paths.agents);
     store.load();
     const entries = store.getInstalled();
     const hasUvxAgent = Object.values(entries).some(

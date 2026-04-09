@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DoctorCheck, DoctorContext, DoctorReport, CategoryResult, PendingFix, CheckResult } from "./types.js";
 import { ConfigManager, expandHome } from "../config/config.js";
-import { getGlobalRoot } from "../instance/instance-context.js";
 
 import { configCheck } from "./checks/config.js";
 import { agentsCheck } from "./checks/agents.js";
@@ -32,7 +31,7 @@ export class DoctorEngine {
 
   constructor(options?: { dryRun?: boolean; dataDir?: string }) {
     this.dryRun = options?.dryRun ?? false;
-    this.dataDir = options?.dataDir ?? getGlobalRoot();
+    this.dataDir = options!.dataDir!;
   }
 
   async runAll(): Promise<DoctorReport> {

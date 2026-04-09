@@ -23,7 +23,7 @@ export async function cmdStatus(args: string[] = [], instanceRoot?: string): Pro
   }
 
   // Default: show status of current/specified instance
-  const root = instanceRoot ?? getGlobalRoot()
+  const root = instanceRoot!
   await showSingleInstance(root, json)
 }
 

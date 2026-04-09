@@ -19,6 +19,7 @@ describe('Built-in plugin boot', () => {
     const mgr = new LifecycleManager({
       core: mockCore,
       config: mockCore.configManager as any,
+      instanceRoot: '/tmp/test-openacp',
     })
 
     await mgr.boot(safePlugins)

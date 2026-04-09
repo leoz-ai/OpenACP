@@ -51,6 +51,10 @@ function extractInstanceFlags(args: string[]): { flags: InstanceFlags; remaining
     else if (args[i] === '--dir' && args[i + 1]) { flags.dir = args[i + 1]; i += 2 }
     else if (args[i] === '--from' && args[i + 1]) { flags.from = args[i + 1]; i += 2 }
     else if (args[i] === '--name' && args[i + 1]) { flags.name = args[i + 1]; i += 2 }
+    else if (args[i] === '--global') {
+      console.warn('Warning: --global is deprecated. OpenACP no longer has a global instance. Use --dir <path> instead.')
+      i++
+    }
     else { remaining.push(args[i]!); i++ }
   }
   return { flags, remaining }

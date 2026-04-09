@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
 import { createChildLogger } from '../../../core/utils/log.js'
 import { commandExists } from '../../../core/agents/agent-dependencies.js'
 import type { TunnelProvider } from '../provider.js'
@@ -19,7 +18,7 @@ export class CloudflareTunnelProvider implements TunnelProvider {
 
   constructor(options: Record<string, unknown> = {}, binDir?: string) {
     this.options = options
-    this.binDir = binDir ?? path.join(os.homedir(), '.openacp', 'bin')
+    this.binDir = binDir!
   }
 
   onExit(callback: (code: number | null) => void): void {

@@ -1,5 +1,3 @@
-import * as os from "node:os";
-import * as path from "node:path";
 import type { ContextProvider, ContextQuery, ContextOptions, ContextResult, SessionListResult } from "./context-provider.js";
 import type { HistoryStore } from "./history/history-store.js";
 import type { SessionHistory } from "./history/types.js";
@@ -11,8 +9,8 @@ export class ContextManager {
   private historyStore?: HistoryStore;
   private sessionFlusher?: (sessionId: string) => Promise<void>;
 
-  constructor(cachePath?: string) {
-    this.cache = new ContextCache(cachePath ?? path.join(os.homedir(), ".openacp", "cache", "entire"));
+  constructor(cachePath: string) {
+    this.cache = new ContextCache(cachePath);
   }
 
   setHistoryStore(store: HistoryStore): void {

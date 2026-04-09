@@ -32,6 +32,11 @@ export async function migrateGlobalInstance(): Promise<string | null> {
 
   const targetRoot = path.join(baseDir, '.openacp')
 
+  // Guard: don't migrate onto ourselves
+  if (path.resolve(targetRoot) === path.resolve(globalRoot)) {
+    return null
+  }
+
   // Instance files to move (NOT shared files)
   const instanceFiles = [
     'config.json', 'sessions.json', 'agents.json', 'plugins.json',

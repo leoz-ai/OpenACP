@@ -45,10 +45,9 @@ export async function setupAgents(instanceRoot?: string): Promise<{
   const { AgentCatalog } = await import("../agents/agent-catalog.js");
   const { AgentStore } = await import("../agents/agent-store.js");
   const pathMod = await import("node:path");
-  const osMod = await import("node:os");
   const { muteLogger, unmuteLogger } = await import("../utils/log.js");
 
-  const root = instanceRoot ?? pathMod.join(osMod.homedir(), ".openacp");
+  const root = instanceRoot!;
   const store = new AgentStore(pathMod.join(root, "agents.json"));
 
   muteLogger();

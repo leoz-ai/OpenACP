@@ -1,5 +1,3 @@
-import * as path from "node:path";
-import { getGlobalRoot } from "../instance/instance-context.js";
 import * as clack from "@clack/prompts";
 import type { Config } from "../config/config.js";
 import type { SettingsManager } from "../plugin/settings-manager.js";
@@ -99,12 +97,11 @@ async function configureViaPlugin(channelId: string, isConfigured: boolean, sett
   }
 
   const { createInstallContext } = await import('../plugin/install-context.js');
-  let sm = settingsManager;
-  if (!sm) {
-    const { SettingsManager: SM } = await import('../plugin/settings-manager.js');
-    const basePath = path.join(getGlobalRoot(), 'plugins', 'data');
-    sm = new SM(basePath);
+  if (!settingsManager) {
+    console.log(`Skipping ${channelId} configuration: no settings manager available.`);
+    return;
   }
+  const sm = settingsManager;
   const ctx = createInstallContext({
     pluginName: plugin.name,
     settingsManager: sm,
