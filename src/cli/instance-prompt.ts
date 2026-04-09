@@ -86,6 +86,14 @@ export async function promptForInstance(opts: {
     instanceOptions.unshift({ value: detectedParent, label: `${name} (${displayPath})` })
   }
 
+  // Operational commands (not allowCreate): auto-select if only 1 instance
+  if (!opts.allowCreate && instanceOptions.length === 1) {
+    const selected = instanceOptions[0]!
+    const displayPath = selected.value.replace(os.homedir(), '~')
+    console.log(`  \x1b[2m▸ Using: ${selected.label}\x1b[0m`)
+    return selected.value
+  }
+
   // Build prompt options
   const options: { value: string; label: string }[] = instanceOptions.map(o => ({
     value: o.value,
