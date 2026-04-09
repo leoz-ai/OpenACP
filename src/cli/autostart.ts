@@ -103,7 +103,10 @@ WantedBy=default.target
 /** Remove legacy single-instance plist/service if it exists (one-time migration). */
 function migrateLegacy(): void {
   if (process.platform === 'darwin' && fs.existsSync(LEGACY_LAUNCHD_PLIST_PATH)) {
-    try { execFileSync('launchctl', ['unload', LEGACY_LAUNCHD_PLIST_PATH], { stdio: 'pipe' }) } catch { /* already unloaded */ }
+    try {
+      const uid = process.getuid!()
+      execFileSync('launchctl', ['bootout', `gui/${uid}`, 'com.openacp.daemon'], { stdio: 'pipe' })
+    } catch { /* already unloaded */ }
     try { fs.unlinkSync(LEGACY_LAUNCHD_PLIST_PATH) } catch { /* already gone */ }
     log.info('Removed legacy single-instance LaunchAgent')
   }
@@ -135,9 +138,11 @@ export function installAutoStart(logDir: string, instanceRoot: string, instanceI
       const dir = path.dirname(plistPath)
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(plistPath, plist)
-      // Unload first in case it's already loaded (e.g. restart scenario)
-      try { execFileSync('launchctl', ['unload', plistPath], { stdio: 'pipe' }) } catch { /* not yet loaded */ }
-      execFileSync('launchctl', ['load', plistPath], { stdio: 'pipe' })
+      const uid = process.getuid!()
+      const domain = `gui/${uid}`
+      // Bootout first in case it's already loaded (e.g. restart scenario); ignore error if not loaded
+      try { execFileSync('launchctl', ['bootout', domain, plistPath], { stdio: 'pipe' }) } catch { /* not yet loaded */ }
+      execFileSync('launchctl', ['bootstrap', domain, plistPath], { stdio: 'pipe' })
       log.info({ instanceId }, 'LaunchAgent installed')
       return { success: true }
     }
@@ -172,7 +177,9 @@ export function uninstallAutoStart(instanceId: string): { success: boolean; erro
     if (process.platform === 'darwin') {
       const plistPath = getLaunchdPlistPath(instanceId)
       if (fs.existsSync(plistPath)) {
-        try { execFileSync('launchctl', ['unload', plistPath], { stdio: 'pipe' }) } catch { /* already unloaded */ }
+        const uid = process.getuid!()
+        const label = getLaunchdLabel(instanceId)
+        try { execFileSync('launchctl', ['bootout', `gui/${uid}`, label], { stdio: 'pipe' }) } catch { /* already unloaded */ }
         fs.unlinkSync(plistPath)
         log.info({ instanceId }, 'LaunchAgent removed')
       }

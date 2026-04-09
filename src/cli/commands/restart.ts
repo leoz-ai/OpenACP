@@ -91,12 +91,15 @@ Stops the running daemon (if any) and starts a new one.
       console.error(result.error)
       process.exit(1)
     }
-    // Reinstall autostart to refresh node path (e.g. after nvm version change)
+    // Reinstall autostart to refresh node path (e.g. after nvm version change),
+    // but only if autostart was already installed before this restart
     try {
-      const { installAutoStart } = await import('../autostart.js')
+      const { installAutoStart, isAutoStartInstalled } = await import('../autostart.js')
       const instanceId = resolveInstanceId(root)
-      const autoResult = installAutoStart(config.logging.logDir, root, instanceId)
-      if (!autoResult.success) console.warn(`Warning: auto-start not refreshed: ${autoResult.error}`)
+      if (isAutoStartInstalled(instanceId)) {
+        const autoResult = installAutoStart(config.logging.logDir, root, instanceId)
+        if (!autoResult.success) console.warn(`Warning: auto-start not refreshed: ${autoResult.error}`)
+      }
     } catch { /* non-fatal */ }
 
     if (json) jsonSuccess({ pid: result.pid, instanceId: path.basename(root), dir: root })

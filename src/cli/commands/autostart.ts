@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { wantsHelp } from './helpers.js'
 
 export async function cmdAutostart(args: string[] = [], instanceRoot?: string): Promise<void> {
@@ -38,7 +39,16 @@ export async function cmdAutostart(args: string[] = [], instanceRoot?: string): 
       process.exit(1)
     }
     const root = instanceRoot!
-    const logDir = `${root}/logs`
+    // Read logDir from config; fall back to default if config missing
+    let logDir = `${root}/logs`
+    try {
+      const { ConfigManager } = await import('../../core/config/config.js')
+      const cm = new ConfigManager(path.join(root, 'config.json'))
+      if (await cm.exists()) {
+        await cm.load()
+        logDir = cm.get().logging?.logDir ?? logDir
+      }
+    } catch { /* ignore — use default */ }
     const result = installAutoStart(logDir, root, instanceId)
     if (result.success) {
       console.log('\x1b[32m✓\x1b[0m Auto-start installed.')

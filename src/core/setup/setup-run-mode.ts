@@ -70,13 +70,13 @@ export async function setupRunMode(opts?: {
       const { stopDaemon, getPidPath } = await import('../../cli/daemon.js');
       const instanceRoot = opts?.instanceRoot!;
       const result = await stopDaemon(getPidPath(instanceRoot), instanceRoot);
-      unmuteLogger();
       if (result.stopped) {
         console.log(ok(`Daemon stopped (was PID ${result.pid})`));
       }
     } catch {
-      unmuteLogger();
       // Daemon may not be running
+    } finally {
+      unmuteLogger();
     }
     muteLogger();
     try {
@@ -84,10 +84,10 @@ export async function setupRunMode(opts?: {
       const { resolveInstanceId } = await import('../../cli/resolve-instance-id.js');
       const instanceId = opts?.instanceRoot ? resolveInstanceId(opts.instanceRoot) : 'default';
       uninstallAutoStart(instanceId);
-      unmuteLogger();
     } catch {
-      unmuteLogger();
       // ignore
+    } finally {
+      unmuteLogger();
     }
   }
 

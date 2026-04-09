@@ -25,6 +25,14 @@ vi.mock('../../instance-hint.js', () => ({
   printInstanceHint: vi.fn(),
 }))
 
+vi.mock('../../api-client.js', () => ({
+  waitForPortFile: vi.fn().mockResolvedValue(21420),
+  readApiPort: vi.fn().mockReturnValue(null),
+  readApiSecret: vi.fn().mockReturnValue(null),
+  removeStalePortFile: vi.fn(),
+  apiCall: vi.fn(),
+}))
+
 describe('stop --json', () => {
   afterEach(() => { vi.restoreAllMocks() })
 

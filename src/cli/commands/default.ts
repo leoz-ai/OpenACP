@@ -1,7 +1,6 @@
 import { checkAndPromptUpdate } from '../version.js'
 import { printHelp } from './help.js'
 import path from 'node:path'
-import fs from 'node:fs'
 import { createInstanceContext, getGlobalRoot } from '../../core/instance/instance-context.js'
 import { InstanceRegistry } from '../../core/instance/instance-registry.js'
 import { randomUUID } from 'node:crypto'
@@ -81,14 +80,9 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
         const entry = reg.getByRoot(root)
         if (entry) instanceId = entry.id
       } catch {}
-      // Try to read actual port from api.port file written by the server after startup
-      let port: number | null = null
-      try {
-        const portStr = fs.readFileSync(path.join(root, 'api.port'), 'utf-8').trim()
-        port = parseInt(portStr) || null
-      } catch {
-        port = 21420
-      }
+      // Wait for the daemon to write api.port (up to 5 seconds)
+      const { waitForPortFile } = await import('../api-client.js')
+      const port = await waitForPortFile(path.join(root, 'api.port')) ?? 21420
       jsonSuccess({
         pid: result.pid,
         instanceId,
@@ -104,7 +98,7 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
       const instanceId = resolveInstanceId(root)
       const autoResult = installAutoStart(config.logging.logDir, root, instanceId)
       if (!autoResult.success) console.warn(`Warning: auto-start not enabled: ${autoResult.error}`)
-    } catch { /* non-fatal */ }
+    } catch (e) { console.warn(`Warning: auto-start not enabled: ${(e as Error).message}`) }
 
     printInstanceHint(root)
     console.log(`OpenACP daemon started (PID ${result.pid})`)
@@ -125,14 +119,8 @@ export async function cmdDefault(command: string | undefined, instanceRoot?: str
   })
 
   if (json) {
-    // For foreground mode, output JSON before starting the server
-    let port: number | null = null
-    try {
-      const portStr = fs.readFileSync(path.join(root, 'api.port'), 'utf-8').trim()
-      port = parseInt(portStr) || null
-    } catch {
-      port = 21420
-    }
+    // For foreground mode, output JSON before starting the server (port not yet known)
+    const port = 21420
     jsonSuccess({
       pid: process.pid,
       instanceId,

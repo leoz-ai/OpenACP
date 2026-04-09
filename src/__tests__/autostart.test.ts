@@ -7,12 +7,12 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }))
 
-vi.mock('../core/log.js', () => ({
+vi.mock('../core/utils/log.js', () => ({
   createChildLogger: () => ({
-    info: () => {},
-    error: () => {},
-    warn: () => {},
-    debug: () => {},
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
   }),
 }))
 
@@ -167,5 +167,166 @@ describe('autostart', () => {
         expect(supported).toBe(false)
       }
     })
+  })
+
+  describe('installAutoStart', () => {
+    let origPlatform: NodeJS.Platform
+    const fakeNodePath = '/usr/bin/node'
+    const fakeCli = '/usr/lib/openacp/cli.js'
+    const instanceRoot = '/home/user/.openacp'
+    const instanceId = 'my-project'
+
+    beforeEach(() => {
+      origPlatform = process.platform
+      Object.defineProperty(process, 'execPath', { value: fakeNodePath, configurable: true })
+      Object.defineProperty(process, 'argv', { value: [fakeNodePath, fakeCli], configurable: true })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true })
+      vi.resetAllMocks()
+    })
+
+    it('writes plist file and calls launchctl on darwin', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const { execFileSync } = await import('node:child_process')
+      const { installAutoStart } = await import('../cli/autostart.js')
+
+      const logDir = path.join(tmpDir, 'logs')
+      const result = installAutoStart(logDir, instanceRoot, instanceId)
+
+      expect(result.success).toBe(true)
+      const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents')
+      const plistPath = path.join(launchAgentsDir, `com.openacp.daemon.${instanceId}.plist`)
+      expect(fs.existsSync(plistPath)).toBe(true)
+      const content = fs.readFileSync(plistPath, 'utf-8')
+      expect(content).toContain(`com.openacp.daemon.${instanceId}`)
+      expect(content).toContain(instanceRoot)
+      expect(execFileSync).toHaveBeenCalledWith('launchctl', expect.arrayContaining(['bootstrap']), expect.any(Object))
+    })
+
+    it('returns error on unsupported platform', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const { installAutoStart } = await import('../cli/autostart.js')
+      const result = installAutoStart('/logs', instanceRoot, instanceId)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('not supported')
+    })
+  })
+
+  describe('uninstallAutoStart', () => {
+    let origPlatform: NodeJS.Platform
+
+    beforeEach(() => {
+      origPlatform = process.platform
+    })
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true })
+      vi.resetAllMocks()
+    })
+
+    it('removes plist file and calls launchctl unload on darwin', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const instanceId = 'uninstall-test'
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `com.openacp.daemon.${instanceId}.plist`)
+      fs.mkdirSync(path.dirname(plistPath), { recursive: true })
+      fs.writeFileSync(plistPath, '<plist/>')
+
+      const { execFileSync } = await import('node:child_process')
+      const { uninstallAutoStart } = await import('../cli/autostart.js')
+      const result = uninstallAutoStart(instanceId)
+
+      expect(result.success).toBe(true)
+      expect(fs.existsSync(plistPath)).toBe(false)
+      expect(execFileSync).toHaveBeenCalledWith('launchctl', expect.arrayContaining(['bootout']), expect.any(Object))
+    })
+
+    it('succeeds silently when plist does not exist on darwin', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const { uninstallAutoStart } = await import('../cli/autostart.js')
+      const result = uninstallAutoStart('nonexistent-instance-xyz')
+      expect(result.success).toBe(true)
+    })
+
+    it('returns error on unsupported platform', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const { uninstallAutoStart } = await import('../cli/autostart.js')
+      const result = uninstallAutoStart('any')
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('isAutoStartInstalled', () => {
+    let origPlatform: NodeJS.Platform
+
+    beforeEach(() => {
+      origPlatform = process.platform
+    })
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true })
+    })
+
+    it('returns true when plist file exists on darwin', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const instanceId = 'installed-check'
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `com.openacp.daemon.${instanceId}.plist`)
+      fs.mkdirSync(path.dirname(plistPath), { recursive: true })
+      fs.writeFileSync(plistPath, '<plist/>')
+
+      const { isAutoStartInstalled } = await import('../cli/autostart.js')
+      expect(isAutoStartInstalled(instanceId)).toBe(true)
+
+      fs.unlinkSync(plistPath)
+    })
+
+    it('returns false when plist file does not exist on darwin', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const { isAutoStartInstalled } = await import('../cli/autostart.js')
+      expect(isAutoStartInstalled('definitely-not-installed-xyz')).toBe(false)
+    })
+
+    it('returns false on unsupported platform', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const { isAutoStartInstalled } = await import('../cli/autostart.js')
+      expect(isAutoStartInstalled('any')).toBe(false)
+    })
+  })
+})
+
+describe('resolveInstanceId', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-resolve-test-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('falls back to sanitized parent dir name when registry not found', async () => {
+    const { resolveInstanceId } = await import('../cli/resolve-instance-id.js')
+    const instanceRoot = path.join(tmpDir, 'my-project', '.openacp')
+    fs.mkdirSync(instanceRoot, { recursive: true })
+    const id = resolveInstanceId(instanceRoot)
+    expect(id).toBe('my-project')
+  })
+
+  it('sanitizes special characters in parent dir name', async () => {
+    const { resolveInstanceId } = await import('../cli/resolve-instance-id.js')
+    const instanceRoot = path.join(tmpDir, 'my project!@#', '.openacp')
+    fs.mkdirSync(instanceRoot, { recursive: true })
+    const id = resolveInstanceId(instanceRoot)
+    expect(id).toMatch(/^[a-zA-Z0-9-]+$/)
+    expect(id).not.toContain(' ')
+  })
+
+  it('returns "default" when parent dir resolves to empty string', async () => {
+    const { resolveInstanceId } = await import('../cli/resolve-instance-id.js')
+    // Path like /.openacp → dirname is /, basename is '' → fallback to 'default'
+    const id = resolveInstanceId('/.openacp')
+    expect(id).toBe('default')
   })
 })
