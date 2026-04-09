@@ -79,6 +79,13 @@ resolvedInstanceRoot = resolveInstanceRoot({
   cwd: process.cwd(),
 })
 
+// Auto-migrate global instance on first run after upgrade
+const { migrateGlobalInstance } = await import('./core/instance/migration.js')
+const migrated = await migrateGlobalInstance()
+if (migrated && !resolvedInstanceRoot) {
+  resolvedInstanceRoot = migrated
+}
+
 // Commands that don't need an instance root
 const noInstanceCommands: Record<string, () => Promise<void>> = {
   '--help': async () => printHelp(),
