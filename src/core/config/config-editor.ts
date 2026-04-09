@@ -245,25 +245,6 @@ async function editAgent(config: Config, updates: ConfigUpdates): Promise<void> 
   }
 }
 
-// --- Edit: Workspace ---
-
-async function editWorkspace(config: Config, updates: ConfigUpdates): Promise<void> {
-  const currentDir = config.workspace?.baseDir ?? '~/openacp-workspace'
-
-  console.log(header('Workspace'))
-  console.log(`  Base directory : ${currentDir}`)
-  console.log('')
-
-  const newDir = await input({
-    message: 'Workspace base directory:',
-    default: currentDir,
-    validate: (val) => val.trim().length > 0 || 'Path cannot be empty',
-  })
-
-  updates.workspace = { baseDir: newDir.trim() }
-  console.log(ok(`Workspace set to ${newDir.trim()}`))
-}
-
 // --- Edit: Security ---
 
 async function editSecurity(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
@@ -709,7 +690,6 @@ export async function runConfigEditor(
         choices: [
           { name: 'Channels', value: 'channels' },
           { name: 'Agent', value: 'agent' },
-          { name: 'Workspace', value: 'workspace' },
           { name: 'Security', value: 'security' },
           { name: 'Logging', value: 'logging' },
           { name: 'Run Mode', value: 'runMode' },
@@ -733,7 +713,6 @@ export async function runConfigEditor(
 
       if (choice === 'channels') await editChannels(config, sectionUpdates, settingsManager)
       else if (choice === 'agent') await editAgent(config, sectionUpdates)
-      else if (choice === 'workspace') await editWorkspace(config, sectionUpdates)
       else if (choice === 'security') await editSecurity(config, sectionUpdates, settingsManager)
       else if (choice === 'logging') await editLogging(config, sectionUpdates)
       else if (choice === 'runMode') await editRunMode(config, sectionUpdates)

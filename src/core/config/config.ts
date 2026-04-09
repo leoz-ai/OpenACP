@@ -28,7 +28,6 @@ export const ConfigSchema = z.object({
   defaultAgent: z.string(),
   workspace: z
     .object({
-      baseDir: z.string().default("~/openacp-workspace"),
       allowExternalWorkspaces: z.boolean().default(true),
       security: z
         .object({
@@ -72,7 +71,6 @@ export function expandHome(p: string): string {
 
 const DEFAULT_CONFIG = {
   defaultAgent: "claude",
-  workspace: { baseDir: "~/openacp-workspace" },
   sessionStore: { ttlDays: 30 },
 };
 
@@ -189,51 +187,46 @@ export class ConfigManager extends EventEmitter {
   }
 
   resolveWorkspace(input?: string): string {
+    // configPath = /x/y/.openacp/config.json → workspace = /x/y/
+    const workspaceBase = path.dirname(path.dirname(this.configPath));
+
     if (!input) {
-      const resolved = expandHome(this.config.workspace.baseDir);
-      fs.mkdirSync(resolved, { recursive: true });
-      return resolved;
+      fs.mkdirSync(workspaceBase, { recursive: true });
+      return workspaceBase;
     }
 
-    // Absolute or tilde paths
-    if (input.startsWith("/") || input.startsWith("~")) {
-      const resolved = expandHome(input);
-      const base = expandHome(this.config.workspace.baseDir);
+    // Absolute or tilde path
+    const expanded = input.startsWith("~") ? expandHome(input) : input;
+    if (path.isAbsolute(expanded)) {
+      const resolved = path.resolve(expanded);
+      const base = path.resolve(workspaceBase);
       const isInternal = resolved === base || resolved.startsWith(base + path.sep);
 
       if (!isInternal) {
         if (!this.config.workspace.allowExternalWorkspaces) {
           throw new Error(
-            `Workspace path "${input}" is outside base directory "${this.config.workspace.baseDir}". Set allowExternalWorkspaces: true to allow this.`,
+            `Workspace path "${input}" is outside base directory "${workspaceBase}". Set allowExternalWorkspaces: true to allow this.`,
           );
         }
-        // External paths must already exist — we do not auto-create arbitrary directories
         if (!fs.existsSync(resolved)) {
-          throw new Error(
-            `Workspace path "${input}" does not exist.`,
-          );
+          throw new Error(`Workspace path "${resolved}" does not exist.`);
         }
         return resolved;
       }
 
-      // Internal paths (under baseDir): auto-create as before
       fs.mkdirSync(resolved, { recursive: true });
       return resolved;
     }
 
-    // Named workspace: alphanumeric, hyphens, underscores only
-    const name = input.replace(/[^a-zA-Z0-9_-]/g, "");
-    if (name !== input) {
+    // Named workspace
+    if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
       throw new Error(
         `Invalid workspace name: "${input}". Only alphanumeric characters, hyphens, and underscores are allowed.`,
       );
     }
-    const resolved = path.join(
-      expandHome(this.config.workspace.baseDir),
-      name.toLowerCase(),
-    );
-    fs.mkdirSync(resolved, { recursive: true });
-    return resolved;
+    const namedPath = path.join(workspaceBase, input.toLowerCase());
+    fs.mkdirSync(namedPath, { recursive: true });
+    return namedPath;
   }
 
   async exists(): Promise<boolean> {

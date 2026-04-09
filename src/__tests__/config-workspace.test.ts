@@ -27,16 +27,20 @@ describe('expandHome', () => {
 describe('ConfigManager.resolveWorkspace', () => {
   let configManager: ConfigManager
   let tmpDir: string
+  let instanceRoot: string
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-test-'))
-    const configPath = path.join(tmpDir, 'config.json')
+    // Simulate instance: tmpDir/.openacp/config.json → workspace = tmpDir/
+    instanceRoot = tmpDir
+    const dotOpenacp = path.join(instanceRoot, '.openacp')
+    fs.mkdirSync(dotOpenacp, { recursive: true })
+    const configPath = path.join(dotOpenacp, 'config.json')
     process.env.OPENACP_CONFIG_PATH = configPath
 
-    // Write a valid config
+    // Write a valid config (no baseDir — derived from configPath)
     const config = {
       defaultAgent: 'claude',
-      workspace: { baseDir: path.join(tmpDir, 'workspace') },
     }
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
 
@@ -48,63 +52,62 @@ describe('ConfigManager.resolveWorkspace', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('resolves to baseDir when no input', async () => {
+  it('resolves to instance root (parent of .openacp/) when no input', async () => {
     await configManager.load()
     const result = configManager.resolveWorkspace()
-    expect(result).toBe(path.join(tmpDir, 'workspace'))
+    expect(result).toBe(instanceRoot)
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('allows absolute path outside baseDir when allowExternalWorkspaces is true (default)', async () => {
+  it('allows absolute path outside workspace base when allowExternalWorkspaces is true (default)', async () => {
     await configManager.load()
     // /tmp exists on all systems; with allowExternalWorkspaces: true (default) it should be accepted
     const result = configManager.resolveWorkspace('/tmp')
     expect(result).toBe('/tmp')
   })
 
-  it('rejects absolute path outside baseDir when allowExternalWorkspaces is false', async () => {
+  it('rejects absolute path outside workspace base when allowExternalWorkspaces is false', async () => {
     // Write config with allowExternalWorkspaces: false
-    const configPath = path.join(tmpDir, 'config.json')
+    const configPath = path.join(instanceRoot, '.openacp', 'config.json')
     fs.writeFileSync(configPath, JSON.stringify({
       defaultAgent: 'claude',
-      workspace: { baseDir: path.join(tmpDir, 'workspace'), allowExternalWorkspaces: false },
+      workspace: { allowExternalWorkspaces: false },
     }, null, 2))
     const restrictedManager = new ConfigManager(configPath)
     await restrictedManager.load()
     expect(() => restrictedManager.resolveWorkspace('/tmp/outside-workspace')).toThrow(/outside base directory/)
   })
 
-  it('rejects tilde path outside baseDir when allowExternalWorkspaces is false', async () => {
-    const configPath = path.join(tmpDir, 'config.json')
+  it('rejects tilde path outside workspace base when allowExternalWorkspaces is false', async () => {
+    const configPath = path.join(instanceRoot, '.openacp', 'config.json')
     fs.writeFileSync(configPath, JSON.stringify({
       defaultAgent: 'claude',
-      workspace: { baseDir: path.join(tmpDir, 'workspace'), allowExternalWorkspaces: false },
+      workspace: { allowExternalWorkspaces: false },
     }, null, 2))
     const restrictedManager = new ConfigManager(configPath)
     await restrictedManager.load()
     expect(() => restrictedManager.resolveWorkspace('~/outside-workspace-openacp-test')).toThrow(/outside base directory/)
   })
 
-  it('allows absolute path under baseDir', async () => {
+  it('allows absolute path under workspace base', async () => {
     await configManager.load()
-    const underBase = path.join(tmpDir, 'workspace', 'sub-project')
+    const underBase = path.join(instanceRoot, 'sub-project')
     const result = configManager.resolveWorkspace(underBase)
     expect(result).toBe(underBase)
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('allows baseDir itself as absolute path', async () => {
+  it('allows workspace base itself as absolute path', async () => {
     await configManager.load()
-    const base = path.join(tmpDir, 'workspace')
-    const result = configManager.resolveWorkspace(base)
-    expect(result).toBe(base)
+    const result = configManager.resolveWorkspace(instanceRoot)
+    expect(result).toBe(instanceRoot)
     expect(fs.existsSync(result)).toBe(true)
   })
 
-  it('resolves named workspace under baseDir', async () => {
+  it('resolves named workspace under workspace base', async () => {
     await configManager.load()
     const result = configManager.resolveWorkspace('MyProject')
-    expect(result).toBe(path.join(tmpDir, 'workspace', 'myproject'))
+    expect(result).toBe(path.join(instanceRoot, 'myproject'))
     expect(fs.existsSync(result)).toBe(true)
   })
 
@@ -126,7 +129,9 @@ describe('ConfigManager.applyEnvOverrides', () => {
   let tmpDir: string
 
   function createConfigAndManager(config: Record<string, unknown>): ConfigManager {
-    const configPath = path.join(tmpDir, 'config.json')
+    const dotOpenacp = path.join(tmpDir, '.openacp')
+    fs.mkdirSync(dotOpenacp, { recursive: true })
+    const configPath = path.join(dotOpenacp, 'config.json')
     process.env.OPENACP_CONFIG_PATH = configPath
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
     return new ConfigManager()
@@ -200,7 +205,9 @@ describe('ConfigManager.save and hot-reload', () => {
 
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openacp-save-test-'))
-    const configPath = path.join(tmpDir, 'config.json')
+    const dotOpenacp = path.join(tmpDir, '.openacp')
+    fs.mkdirSync(dotOpenacp, { recursive: true })
+    const configPath = path.join(dotOpenacp, 'config.json')
     process.env.OPENACP_CONFIG_PATH = configPath
 
     const config = {
@@ -221,7 +228,7 @@ describe('ConfigManager.save and hot-reload', () => {
     expect(configManager.get().defaultAgent).toBe('codex')
 
     // Verify on disk
-    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8'))
+    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, '.openacp', 'config.json'), 'utf-8'))
     expect(raw.defaultAgent).toBe('codex')
   })
 
@@ -251,8 +258,8 @@ describe('ConfigManager.save and hot-reload', () => {
   })
 
   it('deep merges nested config', async () => {
-    await configManager.save({ workspace: { baseDir: '~/custom-workspace' } })
-    // Other workspace fields should still exist after deep merge
-    expect(configManager.get().workspace.baseDir).toBe('~/custom-workspace')
+    await configManager.save({ workspace: { allowExternalWorkspaces: false } })
+    // Workspace fields should reflect the update
+    expect(configManager.get().workspace.allowExternalWorkspaces).toBe(false)
   })
 })

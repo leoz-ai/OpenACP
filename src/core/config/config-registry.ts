@@ -48,14 +48,6 @@ export const CONFIG_REGISTRY: ConfigFieldDef[] = [
     hotReload: true,
   },
   {
-    path: "workspace.baseDir",
-    displayName: "Workspace Directory",
-    group: "workspace",
-    type: "string",
-    scope: "safe",
-    hotReload: true,
-  },
-  {
     path: "sessionStore.ttlDays",
     displayName: "Session Store TTL (days)",
     group: "storage",
