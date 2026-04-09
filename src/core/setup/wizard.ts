@@ -401,7 +401,7 @@ export async function runSetup(
     // Persist any community plugin registrations from the loop above
     await pluginRegistry.save();
 
-    const { defaultAgent } = await setupAgents();
+    const { defaultAgent } = await setupAgents(instanceRoot);
 
     // Offer Claude CLI integration
     await setupIntegrations();
@@ -572,7 +572,8 @@ export async function runReconfigure(configManager: ConfigManager, settingsManag
       }
 
       if (choice === "agents") {
-        const { defaultAgent } = await setupAgents();
+        const reconfigRoot = path.dirname(configManager.getConfigPath());
+        const { defaultAgent } = await setupAgents(reconfigRoot);
         await configManager.save({ defaultAgent });
         config = configManager.get();
       }

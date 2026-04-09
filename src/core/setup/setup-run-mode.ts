@@ -65,8 +65,9 @@ export async function setupRunMode(opts?: {
     const { muteLogger, unmuteLogger } = await import('../utils/log.js');
     muteLogger();
     try {
-      const { stopDaemon } = await import('../../cli/daemon.js');
-      const result = await stopDaemon();
+      const { stopDaemon, getPidPath } = await import('../../cli/daemon.js');
+      const instanceRoot = opts?.instanceRoot!;
+      const result = await stopDaemon(getPidPath(instanceRoot), instanceRoot);
       unmuteLogger();
       if (result.stopped) {
         console.log(ok(`Daemon stopped (was PID ${result.pid})`));

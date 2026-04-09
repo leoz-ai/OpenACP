@@ -11,7 +11,7 @@ function makeEmptyConfig(): Config {
     channels: {},
     agents: {},
     defaultAgent: 'claude-code',
-    workspace: { baseDir: '~/openacp-workspace' },
+    workspace: {},
     security: { allowedUserIds: [], maxConcurrentSessions: 20, sessionTimeoutMinutes: 60 },
     logging: { level: 'info', logDir: '/tmp/logs', maxFileSize: '10m', maxFiles: 7, sessionLogRetentionDays: 30 },
     runMode: 'foreground',

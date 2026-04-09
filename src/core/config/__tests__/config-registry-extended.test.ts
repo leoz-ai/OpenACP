@@ -12,7 +12,7 @@ import type { Config } from '../config.js'
 describe('getConfigValue', () => {
   const config = {
     defaultAgent: 'claude',
-    workspace: { baseDir: '~/workspace' },
+    workspace: { allowExternalWorkspaces: true },
     logging: { level: 'info' },
     sessionStore: { ttlDays: 30 },
   } as unknown as Config
@@ -22,7 +22,7 @@ describe('getConfigValue', () => {
   })
 
   it('gets nested value with dot path', () => {
-    expect(getConfigValue(config, 'workspace.baseDir')).toBe('~/workspace')
+    expect(getConfigValue(config, 'workspace.allowExternalWorkspaces')).toBe(true)
   })
 
   it('returns undefined for non-existent top-level key', () => {
@@ -43,7 +43,7 @@ describe('getConfigValue', () => {
 
   it('returns object values', () => {
     const result = getConfigValue(config, 'workspace')
-    expect(result).toEqual({ baseDir: '~/workspace' })
+    expect(result).toEqual({ allowExternalWorkspaces: true })
   })
 })
 

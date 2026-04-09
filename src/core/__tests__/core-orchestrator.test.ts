@@ -57,7 +57,7 @@ function mockConfigManager(config?: any) {
     channels: { telegram: { enabled: true, botToken: "test", chatId: 123 } },
     agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
     defaultAgent: "claude",
-    workspace: { baseDir: "/tmp/workspace" },
+    workspace: {},
     security: {
       allowedUserIds: [],
       maxConcurrentSessions: 5,
@@ -213,7 +213,7 @@ describe("OpenACPCore", () => {
         channels: { telegram: { enabled: true } },
         agents: {},
         defaultAgent: "claude",
-        workspace: { baseDir: "/tmp" },
+        workspace: {},
         security: {
           allowedUserIds: ["user-1"],
           maxConcurrentSessions: 5,
@@ -263,7 +263,7 @@ describe("OpenACPCore", () => {
         channels: { telegram: { enabled: true } },
         agents: {},
         defaultAgent: "claude",
-        workspace: { baseDir: "/tmp" },
+        workspace: {},
         security: {
           allowedUserIds: ["user-1"],
           maxConcurrentSessions: 5,

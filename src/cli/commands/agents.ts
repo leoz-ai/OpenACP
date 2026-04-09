@@ -9,7 +9,12 @@ async function createCatalog(instanceRoot?: string) {
     const store = new AgentStore(pathMod.join(instanceRoot, 'agents.json'));
     return new AgentCatalog(store, pathMod.join(instanceRoot, 'registry-cache.json'), pathMod.join(instanceRoot, 'agents'));
   }
-  return new AgentCatalog();
+  const { AgentStore } = await import("../../core/agents/agent-store.js");
+  const pathMod = await import('node:path');
+  const osMod = await import('node:os');
+  const defaultRoot = pathMod.join(osMod.homedir(), '.openacp');
+  const store = new AgentStore(pathMod.join(defaultRoot, 'agents.json'));
+  return new AgentCatalog(store, pathMod.join(defaultRoot, 'registry-cache.json'), pathMod.join(defaultRoot, 'agents'));
 }
 
 export async function cmdAgents(args: string[], instanceRoot?: string): Promise<void> {
