@@ -21,21 +21,31 @@ export async function promptForInstance(opts: {
   // Walk up from CWD to find nearest parent .openacp/
   const detectedParent = findParentInstance(cwd, globalRoot)
 
-  // Nothing exists anywhere — go to global (setup wizard will handle first-time)
-  // But if a parent instance exists, prefer it
-  if (!globalConfigExists) return detectedParent ?? globalRoot
-
-  // Non-interactive: prefer detected parent over global
-  const isTTY = process.stdin.isTTY && process.stdout.isTTY
-  if (!isTTY) return detectedParent ?? globalRoot
-
   // Collect existing instances from registry
   const registryPath = path.join(globalRoot, 'instances.json')
   const registry = new InstanceRegistry(registryPath)
   registry.load()
   const instances = registry.list().filter(e => fs.existsSync(e.root))
 
-  // Format labels: "Name (global — path)" or "Name (local — path)"
+  // Nothing exists anywhere — no global config, no detected parent
+  if (!globalConfigExists && !detectedParent) {
+    if (instances.length === 0) {
+      if (opts.allowCreate) return localRoot
+      console.error('No OpenACP instances found. Run `openacp` in your workspace directory to set up.')
+      process.exit(1)
+    }
+  }
+
+  // Non-interactive: prefer detected parent, then single instance
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY
+  if (!isTTY) {
+    if (detectedParent) return detectedParent
+    if (instances.length === 1) return instances[0]!.root
+    console.error('Cannot determine instance in non-interactive mode. Use --dir <path>.')
+    process.exit(1)
+  }
+
+  // Format labels: "Name (path)"
   const instanceOptions = instances
     // Exclude detected parent — it will be added at the top separately
     .filter(e => !detectedParent || e.root !== detectedParent)
@@ -46,10 +56,8 @@ export async function promptForInstance(opts: {
         const parsed = JSON.parse(raw)
         if (parsed.instanceName) name = parsed.instanceName
       } catch { /* use id */ }
-      const isGlobal = e.root === globalRoot
       const displayPath = e.root.replace(os.homedir(), '~')
-      const type = isGlobal ? 'global' : 'local'
-      return { value: e.root, label: `${name} workspace (${type} — ${displayPath})` }
+      return { value: e.root, label: `${name} (${displayPath})` }
     })
 
   // Prepend detected parent instance at the top
@@ -61,18 +69,7 @@ export async function promptForInstance(opts: {
       if (parsed.instanceName) name = parsed.instanceName
     } catch { /* use dir name */ }
     const displayPath = detectedParent.replace(os.homedir(), '~')
-    instanceOptions.unshift({ value: detectedParent, label: `${name} workspace (detected — ${displayPath})` })
-  }
-
-  // Fallback if registry is empty but global config exists
-  if (instanceOptions.length === 0) {
-    const globalDisplay = globalRoot.replace(os.homedir(), '~')
-    instanceOptions.push({ value: globalRoot, label: `Global workspace (${globalDisplay})` })
-  }
-
-  // Single instance + no create option → just use it, no prompt needed
-  if (instanceOptions.length === 1 && !opts.allowCreate) {
-    return instanceOptions[0]!.value
+    instanceOptions.unshift({ value: detectedParent, label: `${name} (${displayPath})` })
   }
 
   // Build prompt options

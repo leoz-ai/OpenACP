@@ -1,24 +1,18 @@
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 import { expandHome } from '../core/config/config.js'
 
-const DEFAULT_ROOT = path.join(os.homedir(), '.openacp')
-
-export function getPidPath(root?: string): string {
-  const base = root ?? DEFAULT_ROOT
-  return path.join(base, 'openacp.pid')
+export function getPidPath(root: string): string {
+  return path.join(root, 'openacp.pid')
 }
 
-export function getLogDir(root?: string): string {
-  const base = root ?? DEFAULT_ROOT
-  return path.join(base, 'logs')
+export function getLogDir(root: string): string {
+  return path.join(root, 'logs')
 }
 
-export function getRunningMarker(root?: string): string {
-  const base = root ?? DEFAULT_ROOT
-  return path.join(base, 'running')
+export function getRunningMarker(root: string): string {
+  return path.join(root, 'running')
 }
 
 export function writePidFile(pidPath: string, pid: number): void {
@@ -58,7 +52,7 @@ export function isProcessRunning(pidPath: string): boolean {
   }
 }
 
-export function getStatus(pidPath: string = getPidPath()): { running: boolean; pid?: number } {
+export function getStatus(pidPath: string): { running: boolean; pid?: number } {
   const pid = readPidFile(pidPath)
   if (pid === null) return { running: false }
   try {
@@ -70,7 +64,7 @@ export function getStatus(pidPath: string = getPidPath()): { running: boolean; p
   }
 }
 
-export function startDaemon(pidPath: string = getPidPath(), logDir?: string, instanceRoot?: string): { pid: number } | { error: string } {
+export function startDaemon(pidPath: string, logDir: string | undefined, instanceRoot: string): { pid: number } | { error: string } {
   // Mark as running so auto-start works on next boot
   markRunning(instanceRoot)
 
@@ -133,7 +127,7 @@ function isProcessAlive(pid: number): 'alive' | 'dead' | 'eperm' {
   }
 }
 
-export async function stopDaemon(pidPath: string = getPidPath(), instanceRoot?: string): Promise<{ stopped: boolean; pid?: number; error?: string }> {
+export async function stopDaemon(pidPath: string, instanceRoot: string): Promise<{ stopped: boolean; pid?: number; error?: string }> {
   const pid = readPidFile(pidPath)
   if (pid === null) return { stopped: false, error: 'Not running (no PID file)' }
 
@@ -192,18 +186,18 @@ export async function stopDaemon(pidPath: string = getPidPath(), instanceRoot?: 
 }
 
 /** Mark that the daemon should auto-start on boot */
-export function markRunning(root?: string): void {
+export function markRunning(root: string): void {
   const marker = getRunningMarker(root)
   fs.mkdirSync(path.dirname(marker), { recursive: true })
   fs.writeFileSync(marker, '')
 }
 
 /** Remove running marker — daemon won't auto-start on boot */
-export function clearRunning(root?: string): void {
+export function clearRunning(root: string): void {
   try { fs.unlinkSync(getRunningMarker(root)) } catch { /* ignore */ }
 }
 
 /** Check if the daemon was running before (should auto-start on boot) */
-export function shouldAutoStart(root?: string): boolean {
+export function shouldAutoStart(root: string): boolean {
   return fs.existsSync(getRunningMarker(root))
 }
