@@ -111,21 +111,24 @@ describe('cmdInstancesCreate', () => {
     mockError.mockRestore()
   })
 
-  it('errors when .openacp already exists and is registered', async () => {
+  it('returns existing instance idempotently when .openacp exists and is registered', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true)
+    const existingId = 'existing-uuid-001'
     const mockRegistry = {
       load: vi.fn(),
       list: vi.fn().mockReturnValue([]),
-      getByRoot: vi.fn().mockReturnValue({ id: 'existing', root: '/path/.openacp' }),
+      getByRoot: vi.fn().mockReturnValue({ id: existingId, root: '/path/.openacp' }),
+      register: vi.fn(),
+      save: vi.fn(),
     }
     vi.mocked(InstanceRegistry).mockImplementation(function() { return mockRegistry } as any)
-
-    const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit') }) as any)
-    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(cmdInstancesCreate(['--dir', '/path'])).rejects.toThrow('exit')
-    expect(mockError).toHaveBeenCalledWith(expect.stringContaining('existing'))
-    mockExit.mockRestore()
-    mockError.mockRestore()
+    vi.mocked(readInstanceInfo).mockReturnValue({ name: 'My Project', pid: null, apiPort: null, tunnelPort: null, runMode: null, channels: [] })
+    const mockLog = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await cmdInstancesCreate(['--dir', '/path', '--no-interactive'])
+    expect(mockRegistry.register).not.toHaveBeenCalled()
+    expect(mockRegistry.save).not.toHaveBeenCalled()
+    expect(readInstanceInfo).toHaveBeenCalledWith('/path/.openacp')
+    mockLog.mockRestore()
   })
 
   it('registers .openacp that exists but is not in registry', async () => {

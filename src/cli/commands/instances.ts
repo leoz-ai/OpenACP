@@ -105,7 +105,6 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  // Parse flags
   const dirIdx = args.indexOf('--dir')
   const rawDir = dirIdx !== -1 ? args[dirIdx + 1] : undefined
   if (!rawDir) {
@@ -122,8 +121,7 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   const agent = agentIdx !== -1 ? args[agentIdx + 1] : undefined
   const noInteractive = args.includes('--no-interactive')
 
-  // Resolve absolute paths
-  const resolvedDir = path.resolve(rawDir.replace(/^~/, os.homedir()))
+  const resolvedDir = path.resolve(rawDir!.replace(/^~/, os.homedir()))
   const instanceRoot = path.join(resolvedDir, '.openacp')
 
   const registryPath = path.join(getGlobalRoot(), 'instances.json')
@@ -134,12 +132,16 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   if (fs.existsSync(instanceRoot)) {
     const existing = registry.getByRoot(instanceRoot)
     if (existing) {
-      if (json) jsonError(ErrorCodes.UNKNOWN_ERROR, `Instance already exists at ${resolvedDir} (id: ${existing.id})`)
-      console.error(`Error: Instance already exists at ${resolvedDir} (id: ${existing.id})`)
-      process.exit(1)
+      // Idempotent: return existing instance. Also write id to config.json in case
+      // this instance was created before uuid-centric identity was introduced.
+      initInstanceFiles(instanceRoot, { mergeExisting: true, id: existing.id })
+      if (!json) console.warn(`Warning: Instance already registered at ${resolvedDir} (id: ${existing.id})`)
+      await outputInstance(json, { id: existing.id, root: instanceRoot })
+      return
     }
-    // .openacp exists but not registered — register it
+    // .openacp exists but not registered — register with a fresh id
     const id = randomUUID()
+    initInstanceFiles(instanceRoot, { mergeExisting: true, id })
     registry.register(id, instanceRoot)
     registry.save()
     await outputInstance(json, { id, root: instanceRoot })
@@ -151,7 +153,6 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   const id = randomUUID()
 
   if (rawFrom) {
-    // Clone from existing instance using copyInstance
     const fromRoot = path.join(path.resolve(rawFrom.replace(/^~/, os.homedir())), '.openacp')
     if (!fs.existsSync(path.join(fromRoot, 'config.json'))) {
       console.error(`Error: No OpenACP instance found at ${rawFrom}`)
@@ -160,7 +161,8 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
     fs.mkdirSync(instanceRoot, { recursive: true })
     const { copyInstance } = await import('../../core/instance/instance-copy.js')
     await copyInstance(fromRoot, instanceRoot, {})
-    // Update config for new instance name
+    // copyInstance strips id — write the new id and update instance name
+    initInstanceFiles(instanceRoot, { mergeExisting: true, id })
     const configPath = path.join(instanceRoot, 'config.json')
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
@@ -169,9 +171,8 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
     } catch {}
   } else {
-    // Non-interactive or interactive (no wizard yet — both use same init logic)
     const agents = agent ? [agent] : undefined
-    initInstanceFiles(instanceRoot, { agents, instanceName: name })
+    initInstanceFiles(instanceRoot, { agents, instanceName: name, id })
     if (!noInteractive && process.stdin.isTTY) {
       console.log(`Instance created at ${resolvedDir}. Run 'openacp setup' inside that directory to configure it.`)
     }
