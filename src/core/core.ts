@@ -13,7 +13,7 @@ import type { FileServiceInterface } from "./plugin/types.js";
 import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
 import type { SecurityGuard } from "../plugins/security/security-guard.js";
 import { SessionFactory } from "./sessions/session-factory.js";
-import type { IncomingMessage, AgentEvent, SessionStatus } from "./types.js";
+import type { IncomingMessage, AgentEvent, SessionStatus, TurnMeta } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentSwitchHandler } from "./agent-switch-handler.js";
@@ -390,11 +390,15 @@ export class OpenACPCore {
       "Incoming message",
     );
 
+    // Generate turnId + meta early so message:incoming middleware can read/enrich them
+    const turnId = nanoid(8);
+    const meta: TurnMeta = { turnId };
+
     // Hook: message:incoming — modifiable, can block
     if (this.lifecycleManager?.middlewareChain) {
       const result = await this.lifecycleManager.middlewareChain.execute(
         Hook.MESSAGE_INCOMING,
-        message,
+        { ...message, meta },
         async (msg) => msg,
       );
       if (!result) return; // blocked by middleware
@@ -459,9 +463,11 @@ export class OpenACPCore {
     const routing = sourceAdapterId !== message.routing?.sourceAdapterId
       ? { ...message.routing, sourceAdapterId }
       : message.routing;
+    // Carry enriched meta from middleware result (plugins may have attached sender info etc.)
+    const enrichedMeta = (message as any).meta as TurnMeta | undefined ?? meta;
+
     // Skip queue event for SSE/API sources — they already have the message
     if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
-      const turnId = nanoid(8);
       this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
         sessionId: session.id,
         turnId,
@@ -471,10 +477,9 @@ export class OpenACPCore {
         timestamp: new Date().toISOString(),
         queueDepth: session.queueDepth,
       });
-      // Pass pre-generated turnId so message:processing shares the same ID
-      await session.enqueuePrompt(text, message.attachments, routing, turnId);
+      await session.enqueuePrompt(text, message.attachments, routing, turnId, enrichedMeta);
     } else {
-      await session.enqueuePrompt(text, message.attachments, routing);
+      await session.enqueuePrompt(text, message.attachments, routing, turnId, enrichedMeta);
     }
   }
 

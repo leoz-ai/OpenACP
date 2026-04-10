@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentInstance } from "../agents/agent-instance.js";
-import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption, SessionModeState, SessionModelState } from "../types.js";
+import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption, SessionModeState, SessionModelState, TurnMeta } from "../types.js";
 import { TypedEmitter } from "../utils/typed-emitter.js";
 import { PromptQueue } from "./prompt-queue.js";
 import { PermissionGate } from "./permission-gate.js";
@@ -139,7 +139,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.log.info({ agentName: this.agentName }, "Session created");
 
     this.queue = new PromptQueue(
-      (text, attachments, routing, turnId) => this.processPrompt(text, attachments, routing, turnId),
+      (text, attachments, routing, turnId, meta) => this.processPrompt(text, attachments, routing, turnId, meta),
       (err) => {
         this.log.error({ err }, "Prompt execution failed");
         const message = err instanceof Error ? err.message : String(err);
@@ -258,22 +258,23 @@ export class Session extends TypedEmitter<SessionEvents> {
    * then adds it to the PromptQueue. Returns a turnId that callers can use to correlate
    * queued/processing events before the prompt actually runs.
    */
-  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, externalTurnId?: string): Promise<string> {
+  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, externalTurnId?: string, meta?: TurnMeta): Promise<string> {
     // Use pre-generated turnId if provided (so callers can emit events before awaiting the queue)
     const turnId = externalTurnId ?? nanoid(8);
+    const turnMeta: TurnMeta = meta ?? { turnId };
     // Hook: agent:beforePrompt — modifiable, can block
     if (this.middlewareChain) {
-      const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId };
+      const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId, meta: turnMeta };
       const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_PROMPT, payload, async (p) => p);
       if (!result) return turnId; // blocked by middleware
       text = result.text;
       attachments = result.attachments;
     }
-    await this.queue.enqueue(text, attachments, routing, turnId);
+    await this.queue.enqueue(text, attachments, routing, turnId, turnMeta);
     return turnId;
   }
 
-  private async processPrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string): Promise<void> {
+  private async processPrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta): Promise<void> {
     // Don't process prompts for finished sessions (queue may still drain)
     if (this._status === "finished") return;
 
@@ -331,6 +332,15 @@ export class Session extends TypedEmitter<SessionEvents> {
       this.on(SessionEv.AGENT_EVENT, accumulatorListener);
     }
 
+    // Buffer text events for agent:afterTurn hook — accumulates full response text
+    const turnTextBuffer: string[] = [];
+    const turnTextListener = (event: AgentEvent) => {
+      if (event.type === 'text' && typeof (event as any).content === 'string') {
+        turnTextBuffer.push((event as any).content);
+      }
+    };
+    this.on(SessionEv.AGENT_EVENT, turnTextListener);
+
     // Hook: agent:afterEvent — fire for every agent event, including headless API sessions.
     // Listens directly on agentInstance so it works regardless of whether a SessionBridge is connected.
     // The bridge previously fired this hook from dispatchAgentEvent, but that path is skipped when
@@ -348,7 +358,7 @@ export class Session extends TypedEmitter<SessionEvents> {
 
     // Hook: turn:start — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute(Hook.TURN_START, { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.TURN_START, { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount, turnId: this.activeTurnContext?.turnId ?? turnId ?? '', meta }, async (p) => p).catch(() => {});
     }
 
     let stopReason: string = 'end_turn';
@@ -376,10 +386,26 @@ export class Session extends TypedEmitter<SessionEvents> {
       if (afterEventListener) {
         this.agentInstance.off(SessionEv.AGENT_EVENT, afterEventListener);
       }
+      this.off(SessionEv.AGENT_EVENT, turnTextListener);
+
+      const finalTurnId = this.activeTurnContext?.turnId ?? turnId ?? '';
+
       // Hook: turn:end — always fires, even on error
       if (this.middlewareChain) {
-        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart, turnId: finalTurnId, meta }, async (p) => p).catch(() => {});
       }
+
+      // Hook: agent:afterTurn — full assembled text, read-only, fire-and-forget
+      if (this.middlewareChain) {
+        this.middlewareChain.execute(Hook.AGENT_AFTER_TURN, {
+          sessionId: this.id,
+          turnId: finalTurnId,
+          fullText: turnTextBuffer.join(''),
+          stopReason: stopReason as import('../types.js').StopReason,
+          meta,
+        }, async (p) => p).catch(() => {});
+      }
+
       // Always clear turn context so routing state is never stale after a failed turn
       this.activeTurnContext = null;
     }
