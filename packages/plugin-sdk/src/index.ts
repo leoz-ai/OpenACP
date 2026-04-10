@@ -58,7 +58,11 @@ export type {
   UsageRecord, InstallProgress,
   DisplayVerbosity, ToolCallMeta, ToolUpdateMeta, ViewerLinks,
   TelegramPlatformData,
+  TurnMeta,
 } from '@openacp/cli'
+
+// --- Middleware types ---
+export type { MiddlewarePayloadMap, MiddlewareHook } from '@openacp/cli'
 
 // --- New adapter primitive types ---
 export type {
