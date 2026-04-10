@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { AgentStore } from "./agent-store.js";
 import { installAgent, uninstallAgent, resolveDistribution } from "./agent-installer.js";
 import { getAgentAlias, checkDependencies } from "./agent-dependencies.js";
@@ -28,27 +27,18 @@ interface RegistryCache {
 
 export class AgentCatalog {
   private store: AgentStore;
-  private globalStore: AgentStore | null = null;
   private registryAgents: RegistryAgent[] = [];
   private cachePath: string;
   private agentsDir: string | undefined;
 
-  constructor(store?: AgentStore, cachePath?: string, agentsDir?: string) {
-    this.store = store ?? new AgentStore();
-    this.cachePath = cachePath ?? path.join(os.homedir(), ".openacp", "registry-cache.json");
+  constructor(store: AgentStore, cachePath: string, agentsDir?: string) {
+    this.store = store;
+    this.cachePath = cachePath;
     this.agentsDir = agentsDir;
-
-    // If the instance store is NOT the global one, load global as fallback
-    const globalPath = path.join(os.homedir(), ".openacp", "agents.json");
-    const storePath = this.store.filePath;
-    if (path.resolve(storePath) !== path.resolve(globalPath)) {
-      this.globalStore = new AgentStore(globalPath);
-    }
   }
 
   load(): void {
     this.store.load();
-    this.globalStore?.load();
     this.loadRegistryFromCacheOrSnapshot();
     this.enrichInstalledFromRegistry();
   }
@@ -96,19 +86,18 @@ export class AgentCatalog {
     return this.registryAgents.find((a) => getAgentAlias(a.id) === keyOrId);
   }
 
-  // --- Installed (instance-first, global-fallback) ---
+  // --- Installed ---
 
   getInstalled(): InstalledAgent[] {
-    const merged = { ...this.globalStore?.getInstalled(), ...this.store.getInstalled() };
-    return Object.values(merged);
+    return Object.values(this.store.getInstalled());
   }
 
   getInstalledEntries(): Record<string, InstalledAgent> {
-    return { ...this.globalStore?.getInstalled(), ...this.store.getInstalled() };
+    return this.store.getInstalled();
   }
 
   getInstalledAgent(key: string): InstalledAgent | undefined {
-    return this.store.getAgent(key) ?? this.globalStore?.getAgent(key);
+    return this.store.getAgent(key);
   }
 
   // --- Discovery ---
@@ -214,16 +203,13 @@ export class AgentCatalog {
       await uninstallAgent(key, this.store);
       return { ok: true };
     }
-    if (this.globalStore?.getAgent(key)) {
-      return { ok: false, error: `"${key}" is installed globally. Uninstall it from the global instance instead.` };
-    }
     return { ok: false, error: `"${key}" is not installed.` };
   }
 
   // --- Resolution (for AgentManager) ---
 
   resolve(key: string): AgentDefinition | undefined {
-    const agent = this.store.getAgent(key) ?? this.globalStore?.getAgent(key);
+    const agent = this.store.getAgent(key);
     if (!agent) return undefined;
     return {
       name: key,
@@ -272,12 +258,25 @@ export class AgentCatalog {
         updated = true;
       }
 
-      // Enrich distribution from "custom" to actual type
+      // Enrich distribution from "custom" to actual type.
+      // Also fix command/args — agents.json created by `openacp setup` uses the
+      // agent name as the command placeholder rather than the real ACP binary.
+      // Binary agents can't be enriched here (the archive hasn't been downloaded),
+      // so we only fix npx/uvx which need no download.
       if (agent.distribution === "custom") {
         const dist = resolveDistribution(regAgent);
         if (dist) {
           agent.distribution = dist.type;
-          updated = true;
+          if (dist.type === "npx") {
+            agent.command = "npx";
+            agent.args = [stripNpmVersion(dist.package), ...dist.args];
+            updated = true;
+          } else if (dist.type === "uvx") {
+            agent.command = "uvx";
+            agent.args = [stripPythonVersion(dist.package), ...dist.args];
+            updated = true;
+          }
+          // binary: skip — binary must be downloaded via `openacp agents install`
         }
       }
 
@@ -342,4 +341,37 @@ export class AgentCatalog {
       log.warn("Failed to load bundled registry snapshot");
     }
   }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Strip pinned npm version so npx always resolves to latest.
+ * Mirrors the logic in agent-installer.ts `stripPackageVersion`.
+ * e.g. "@agentclientprotocol/claude-agent-acp@0.26.0" → "@agentclientprotocol/claude-agent-acp"
+ *      "cline@2.9.0" → "cline"
+ *      "@scope/pkg" → "@scope/pkg"
+ */
+function stripNpmVersion(pkg: string): string {
+  if (pkg.startsWith("@")) {
+    const slashIdx = pkg.indexOf("/");
+    if (slashIdx === -1) return pkg;
+    const versionAt = pkg.indexOf("@", slashIdx + 1);
+    return versionAt === -1 ? pkg : pkg.slice(0, versionAt);
+  }
+  const at = pkg.indexOf("@");
+  return at === -1 ? pkg : pkg.slice(0, at);
+}
+
+/**
+ * Strip pinned Python version so uvx always resolves to latest.
+ * Mirrors the logic in agent-installer.ts `stripPythonPackageVersion`.
+ * e.g. "fast-agent-acp==0.6.6" → "fast-agent-acp"
+ *      "minion-code@0.1.44" → "minion-code"
+ */
+function stripPythonVersion(pkg: string): string {
+  const pyMatch = pkg.match(/^([^=@><!]+)/);
+  if (pyMatch && pkg.includes("==")) return pyMatch[1]!;
+  const at = pkg.indexOf("@");
+  return at === -1 ? pkg : pkg.slice(0, at);
 }

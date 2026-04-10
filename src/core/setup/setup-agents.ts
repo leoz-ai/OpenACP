@@ -39,14 +39,19 @@ export async function validateAgentCommand(command: string): Promise<boolean> {
   }
 }
 
-export async function setupAgents(): Promise<{
+export async function setupAgents(instanceRoot?: string): Promise<{
   defaultAgent: string;
 }> {
   const { AgentCatalog } = await import("../agents/agent-catalog.js");
+  const { AgentStore } = await import("../agents/agent-store.js");
+  const pathMod = await import("node:path");
   const { muteLogger, unmuteLogger } = await import("../utils/log.js");
 
+  const root = instanceRoot!;
+  const store = new AgentStore(pathMod.join(root, "agents.json"));
+
   muteLogger();
-  const catalog = new AgentCatalog();
+  const catalog = new AgentCatalog(store, pathMod.join(root, "registry-cache.json"), pathMod.join(root, "agents"));
   catalog.load();
 
   const s = clack.spinner();

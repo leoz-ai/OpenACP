@@ -9,7 +9,6 @@ import { ONBOARD_SECTION_OPTIONS } from "./types.js";
 import type { CommunityAdapterOption } from "./types.js";
 import { guardCancel, ok, fail, printStartBanner, summarizeConfig } from "./helpers.js";
 import { setupAgents } from "./setup-agents.js";
-import { setupWorkspace } from "./setup-workspace.js";
 import { setupRunMode } from "./setup-run-mode.js";
 import { setupIntegrations } from "./setup-integrations.js";
 import { configureChannels } from "./setup-channels.js";
@@ -91,13 +90,12 @@ export async function runSetup(
 
     // ─── Instance name prompt ───
 
-    const instanceRoot = opts?.instanceRoot ?? getGlobalRoot();
-    const isGlobal = instanceRoot === getGlobalRoot();
+    const instanceRoot = opts?.instanceRoot!;
 
     let instanceName = opts?.instanceName;
     if (!instanceName) {
-      const defaultName = isGlobal ? 'Global workspace' : path.basename(path.dirname(instanceRoot));
-      const locationHint = isGlobal ? 'global (~/.openacp)' : `local (${instanceRoot.replace(/\/.openacp$/, '').replace(os.homedir(), '~')})`;
+      const defaultName = path.basename(path.dirname(instanceRoot));
+      const locationHint = instanceRoot.replace(/\/.openacp$/, '').replace(os.homedir(), '~');
       const nameResult = await clack.text({
         message: `Name for this workspace (${locationHint})`,
         initialValue: defaultName,
@@ -112,7 +110,7 @@ export async function runSetup(
     const globalRoot = getGlobalRoot();
     const registryPath = path.join(globalRoot, 'instances.json');
     const instanceRegistry = new InstanceRegistry(registryPath);
-    await instanceRegistry.load();
+    instanceRegistry.load();
 
     let didCopy = false;
 
@@ -145,10 +143,8 @@ export async function runSetup(
             const cfg = JSON.parse(fs.readFileSync(path.join(e.root, 'config.json'), 'utf-8'));
             if (cfg.instanceName) name = cfg.instanceName;
           } catch {}
-          const isGlobalEntry = e.root === getGlobalRoot();
           const displayPath = e.root.replace(os.homedir(), '~');
-          const type = isGlobalEntry ? 'global' : 'local';
-          singleLabel = `${name} workspace (${type} — ${displayPath})`;
+          singleLabel = `${name} workspace (${displayPath})`;
         }
 
         const confirmMsg = singleLabel
@@ -175,10 +171,8 @@ export async function runSetup(
                   const cfg = JSON.parse(fs.readFileSync(path.join(e.root, 'config.json'), 'utf-8'));
                   if (cfg.instanceName) name = cfg.instanceName;
                 } catch {}
-                const isGlobalEntry = e.root === getGlobalRoot();
                 const displayPath = e.root.replace(os.homedir(), '~');
-                const type = isGlobalEntry ? 'global' : 'local';
-                return { value: e.root, label: `${name} workspace (${type} — ${displayPath})` };
+                return { value: e.root, label: `${name} workspace (${displayPath})` };
               }),
             });
             if (clack.isCancel(choice)) return false;
@@ -238,7 +232,7 @@ export async function runSetup(
     // Calculate total steps dynamically: channel(s) + workspace + run mode
     const channelSteps = channelChoices.length;
     const runModeSteps = opts?.skipRunMode ? 0 : 1;
-    const totalSteps = channelSteps + 1 + runModeSteps; // + workspace + optional run mode
+    const totalSteps = channelSteps + runModeSteps;
 
     let currentStep = 0;
 
@@ -403,13 +397,10 @@ export async function runSetup(
     // Persist any community plugin registrations from the loop above
     await pluginRegistry.save();
 
-    const { defaultAgent } = await setupAgents();
+    const { defaultAgent } = await setupAgents(instanceRoot);
 
     // Offer Claude CLI integration
     await setupIntegrations();
-
-    currentStep++;
-    const workspace = await setupWorkspace({ stepNum: currentStep, totalSteps, isGlobal });
 
     let runMode: 'foreground' | 'daemon' = 'foreground';
     let autoStart = false;
@@ -426,10 +417,15 @@ export async function runSetup(
       sessionTimeoutMinutes: 60,
     };
 
+    // Resolve or create UUID before writing config — id must be in config.json from the start
+    const existingEntry = instanceRegistry.getByRoot(instanceRoot);
+    const instanceId = existingEntry?.id ?? randomUUID();
+
     const config: Config = {
+      id: instanceId,
       instanceName,
       defaultAgent,
-      workspace: { ...workspace, allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
+      workspace: { allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
       logging: {
         level: "info",
         logDir: path.join(instanceRoot, "logs"),
@@ -459,20 +455,15 @@ export async function runSetup(
       await pluginRegistry.save();
     }
 
-    // Register instance in the global registry (skip if this root is already registered)
-    const existingEntry = instanceRegistry.getByRoot(instanceRoot);
+    // Register instance in the global registry (now after config write; UUID already decided above)
     if (!existingEntry) {
-      const id = randomUUID();
-      instanceRegistry.register(id, instanceRoot);
+      instanceRegistry.register(instanceId, instanceRoot);
       await instanceRegistry.save();
     }
 
-    // For local instances: protect secrets from git and document in CLAUDE.md
-    const isLocal = instanceRoot !== path.join(getGlobalRoot());
-    if (isLocal) {
-      const projectDir = path.dirname(instanceRoot) // .openacp parent = project dir
-      protectLocalInstance(projectDir)
-    }
+    // Protect secrets from git and document in CLAUDE.md
+    const projectDir = path.dirname(instanceRoot);
+    protectLocalInstance(projectDir);
 
     clack.outro(`Config saved to ${configManager.getConfigPath()}`);
 
@@ -580,16 +571,9 @@ export async function runReconfigure(configManager: ConfigManager, settingsManag
       }
 
       if (choice === "agents") {
-        const { defaultAgent } = await setupAgents();
+        const reconfigRoot = path.dirname(configManager.getConfigPath());
+        const { defaultAgent } = await setupAgents(reconfigRoot);
         await configManager.save({ defaultAgent });
-        config = configManager.get();
-      }
-
-      if (choice === "workspace") {
-        const { baseDir } = await setupWorkspace({
-          existing: config.workspace.baseDir,
-        });
-        await configManager.save({ workspace: { baseDir } });
         config = configManager.get();
       }
 

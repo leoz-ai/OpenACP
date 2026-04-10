@@ -1,6 +1,7 @@
 import { createChildLogger } from "../core/utils/log.js";
 import { commandExists } from "../core/agents/agent-dependencies.js";
 import type { Config } from "../core/config/config.js";
+import type { InstanceContext } from "../core/instance/instance-context.js";
 
 const log = createChildLogger({ module: "post-upgrade" });
 
@@ -9,11 +10,12 @@ const log = createChildLogger({ module: "post-upgrade" });
  * Centralized source of truth for all binary dependency management.
  * Silent if everything is OK.
  */
-export async function runPostUpgradeChecks(config: Config): Promise<void> {
+export async function runPostUpgradeChecks(config: Config, ctx?: InstanceContext): Promise<void> {
   // 1. Tunnel provider binary — read from plugin settings (tunnel migrated out of config.json)
   try {
     const { SettingsManager } = await import("../core/plugin/settings-manager.js");
-    const sm = new SettingsManager(config.workspace?.baseDir ?? "~/.openacp/plugins/data");
+    const pluginsDataPath = ctx!.paths.pluginsData;
+    const sm = new SettingsManager(pluginsDataPath);
     const tunnelSettings = await sm.loadSettings("@openacp/tunnel");
     const tunnelEnabled = (tunnelSettings.enabled as boolean) ?? false;
     const tunnelProvider = (tunnelSettings.provider as string) ?? "cloudflare";
@@ -82,7 +84,7 @@ export async function runPostUpgradeChecks(config: Config): Promise<void> {
   // 4. uvx (needed for Python-based agents)
   try {
     const { AgentStore } = await import("../core/agents/agent-store.js");
-    const store = new AgentStore();
+    const store = new AgentStore(ctx!.paths.agents);
     store.load();
     const entries = store.getInstalled();
     const hasUvxAgent = Object.values(entries).some(

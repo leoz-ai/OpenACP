@@ -1,5 +1,3 @@
-import path from 'node:path'
-import os from 'node:os'
 import type {
   PluginContext,
   PluginPermission,
@@ -60,7 +58,7 @@ export function createPluginContext(opts: CreatePluginContextOpts): PluginContex
     config,
     core,
   } = opts
-  const instanceRoot = opts.instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const instanceRoot = opts.instanceRoot!
 
   // Track registered items for cleanup
   const registeredListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = []

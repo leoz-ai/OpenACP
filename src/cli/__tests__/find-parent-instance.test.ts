@@ -26,6 +26,7 @@ describe('findParentInstance', () => {
     const root = makeTmp()
     const instance = path.join(root, '.openacp')
     fs.mkdirSync(instance)
+    fs.writeFileSync(path.join(instance, 'config.json'), '{}')
     const nested = path.join(root, 'project', 'src')
     fs.mkdirSync(nested, { recursive: true })
 
@@ -34,10 +35,13 @@ describe('findParentInstance', () => {
 
   it('finds nearest parent when multiple exist', () => {
     const root = makeTmp()
-    fs.mkdirSync(path.join(root, '.openacp'))
+    const rootInstance = path.join(root, '.openacp')
+    fs.mkdirSync(rootInstance)
+    fs.writeFileSync(path.join(rootInstance, 'config.json'), '{}')
     const child = path.join(root, 'workspace')
     const childInstance = path.join(child, '.openacp')
     fs.mkdirSync(childInstance, { recursive: true })
+    fs.writeFileSync(path.join(childInstance, 'config.json'), '{}')
     const nested = path.join(child, 'project', 'src')
     fs.mkdirSync(nested, { recursive: true })
 
@@ -48,6 +52,7 @@ describe('findParentInstance', () => {
     const root = makeTmp()
     const instance = path.join(root, '.openacp')
     fs.mkdirSync(instance)
+    fs.writeFileSync(path.join(instance, 'config.json'), '{}')
     const nested = path.join(root, 'src')
     fs.mkdirSync(nested, { recursive: true })
 

@@ -15,9 +15,8 @@ start fresh with the setup wizard. The daemon must be stopped first.
 `)
     return
   }
-  const os = await import('node:os')
   const path = await import('node:path')
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
 
   const { getStatus, getPidPath } = await import('../daemon.js')
   const status = getStatus(getPidPath(root))
@@ -36,8 +35,11 @@ start fresh with the setup wizard. The daemon must be stopped first.
     return
   }
 
-  const { uninstallAutoStart } = await import('../autostart.js')
-  uninstallAutoStart()
+  try {
+    const { uninstallAutoStart } = await import('../autostart.js')
+    const { resolveInstanceId } = await import('../resolve-instance-id.js')
+    uninstallAutoStart(resolveInstanceId(root))
+  } catch { /* non-fatal — proceed with deletion even if autostart removal fails */ }
 
   const fs = await import('node:fs')
   fs.rmSync(root, { recursive: true, force: true })

@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
 import { createChildLogger } from '../../core/utils/log.js'
 import type { TunnelProvider } from './provider.js'
 import { TunnelKeepAlive } from './keepalive.js'
@@ -59,7 +58,7 @@ export class TunnelRegistry {
   constructor(opts: { maxUserTunnels?: number; providerOptions?: Record<string, unknown>; registryPath?: string; binDir?: string; storage?: PluginStorage } = {}) {
     this.maxUserTunnels = opts.maxUserTunnels ?? 5
     this.providerOptions = opts.providerOptions ?? {}
-    this.registryPath = opts.registryPath ?? path.join(os.homedir(), '.openacp', 'tunnels.json')
+    this.registryPath = opts.registryPath!
     this.binDir = opts.binDir
     this.storage = opts.storage ?? null
   }

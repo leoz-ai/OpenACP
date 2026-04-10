@@ -6,23 +6,27 @@ import * as os from "node:os";
 
 /**
  * Tests for ConfigManager.resolveWorkspace() focusing on:
+ * - Deriving workspace base from configPath (parent of .openacp/)
  * - allowExternalWorkspaces flag behavior
- * - External absolute paths (outside baseDir)
+ * - External absolute paths (outside workspace base)
  * - Named workspace paths (relative)
- * - Tilde paths inside/outside baseDir
+ * - Tilde paths inside/outside workspace base
  */
 describe("ConfigManager.resolveWorkspace", () => {
   let tmpDir: string;
+  let instanceRoot: string;
   let configPath: string;
-  let baseDir: string;
   let externalDir: string;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openacp-cfg-test-"));
-    configPath = path.join(tmpDir, "config.json");
-    baseDir = path.join(tmpDir, "workspace");
+    // Simulate instance: tmpDir/instance/.openacp/config.json → workspace = tmpDir/instance/
+    instanceRoot = path.join(tmpDir, "instance");
+    const dotOpenacp = path.join(instanceRoot, ".openacp");
+    fs.mkdirSync(dotOpenacp, { recursive: true });
+    configPath = path.join(dotOpenacp, "config.json");
+    // External dir is a sibling, NOT under instanceRoot
     externalDir = path.join(tmpDir, "external-project");
-    fs.mkdirSync(baseDir, { recursive: true });
     fs.mkdirSync(externalDir, { recursive: true });
   });
 
@@ -34,7 +38,6 @@ describe("ConfigManager.resolveWorkspace", () => {
     const config = {
       defaultAgent: "claude",
       workspace: {
-        baseDir,
         allowExternalWorkspaces,
       },
     };
@@ -44,7 +47,6 @@ describe("ConfigManager.resolveWorkspace", () => {
     (mgr as any).config = {
       defaultAgent: "claude",
       workspace: {
-        baseDir,
         allowExternalWorkspaces,
         security: { allowedPaths: [], envWhitelist: [] },
       },
@@ -64,15 +66,29 @@ describe("ConfigManager.resolveWorkspace", () => {
     return mgr;
   }
 
-  describe("allowExternalWorkspaces: true (default)", () => {
-    it("allows absolute path inside baseDir", () => {
+  describe("workspace base derived from configPath", () => {
+    it("returns parent of .openacp/ when no input given", () => {
       const mgr = makeManager(true);
-      const subDir = path.join(baseDir, "my-project");
+      const result = mgr.resolveWorkspace();
+      expect(result).toBe(instanceRoot);
+    });
+
+    it("resolves named workspace under instance root", () => {
+      const mgr = makeManager(true);
+      const result = mgr.resolveWorkspace("my-project");
+      expect(result).toBe(path.join(instanceRoot, "my-project"));
+    });
+  });
+
+  describe("allowExternalWorkspaces: true (default)", () => {
+    it("allows absolute path inside workspace base", () => {
+      const mgr = makeManager(true);
+      const subDir = path.join(instanceRoot, "my-project");
       fs.mkdirSync(subDir, { recursive: true });
       expect(mgr.resolveWorkspace(subDir)).toBe(subDir);
     });
 
-    it("allows absolute path outside baseDir", () => {
+    it("allows absolute path outside workspace base", () => {
       const mgr = makeManager(true);
       const result = mgr.resolveWorkspace(externalDir);
       expect(result).toBe(externalDir);
@@ -84,42 +100,30 @@ describe("ConfigManager.resolveWorkspace", () => {
       expect(() => mgr.resolveWorkspace(nonExistent)).toThrow(/does not exist/);
     });
 
-    it("allows baseDir itself as absolute path", () => {
+    it("allows workspace base itself as absolute path", () => {
       const mgr = makeManager(true);
-      expect(mgr.resolveWorkspace(baseDir)).toBe(baseDir);
-    });
-
-    it("resolves named workspace to subdirectory under baseDir", () => {
-      const mgr = makeManager(true);
-      const result = mgr.resolveWorkspace("my-project");
-      expect(result).toBe(path.join(baseDir, "my-project"));
-    });
-
-    it("returns baseDir when no input given", () => {
-      const mgr = makeManager(true);
-      const result = mgr.resolveWorkspace();
-      expect(result).toBe(baseDir);
+      expect(mgr.resolveWorkspace(instanceRoot)).toBe(instanceRoot);
     });
   });
 
   describe("allowExternalWorkspaces: false", () => {
-    it("allows absolute path inside baseDir", () => {
+    it("allows absolute path inside workspace base", () => {
       const mgr = makeManager(false);
-      const subDir = path.join(baseDir, "my-project");
+      const subDir = path.join(instanceRoot, "my-project");
       fs.mkdirSync(subDir, { recursive: true });
       expect(mgr.resolveWorkspace(subDir)).toBe(subDir);
     });
 
-    it("throws when absolute path is outside baseDir", () => {
+    it("throws when absolute path is outside workspace base", () => {
       const mgr = makeManager(false);
       expect(() => mgr.resolveWorkspace(externalDir)).toThrow(
         /outside base directory/,
       );
     });
 
-    it("throws when tilde path is outside baseDir", () => {
+    it("throws when tilde path is outside workspace base", () => {
       const mgr = makeManager(false);
-      // Use a home-relative path that isn't under baseDir
+      // Use a home-relative path that isn't under instanceRoot
       expect(() => mgr.resolveWorkspace("~/some-other-project")).toThrow(
         /outside base directory/,
       );
@@ -144,7 +148,7 @@ describe("ConfigManager.resolveWorkspace", () => {
     it("converts name to lowercase", () => {
       const mgr = makeManager(true);
       const result = mgr.resolveWorkspace("MyProject");
-      expect(result).toBe(path.join(baseDir, "myproject"));
+      expect(result).toBe(path.join(instanceRoot, "myproject"));
     });
   });
 });

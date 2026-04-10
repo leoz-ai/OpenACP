@@ -1,8 +1,8 @@
 import { wantsHelp } from './helpers.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
 import { printInstanceHint } from '../instance-hint.js'
+import { resolveInstanceId } from '../resolve-instance-id.js'
 import path from 'node:path'
-import os from 'node:os'
 import { createInstanceContext, getGlobalRoot } from '../../core/instance/instance-context.js'
 import { InstanceRegistry } from '../../core/instance/instance-registry.js'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +11,7 @@ export async function cmdRestart(args: string[] = [], instanceRoot?: string): Pr
   const json = isJsonMode(args)
   if (json) await muteForJson()
 
-  const root = instanceRoot ?? path.join(os.homedir(), '.openacp')
+  const root = instanceRoot!
   if (!json && wantsHelp(args)) {
     console.log(`
 \x1b[1mopenacp restart\x1b[0m — Restart the background daemon
@@ -72,6 +72,14 @@ Stops the running daemon (if any) and starts a new one.
   const useForeground = json ? false : (forceForeground || (!forceDaemon && !hadDaemon && config.runMode !== 'daemon'))
 
   if (useForeground) {
+    // Restarting in foreground: remove any stale autostart entry so it doesn't
+    // surprise the user by relaunching a daemon on next login
+    try {
+      const { uninstallAutoStart, isAutoStartInstalled } = await import('../autostart.js')
+      const instanceId = resolveInstanceId(root)
+      if (isAutoStartInstalled(instanceId)) uninstallAutoStart(instanceId)
+    } catch { /* non-fatal */ }
+
     markRunning(root)
     printInstanceHint(root)
     console.log('Starting in foreground mode...')
@@ -82,7 +90,6 @@ Stops the running daemon (if any) and starts a new one.
     const ctx = createInstanceContext({
       id: existingEntry?.id ?? randomUUID(),
       root,
-      isGlobal: root === getGlobalRoot(),
     })
     await startServer({ instanceContext: ctx })
   } else {
@@ -92,7 +99,18 @@ Stops the running daemon (if any) and starts a new one.
       console.error(result.error)
       process.exit(1)
     }
-    if (json) jsonSuccess({ pid: result.pid, instanceId: path.basename(root), dir: root })
+    // Reinstall autostart to refresh node path (e.g. after nvm version change),
+    // but only if autostart was already installed before this restart
+    const instanceId = resolveInstanceId(root)
+    try {
+      const { installAutoStart, isAutoStartInstalled } = await import('../autostart.js')
+      if (isAutoStartInstalled(instanceId)) {
+        const autoResult = installAutoStart(config.logging.logDir, root, instanceId)
+        if (!autoResult.success) console.warn(`Warning: auto-start not refreshed: ${autoResult.error}`)
+      }
+    } catch { /* non-fatal */ }
+
+    if (json) jsonSuccess({ pid: result.pid, instanceId, dir: root })
     printInstanceHint(root)
     console.log(`OpenACP daemon started (PID ${result.pid})`)
   }

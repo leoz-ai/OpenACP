@@ -98,15 +98,14 @@ describe('ConfigManager events', () => {
 })
 
 describe('CONFIG_REGISTRY field membership', () => {
-  it('contains exactly 5 core fields', () => {
-    expect(CONFIG_REGISTRY).toHaveLength(5)
+  it('contains exactly 4 core fields', () => {
+    expect(CONFIG_REGISTRY).toHaveLength(4)
   })
 
   it('contains exactly the expected core field paths', () => {
     const paths = CONFIG_REGISTRY.map((f) => f.path)
     expect(paths).toContain('defaultAgent')
     expect(paths).toContain('logging.level')
-    expect(paths).toContain('workspace.baseDir')
     expect(paths).toContain('sessionStore.ttlDays')
     expect(paths).toContain('agentSwitch.labelHistory')
   })

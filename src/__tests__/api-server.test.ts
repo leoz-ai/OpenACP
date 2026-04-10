@@ -44,7 +44,7 @@ describe("ApiServer", () => {
       get: vi.fn(() => ({
         defaultAgent: "claude",
         agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
-        workspace: { baseDir: "~/openacp-workspace" },
+        workspace: {},
         logging: {
           level: "info",
           logDir: "~/.openacp/logs",
@@ -884,7 +884,7 @@ describe("ApiServer", () => {
       },
       channels: { telegram: { botToken: "secret-token" } },
       agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
-      workspace: { baseDir: "~/openacp-workspace" },
+      workspace: {},
       logging: { level: "info", pretty: true },
       runMode: "foreground",
       autoStart: false,
@@ -1464,7 +1464,7 @@ describe("ApiServer", () => {
     it("redacts sensitive keys inside arrays", async () => {
       mockCore.configManager.get.mockReturnValueOnce({
         defaultAgent: "claude",
-        workspace: { baseDir: "~/openacp-workspace" },
+        workspace: {},
         logging: {
           level: "info",
           logDir: "~/.openacp/logs",

@@ -29,6 +29,7 @@ async function input(opts: { message: string; default?: string; validate?: (val:
   return result as string
 }
 import { installAutoStart, uninstallAutoStart, isAutoStartInstalled, isAutoStartSupported } from '../../cli/autostart.js'
+import { resolveInstanceId } from '../../cli/resolve-instance-id.js'
 import { expandHome } from './config.js'
 
 // ANSI color helpers
@@ -144,23 +145,22 @@ async function ensureDiscordPlugin(): Promise<any | null> {
   }
 }
 
-async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<void> {
+async function editDiscord(_config: Config, _updates: ConfigUpdates, settingsManager?: SettingsManager, instanceRoot?: string): Promise<void> {
   const pluginModule = await ensureDiscordPlugin()
   if (!pluginModule) return
 
   const plugin = pluginModule.default
   if (plugin?.configure) {
-    const { SettingsManager } = await import('../plugin/settings-manager.js')
+    if (!settingsManager || !instanceRoot) {
+      console.log(warn('Cannot configure Discord — instance context not available.'))
+      return
+    }
     const { createInstallContext } = await import('../plugin/install-context.js')
-    const { getGlobalRoot } = await import('../instance/instance-context.js')
-    const root = getGlobalRoot()
-    const basePath = path.join(root, 'plugins', 'data')
-    const settingsManager = new SettingsManager(basePath)
     const ctx = createInstallContext({
       pluginName: plugin.name,
       settingsManager,
-      basePath,
-      instanceRoot: root,
+      basePath: settingsManager.getBasePath(),
+      instanceRoot,
     })
     await plugin.configure(ctx)
   } else {
@@ -170,7 +170,7 @@ async function editDiscord(_config: Config, _updates: ConfigUpdates): Promise<vo
 
 // --- Edit: Channels (parent menu) ---
 
-async function editChannels(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager): Promise<void> {
+async function editChannels(config: Config, updates: ConfigUpdates, settingsManager?: SettingsManager, instanceRoot?: string): Promise<void> {
   // channels migrated out of config.json — read from plugin settings only
   let tgConfigured = false
   let dcConfigured = false
@@ -201,7 +201,7 @@ async function editChannels(config: Config, updates: ConfigUpdates, settingsMana
     if (choice === 'back') break
 
     if (choice === 'telegram') await editTelegram(config, updates, settingsManager)
-    if (choice === 'discord') await editDiscord(config, updates)
+    if (choice === 'discord') await editDiscord(config, updates, settingsManager, instanceRoot)
   }
 }
 
@@ -243,25 +243,6 @@ async function editAgent(config: Config, updates: ConfigUpdates): Promise<void> 
       console.log(ok(`Default agent set to ${chosen}`))
     }
   }
-}
-
-// --- Edit: Workspace ---
-
-async function editWorkspace(config: Config, updates: ConfigUpdates): Promise<void> {
-  const currentDir = config.workspace?.baseDir ?? '~/openacp-workspace'
-
-  console.log(header('Workspace'))
-  console.log(`  Base directory : ${currentDir}`)
-  console.log('')
-
-  const newDir = await input({
-    message: 'Workspace base directory:',
-    default: currentDir,
-    validate: (val) => val.trim().length > 0 || 'Path cannot be empty',
-  })
-
-  updates.workspace = { baseDir: newDir.trim() }
-  console.log(ok(`Workspace set to ${newDir.trim()}`))
 }
 
 // --- Edit: Security ---
@@ -382,10 +363,11 @@ async function editLogging(config: Config, updates: ConfigUpdates): Promise<void
 
 // --- Edit: Run Mode ---
 
-async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void> {
+async function editRunMode(config: Config, updates: ConfigUpdates, instanceRoot?: string): Promise<void> {
   const currentMode = config.runMode ?? 'foreground'
   const currentAutoStart = config.autoStart ?? false
-  const autoStartInstalled = isAutoStartInstalled()
+  const instanceId = instanceRoot ? resolveInstanceId(instanceRoot) : 'default'
+  const autoStartInstalled = isAutoStartInstalled(instanceId)
   const autoStartSupported = isAutoStartSupported()
 
   console.log(header('Run Mode'))
@@ -428,7 +410,7 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
     if (choice === 'daemon') {
       updates.runMode = 'daemon'
       const logDir = (config.logging?.logDir) ?? '~/.openacp/logs'
-      const result = installAutoStart(expandHome(logDir))
+      const result = installAutoStart(expandHome(logDir), instanceRoot!, instanceId)
       if (result.success) {
         updates.autoStart = true
         console.log(ok('Switched to daemon mode with auto-start'))
@@ -440,7 +422,7 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
     if (choice === 'foreground') {
       updates.runMode = 'foreground'
       updates.autoStart = false
-      uninstallAutoStart()
+      uninstallAutoStart(instanceId)
       console.log(ok('Switched to foreground mode'))
     }
 
@@ -451,7 +433,7 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
       })()
 
       if (autoStartCurrent) {
-        const result = uninstallAutoStart()
+        const result = uninstallAutoStart(instanceId)
         updates.autoStart = false
         if (result.success) {
           console.log(ok('Auto-start disabled'))
@@ -460,7 +442,7 @@ async function editRunMode(config: Config, updates: ConfigUpdates): Promise<void
         }
       } else {
         const logDir = (config.logging?.logDir) ?? '~/.openacp/logs'
-        const result = installAutoStart(expandHome(logDir))
+        const result = installAutoStart(expandHome(logDir), instanceRoot!, instanceId)
         updates.autoStart = result.success
         if (result.success) {
           console.log(ok('Auto-start enabled'))
@@ -697,6 +679,9 @@ export async function runConfigEditor(
   const config = configManager.get()
   const updates: ConfigUpdates = {}
 
+  // Derive instance root from config path: /x/y/.openacp/config.json → /x/y/.openacp
+  const instanceRoot = path.dirname(configManager.getConfigPath())
+
   console.log(`\n${c.cyan}${c.bold}OpenACP Config Editor${c.reset}`)
   console.log(dim(`Config: ${configManager.getConfigPath()}`))
   console.log('')
@@ -709,7 +694,6 @@ export async function runConfigEditor(
         choices: [
           { name: 'Channels', value: 'channels' },
           { name: 'Agent', value: 'agent' },
-          { name: 'Workspace', value: 'workspace' },
           { name: 'Security', value: 'security' },
           { name: 'Logging', value: 'logging' },
           { name: 'Run Mode', value: 'runMode' },
@@ -731,12 +715,11 @@ export async function runConfigEditor(
 
       const sectionUpdates: ConfigUpdates = {}
 
-      if (choice === 'channels') await editChannels(config, sectionUpdates, settingsManager)
+      if (choice === 'channels') await editChannels(config, sectionUpdates, settingsManager, instanceRoot)
       else if (choice === 'agent') await editAgent(config, sectionUpdates)
-      else if (choice === 'workspace') await editWorkspace(config, sectionUpdates)
       else if (choice === 'security') await editSecurity(config, sectionUpdates, settingsManager)
       else if (choice === 'logging') await editLogging(config, sectionUpdates)
-      else if (choice === 'runMode') await editRunMode(config, sectionUpdates)
+      else if (choice === 'runMode') await editRunMode(config, sectionUpdates, instanceRoot)
       else if (choice === 'api') await editApi(config, sectionUpdates, settingsManager)
       else if (choice === 'tunnel') await editTunnel(config, sectionUpdates, settingsManager)
 

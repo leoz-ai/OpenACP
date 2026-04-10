@@ -97,9 +97,6 @@ export async function summarizeConfig(config: Config, settingsManager?: Settings
   // Default agent
   lines.push(`Default agent: ${config.defaultAgent}`);
 
-  // Workspace
-  lines.push(`Workspace: ${config.workspace.baseDir}`);
-
   // Run mode
   lines.push(`Run mode: ${config.runMode}${config.autoStart ? " (auto-start)" : ""}`);
 

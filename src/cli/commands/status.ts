@@ -23,7 +23,7 @@ export async function cmdStatus(args: string[] = [], instanceRoot?: string): Pro
   }
 
   // Default: show status of current/specified instance
-  const root = instanceRoot ?? getGlobalRoot()
+  const root = instanceRoot!
   await showSingleInstance(root, json)
 }
 
@@ -186,13 +186,12 @@ export function formatInstanceStatus(root: string): { info: InstanceInfo; lines:
   const info = readInstanceInfo(root)
   if (!info.pid) return null
 
-  const isGlobal = root === getGlobalRoot()
-  const displayPath = root.replace(os.homedir(), '~')
-  const label = isGlobal ? 'global' : 'local'
+  const workspaceDir = path.dirname(root)
+  const displayPath = workspaceDir.replace(os.homedir(), '~')
 
   const lines: string[] = []
   lines.push(`  PID:       ${info.pid}`)
-  lines.push(`  Workspace: ${info.name ?? 'unknown'} (${label} — ${displayPath})`)
+  lines.push(`  Workspace: ${info.name ?? 'unknown'} (${displayPath})`)
   lines.push(`  Mode:      ${info.runMode ?? 'unknown'}`)
   if (info.channels.length > 0) lines.push(`  Channels:  ${info.channels.join(', ')}`)
   if (info.apiPort) lines.push(`  API:       port ${info.apiPort}`)

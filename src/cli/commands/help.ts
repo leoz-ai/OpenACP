@@ -85,7 +85,7 @@ Connect messaging platforms (Telegram, Discord) to 28+ AI coding agents via ACP 
 
 \x1b[1mWorkspace Flags:\x1b[0m
   --local              Use workspace in current directory
-  --global             Use global workspace (~/.openacp)
+  --global             (deprecated, ignored)
   --dir <path>         Use workspace at specified directory
   --from <path>        Copy settings from existing workspace (on create)
   --name <name>        Set workspace name (on create)

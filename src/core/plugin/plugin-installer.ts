@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -55,7 +54,7 @@ export async function installNpmPlugin(packageName: string, pluginsDir?: string)
     throw new Error(`Invalid package name: "${packageName}". Must be a valid npm package name.`);
   }
 
-  const dir = pluginsDir ?? path.join(os.homedir(), '.openacp', 'plugins')
+  const dir = pluginsDir!
 
   // Try import from plugins dir first — already installed
   try {

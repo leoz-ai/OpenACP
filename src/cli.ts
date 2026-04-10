@@ -32,34 +32,37 @@ import {
   cmdAttach,
   cmdRemote,
   cmdSetup,
+  cmdAutostart,
 } from './cli/commands/index.js'
 import { resolveInstanceRoot } from './core/instance/instance-context.js'
 
 export interface InstanceFlags {
   local: boolean
-  global: boolean
   dir?: string
   from?: string
   name?: string
 }
 
 function extractInstanceFlags(args: string[]): { flags: InstanceFlags; remaining: string[] } {
-  const flags: InstanceFlags = { local: false, global: false }
+  const flags: InstanceFlags = { local: false }
   const remaining: string[] = []
   let i = 0
   while (i < args.length) {
     if (args[i] === '--local') { flags.local = true; i++ }
-    else if (args[i] === '--global') { flags.global = true; i++ }
     else if (args[i] === '--dir' && args[i + 1]) { flags.dir = args[i + 1]; i += 2 }
     else if (args[i] === '--from' && args[i + 1]) { flags.from = args[i + 1]; i += 2 }
     else if (args[i] === '--name' && args[i + 1]) { flags.name = args[i + 1]; i += 2 }
+    else if (args[i] === '--global') {
+      console.warn('Warning: --global is deprecated. OpenACP no longer has a global instance. Use --dir <path> instead.')
+      i++
+    }
     else { remaining.push(args[i]!); i++ }
   }
   return { flags, remaining }
 }
 
 let resolvedInstanceRoot: string | null = null
-let instanceFlags: InstanceFlags = { local: false, global: false }
+let instanceFlags: InstanceFlags = { local: false }
 
 export function getResolvedInstanceRoot(): string | null {
   return resolvedInstanceRoot
@@ -78,9 +81,25 @@ const [command, ...args] = remaining
 resolvedInstanceRoot = resolveInstanceRoot({
   dir: flags.dir,
   local: flags.local,
-  global: flags.global,
   cwd: process.cwd(),
 })
+
+// Auto-migrate global instance on first run after upgrade
+const { migrateGlobalInstance } = await import('./core/instance/migration.js')
+const migrated = await migrateGlobalInstance()
+if (migrated && !resolvedInstanceRoot) {
+  resolvedInstanceRoot = migrated
+}
+
+// --workspace is a deprecated alias for --dir, specific to the setup command.
+// It cannot be extracted globally (conflicts with `api` command's --workspace).
+if (command === 'setup' && !resolvedInstanceRoot) {
+  const wsIdx = args.indexOf('--workspace')
+  if (wsIdx !== -1 && args[wsIdx + 1]) {
+    if (!args.includes('--json')) console.warn('Warning: --workspace is deprecated. Use --dir instead.')
+    resolvedInstanceRoot = resolveInstanceRoot({ dir: args[wsIdx + 1], cwd: process.cwd() })
+  }
+}
 
 // Commands that don't need an instance root
 const noInstanceCommands: Record<string, () => Promise<void>> = {
@@ -130,7 +149,6 @@ async function main() {
       const ctx = createInstanceContext({
         id,
         root: envRoot,
-        isGlobal: envRoot === getGlobal(),
       })
       await startServer({ instanceContext: ctx })
     } else {
@@ -160,6 +178,7 @@ async function main() {
     'attach': (r) => cmdAttach(args, r),
     'remote': (r) => cmdRemote(args, r),
     'setup': (r) => cmdSetup(args, r),
+    'autostart': (r) => cmdAutostart(args, r),
   }
 
   const handler = command ? instanceCommands[command] : undefined
