@@ -206,7 +206,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.emit(SessionEv.SESSION_END, reason ?? "completed");
   }
 
-  /** Transition to cancelled — from active only (terminal session cancel) */
+  /** Transition to cancelled — from active or error (terminal session cancel) */
   markCancelled(): void {
     this.transition("cancelled");
   }
@@ -509,7 +509,9 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
   }
 
-  // NOTE: This injects a summary prompt into the agent's conversation history.
+  // Sends a special prompt to the agent to generate a short session title.
+  // The session emitter is paused (excluding non-agent_event emissions) so the naming
+  // prompt's output is intercepted by a capture handler instead of being forwarded to adapters.
   private async autoName(): Promise<void> {
     let title = "";
 

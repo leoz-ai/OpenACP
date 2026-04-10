@@ -334,7 +334,8 @@ export class OpenACPCore {
   /**
    * Archive a session: delete its adapter topic/thread and cancel the session.
    *
-   * Only sessions in terminal-ish states (active, cancelled, error) can be archived.
+   * Only sessions in archivable states (active, cancelled, error) can be archived —
+   * initializing and finished sessions are excluded.
    * The adapter handles platform-side cleanup (e.g. deleting a Telegram topic).
    */
   async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
