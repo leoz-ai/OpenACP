@@ -9,6 +9,14 @@ import { readInstanceInfo } from './status.js'
 import { isJsonMode, jsonSuccess, jsonError, muteForJson, ErrorCodes } from '../output.js'
 import { wantsHelp } from './helpers.js'
 
+/** Read the `id` field from an instance's config.json. Returns null if missing or invalid. */
+function readIdFromConfig(instanceRoot: string): string | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(instanceRoot, 'config.json'), 'utf-8'))
+    return typeof raw.id === 'string' && raw.id ? raw.id : null
+  } catch { return null }
+}
+
 export interface InstanceListEntry {
   id: string
   name: string | null
@@ -131,29 +139,46 @@ export async function cmdInstancesCreate(args: string[]): Promise<void> {
   // Case: .openacp already exists
   if (fs.existsSync(instanceRoot)) {
     if (rawFrom) {
-      // --from has no effect when the target already has an .openacp directory
       if (json) jsonError(ErrorCodes.ALREADY_EXISTS, `Instance already exists at ${resolvedDir} — cannot use --from on an existing instance`)
       console.error(`Error: Instance already exists at ${resolvedDir}. Remove it first to clone from another instance.`)
       process.exit(1)
     }
 
-    const existing = registry.getByRoot(instanceRoot)
-    if (existing) {
-      // Idempotent: return existing instance. Also write id to config.json in case
-      // this instance was created before uuid-centric identity was introduced.
-      // Pass instanceName so --name updates the config when explicitly provided.
-      initInstanceFiles(instanceRoot, { mergeExisting: true, id: existing.id, instanceName })
-      if (!json) console.warn(`Warning: Instance already registered at ${resolvedDir} (id: ${existing.id})`)
-      await outputInstance(json, { id: existing.id, root: instanceRoot })
-      return
+    // config.json is the source of truth for id — read it first
+    const configId = readIdFromConfig(instanceRoot)
+    const registryEntry = registry.getByRoot(instanceRoot)
+
+    // Reconcile mismatch: if registry and config.json disagree, trust config.json
+    if (registryEntry && configId && registryEntry.id !== configId) {
+      registry.remove(registryEntry.id)
+      registry.register(configId, instanceRoot)
+      registry.save()
     }
-    // .openacp exists but not registered — register with a fresh id
-    const id = randomUUID()
-    initInstanceFiles(instanceRoot, { mergeExisting: true, id })
-    registry.register(id, instanceRoot)
-    registry.save()
+
+    // Resolve final id: config.json wins, then registry, then fresh uuid
+    const id = configId ?? registryEntry?.id ?? randomUUID()
+
+    // Write id into config.json if missing; apply --name if provided
+    initInstanceFiles(instanceRoot, { mergeExisting: true, id, instanceName })
+
+    // Register if not yet in registry (unregistered .openacp case)
+    if (!registry.getByRoot(instanceRoot)) {
+      registry.register(id, instanceRoot)
+      registry.save()
+    }
+
+    if (!json) console.warn(`Warning: Instance already exists at ${resolvedDir} (id: ${id})`)
     await outputInstance(json, { id, root: instanceRoot })
     return
+  }
+
+  // .openacp does NOT exist — remove any orphaned registry entry pointing here,
+  // then proceed to create. The entry is stale: .openacp was deleted externally.
+  const orphaned = registry.getByRoot(instanceRoot)
+  if (orphaned) {
+    registry.remove(orphaned.id)
+    registry.save()
+    if (!json) console.warn(`Warning: Removed stale registry entry for ${resolvedDir} (id: ${orphaned.id}) — .openacp was deleted. Creating new instance.`)
   }
 
   // Case: create new
