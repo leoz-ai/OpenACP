@@ -904,8 +904,7 @@ export class TelegramAdapter extends MessagingAdapter {
         await this.draftManager.finalize(sessionId, assistantSession?.id);
       }
       if (sessionId) {
-        const tracker = this.sessionTrackers.get(sessionId);
-        if (tracker) await tracker.onNewPrompt();
+        await this.drainAndResetTracker(sessionId);
       }
       ctx.replyWithChatAction("typing").catch(() => {});
       this.core
@@ -1009,6 +1008,18 @@ export class TelegramAdapter extends MessagingAdapter {
    * its creation event. This queue ensures events are processed in the order they arrive.
    */
   private _dispatchQueues = new Map<string, Promise<void>>();
+
+  /**
+   * Drain pending event dispatches from the previous prompt, then reset the
+   * activity tracker so late tool_call events don't leak into the new card.
+   */
+  private async drainAndResetTracker(sessionId: string): Promise<void> {
+    const pendingDispatch = this._dispatchQueues.get(sessionId);
+    if (pendingDispatch) await pendingDispatch;
+
+    const tracker = this.sessionTrackers.get(sessionId);
+    if (tracker) await tracker.onNewPrompt();
+  }
 
   private getTracer(sessionId: string): DebugTracer | null {
     return this.core.sessionManager.getSession(sessionId)?.agentInstance?.debugTracer ?? null;
@@ -1623,7 +1634,10 @@ export class TelegramAdapter extends MessagingAdapter {
 
     // Session topic
     const sid = await this.resolveSessionId(threadId);
-    if (sid) await this.draftManager.finalize(sid, this.core.assistantManager?.get('telegram')?.id);
+    if (sid) {
+      await this.draftManager.finalize(sid, this.core.assistantManager?.get('telegram')?.id);
+      await this.drainAndResetTracker(sid);
+    }
     this.core
       .handleMessage({
         channelId: "telegram",

@@ -145,6 +145,7 @@ export class ToolCard {
   private lastSentText?: string;
   private flushPromise: Promise<void> = Promise.resolve();
   private overflowMsgIds: number[] = [];
+  private aborted = false;
   private tracer: DebugTracer | null;
   private sessionId: string;
 
@@ -161,7 +162,10 @@ export class ToolCard {
     this.state = new ToolCardState({
       onFlush: (snapshot) => {
         this.flushPromise = this.flushPromise
-          .then(() => this._sendOrEdit(snapshot))
+          .then(() => {
+            if (this.aborted) return;
+            return this._sendOrEdit(snapshot);
+          })
           .catch(() => {});
       },
     });
@@ -185,6 +189,7 @@ export class ToolCard {
   }
 
   destroy(): void {
+    this.aborted = true;
     this.state.destroy();
   }
 
