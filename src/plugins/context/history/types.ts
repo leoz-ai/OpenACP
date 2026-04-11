@@ -25,6 +25,12 @@ export interface Turn {
   content?: string;
   attachments?: HistoryAttachment[];
   sourceAdapterId?: string;
+  /**
+   * TurnMeta bag as it existed when agent:beforePrompt fired — includes anything
+   * plugins attached during message:incoming (e.g. workspace.sender, channelUser).
+   * Persisted so history consumers can reconstruct who sent what without a live registry.
+   */
+  meta?: Record<string, unknown>;
   // Assistant turn
   steps?: Step[];
   usage?: HistoryUsage;

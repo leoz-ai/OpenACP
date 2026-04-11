@@ -104,6 +104,7 @@ export class HistoryRecorder {
     text: string,
     attachments: Attachment[] | undefined,
     sourceAdapterId?: string,
+    meta?: Record<string, unknown>,
   ): void {
     let state = this.states.get(sessionId);
     if (!state) {
@@ -125,6 +126,9 @@ export class HistoryRecorder {
     }
     if (sourceAdapterId) {
       userTurn.sourceAdapterId = sourceAdapterId;
+    }
+    if (meta && Object.keys(meta).length > 0) {
+      userTurn.meta = meta;
     }
     state.history.turns.push(userTurn);
 

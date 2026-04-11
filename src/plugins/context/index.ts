@@ -77,7 +77,7 @@ const contextPlugin: OpenACPPlugin = {
     ctx.registerMiddleware(Hook.AGENT_BEFORE_PROMPT, {
       priority: 200,
       handler: async (payload, next) => {
-        recorder.onBeforePrompt(payload.sessionId, payload.text, payload.attachments, payload.sourceAdapterId)
+        recorder.onBeforePrompt(payload.sessionId, payload.text, payload.attachments, payload.sourceAdapterId, payload.meta as Record<string, unknown> | undefined)
         return next()
       },
     })
