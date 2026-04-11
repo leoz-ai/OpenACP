@@ -44,6 +44,14 @@ export type PluginPermission =
   | 'kernel:access'
   /** Read-only session metadata without kernel:access */
   | 'sessions:read'
+  /** Read identity data (users, identities, search) */
+  | 'identity:read'
+  /** Write identity data (create, update, link, unlink, roles) */
+  | 'identity:write'
+  /** Register an identity source (adapters register their platform name) */
+  | 'identity:register-source'
+  /** Send push notifications to users */
+  | 'notifications:send'
 
 /**
  * The runtime plugin instance — the object a plugin module default-exports.

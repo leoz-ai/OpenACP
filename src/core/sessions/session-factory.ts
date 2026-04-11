@@ -27,6 +27,8 @@ export interface SessionCreateParams {
   existingSessionId?: string;
   initialName?: string;
   isAssistant?: boolean;
+  /** User ID from identity system — who is creating this session. */
+  userId?: string;
 }
 
 export interface SideEffectDeps {
@@ -89,7 +91,7 @@ export class SessionFactory {
       const payload = {
         agentName: params.agentName,
         workingDir: params.workingDirectory,
-        userId: '', // userId is not part of SessionCreateParams — resolved upstream
+        userId: params.userId ?? '',
         channelId: params.channelId,
         threadId: '', // threadId is assigned after session creation
       };
@@ -219,6 +221,7 @@ export class SessionFactory {
         sessionId: session.id,
         agent: session.agentName,
         status: session.status,
+        userId: createParams.userId,
       });
     }
 

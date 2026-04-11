@@ -13,6 +13,7 @@ export interface EventBusEvents {
     sessionId: string;
     agent: string;
     status: SessionStatus;
+    userId?: string;
   }) => void;
   "session:updated": (data: {
     sessionId: string;
@@ -94,6 +95,15 @@ export interface EventBusEvents {
     resumed?: boolean;
     error?: string;
   }) => void;
+
+  // Identity lifecycle (emitted by @openacp/identity built-in plugin)
+  "identity:created": (data: { userId: string; identityId: string; source: string; displayName: string }) => void;
+  "identity:updated": (data: { userId: string; changes: string[] }) => void;
+  "identity:linked": (data: { userId: string; identityId: string; linkedFrom?: string }) => void;
+  "identity:unlinked": (data: { userId: string; identityId: string; newUserId: string }) => void;
+  "identity:userMerged": (data: { keptUserId: string; mergedUserId: string; movedIdentities: string[] }) => void;
+  "identity:roleChanged": (data: { userId: string; oldRole: string; newRole: string; changedBy?: string }) => void;
+  "identity:seen": (data: { userId: string; identityId: string; sessionId: string }) => void;
 }
 
 /**

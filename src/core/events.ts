@@ -158,6 +158,22 @@ export const BusEvent = {
   // --- Usage ---
   /** Fired when a token usage record is captured (consumed by usage plugin). */
   USAGE_RECORDED: 'usage:recorded',
+
+  // --- Identity lifecycle ---
+  /** Fired when a new user+identity record is created. */
+  IDENTITY_CREATED: 'identity:created',
+  /** Fired when user profile fields change. */
+  IDENTITY_UPDATED: 'identity:updated',
+  /** Fired when two identities are linked (same person). */
+  IDENTITY_LINKED: 'identity:linked',
+  /** Fired when an identity is unlinked into a new user. */
+  IDENTITY_UNLINKED: 'identity:unlinked',
+  /** Fired when two user records are merged during a link operation. */
+  IDENTITY_USER_MERGED: 'identity:userMerged',
+  /** Fired when a user's role changes. */
+  IDENTITY_ROLE_CHANGED: 'identity:roleChanged',
+  /** Fired when a user is seen (throttled). */
+  IDENTITY_SEEN: 'identity:seen',
 } as const satisfies Record<string, keyof EventBusEvents>;
 
 export type BusEventName = typeof BusEvent[keyof typeof BusEvent];

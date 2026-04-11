@@ -362,6 +362,10 @@ export interface SessionRecord<P = Record<string, unknown>> {
   firstAgent?: string;
   currentPromptCount?: number;
   agentSwitchHistory?: AgentSwitchEntry[];
+  /** userId of the user who created this session (from identity system). */
+  createdBy?: string;
+  /** userId[] of all users who have sent messages in this session. */
+  participants?: string[];
   // ACP state (cached — overridden by agent response on resume)
   acpState?: {
     // Primary fields (used on load)
