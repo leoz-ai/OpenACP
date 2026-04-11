@@ -955,11 +955,15 @@ export class TelegramAdapter extends MessagingAdapter {
             userId: String(ctx.from.id),
             text: forwardText,
           },
-          // Inject Telegram user info into the TurnMeta bag so plugins like workspace-plugin
-          // can populate the identity registry without adapter-specific fields on IncomingMessage.
+          // Inject structured channel user info into TurnMeta so plugins can identify
+          // the sender by name without adapter-specific fields on IncomingMessage.
           {
-            userDisplayName: fromName,
-            userUsername: ctx.from.username,
+            channelUser: {
+              channelId: 'telegram',
+              userId: String(ctx.from.id),
+              displayName: fromName,
+              username: ctx.from.username,
+            },
           },
         )
         .catch((err) => log.error({ err }, "handleMessage error"));
