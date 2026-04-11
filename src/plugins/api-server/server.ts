@@ -122,10 +122,20 @@ export async function createApiServer(options: ApiServerOptions): Promise<ApiSer
   // Decorate request with auth object
   app.decorateRequest('auth', null, []);
 
+  // Track whether Fastify has booted — after boot, new routes cannot be added.
+  // On dev hot-reload, plugins re-run setup() but their routes from the first
+  // load are still active, so duplicate registration is safely skipped.
+  let booted = false
+  app.addHook('onReady', async () => { booted = true })
+
   return {
     app,
 
     registerPlugin(prefix: string, plugin: FastifyPluginAsync, opts?: { auth?: boolean }) {
+      if (booted) {
+        // Fastify already booted — routes from first load still active, skip
+        return
+      }
       const wrappedPlugin: FastifyPluginAsync = async (pluginApp, pluginOpts) => {
         // Fastify encapsulation means this hook only applies to routes in this scope,
         // so unauthenticated prefixes (e.g. /exchange) don't accidentally inherit auth.
