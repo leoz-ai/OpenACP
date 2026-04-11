@@ -1,6 +1,6 @@
 {
   "name": "@openacp/plugin-sdk",
-  "version": "2026.410.3",
+  "version": "2026.411.1",
   "description": "SDK for building OpenACP plugins — types, base classes, and testing utilities",
   "type": "module",
   "exports": {
@@ -19,14 +19,6 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js"
-    },
-    "./config": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
-    },
-    "./formatting": {
-      "types": "./dist/formatting.d.ts",
-      "import": "./dist/formatting.js"
     }
   },
   "files": [

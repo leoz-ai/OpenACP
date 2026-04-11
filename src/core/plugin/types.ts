@@ -240,6 +240,23 @@ export interface MigrateContext {
  */
 export type CommandResponse =
   | { type: 'text'; text: string }
+  | {
+      /**
+       * Adapter-aware response: each adapter reads its own key from `variants`.
+       * Adapters without a matching variant render `fallback` as plain text.
+       *
+       * Variant shapes by adapter ID:
+       *   telegram: { text: string; parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2' }
+       *   discord:  { content?: string; embeds?: unknown[] }
+       *   slack:    { text: string; blocks?: unknown[] }
+       *   sse:      { text: string; format?: 'plain' | 'markdown' | 'html' }
+       */
+      type: 'adaptive'
+      /** Plain text rendered by adapters without a matching variant */
+      fallback: string
+      /** Per-adapter payloads, keyed by adapter ID */
+      variants?: Record<string, unknown>
+    }
   | { type: 'menu'; title: string; options: MenuOption[] }
   | { type: 'list'; title: string; items: ListItem[] }
   | { type: 'confirm'; question: string; onYes: string; onNo: string }

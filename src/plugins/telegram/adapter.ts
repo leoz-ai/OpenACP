@@ -489,10 +489,21 @@ export class TelegramAdapter extends MessagingAdapter {
             } catch {
               /* message unchanged or deleted */
             }
-          } else if (response.type === "text" || response.type === "error") {
-            const text = response.type === "text" ? response.text : `❌ ${response.message}`;
+          } else if (response.type === "text" || response.type === "error" || response.type === "adaptive") {
+            let text: string;
+            let parseMode: 'HTML' | 'Markdown' | 'MarkdownV2' | undefined;
+            if (response.type === "adaptive") {
+              const variant = response.variants?.['telegram'] as
+                | { text?: string; parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2' }
+                | undefined;
+              text = variant?.text ?? response.fallback;
+              parseMode = variant?.parse_mode;
+            } else {
+              text = response.type === "text" ? response.text : `❌ ${response.message}`;
+              parseMode = "Markdown";
+            }
             try {
-              await ctx.editMessageText(text, { parse_mode: "Markdown" });
+              await ctx.editMessageText(text, { ...(parseMode && { parse_mode: parseMode }) });
             } catch {
               /* message unchanged or deleted */
             }
@@ -826,6 +837,17 @@ export class TelegramAdapter extends MessagingAdapter {
           message_thread_id: topicId,
         });
         break;
+      case "adaptive": {
+        const variant = response.variants?.['telegram'] as
+          | { text?: string; parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2' }
+          | undefined;
+        const text = variant?.text ?? response.fallback;
+        await this.bot.api.sendMessage(chatId, text, {
+          message_thread_id: topicId,
+          ...(variant?.parse_mode && { parse_mode: variant.parse_mode }),
+        });
+        break;
+      }
       case "error":
         await this.bot.api.sendMessage(
           chatId,
