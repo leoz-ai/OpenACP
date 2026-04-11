@@ -116,15 +116,17 @@ describe('IdentityServiceImpl', () => {
       expect(await service.getUserByUsername('alice')).toEqual(user)
     })
 
-    it('emits identity:userCreated', async () => {
+    it('emits identity:created with userId, identityId, source, and displayName', async () => {
       const { user, identity } = await service.createUserWithIdentity({
         displayName: 'Alice',
         source: 'telegram',
         platformId: '1',
       })
-      expect(emitEvent).toHaveBeenCalledWith('identity:userCreated', {
+      expect(emitEvent).toHaveBeenCalledWith('identity:created', {
         userId: user.userId,
         identityId: identity.identityId,
+        source: 'telegram',
+        displayName: 'Alice',
       })
     })
   })
@@ -316,14 +318,17 @@ describe('IdentityServiceImpl', () => {
 
       await service.link(aliceId.identityId, bobId.identityId)
 
+      // Alice is older — she survives; Bob's identity is linked into her account
       expect(emitEvent).toHaveBeenCalledWith('identity:linked', {
-        keepUserId: alice.userId,
-        mergedUserId: bob.userId,
+        userId: alice.userId,
+        identityId: bobId.identityId,
+        linkedFrom: bob.userId,
       })
-      expect(emitEvent).toHaveBeenCalledWith('identity:userMerged', expect.objectContaining({
-        survivorUserId: alice.userId,
+      expect(emitEvent).toHaveBeenCalledWith('identity:userMerged', {
+        keptUserId: alice.userId,
         mergedUserId: bob.userId,
-      }))
+        movedIdentities: [bobId.identityId],
+      })
     })
 
     it('throws when identity not found', async () => {
@@ -367,10 +372,16 @@ describe('IdentityServiceImpl', () => {
 
       await service.unlink(id2.identityId)
 
-      expect(emitEvent).toHaveBeenCalledWith('identity:unlinked', expect.objectContaining({
+      const call = emitEvent.mock.calls.find(([event]) => event === 'identity:unlinked')
+      expect(call).toBeDefined()
+      expect(call![0]).toBe('identity:unlinked')
+      expect(call![1]).toMatchObject({
+        userId: user.userId,
         identityId: id2.identityId,
-        oldUserId: user.userId,
-      }))
+      })
+      // newUserId should be a fresh user ID (not the original)
+      expect(call![1].newUserId).toMatch(/^u_/)
+      expect(call![1].newUserId).not.toBe(user.userId)
     })
 
     it('throws when identity not found', async () => {

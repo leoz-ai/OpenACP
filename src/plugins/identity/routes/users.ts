@@ -91,15 +91,25 @@ export function registerIdentityRoutes(app: FastifyInstance, deps: RouteDeps): v
     return { user, identity }
   })
 
-  // POST /link — merge two identities into a single user account
-  app.post('/link', async (request) => {
+  // POST /link — merge two identities into a single user account (admin only)
+  app.post('/link', async (request, reply) => {
+    const callerUserId = resolveUserId(request)
+    if (!callerUserId) return reply.status(403).send({ error: 'Identity not set up' })
+    const caller = await service.getUser(callerUserId)
+    if (!caller || caller.role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
     const { identityIdA, identityIdB } = request.body as any
     await service.link(identityIdA as IdentityId, identityIdB as IdentityId)
     return { ok: true }
   })
 
-  // POST /unlink — split an identity off into its own user account
-  app.post('/unlink', async (request) => {
+  // POST /unlink — split an identity off into its own user account (admin only)
+  app.post('/unlink', async (request, reply) => {
+    const callerUserId = resolveUserId(request)
+    if (!callerUserId) return reply.status(403).send({ error: 'Identity not set up' })
+    const caller = await service.getUser(callerUserId)
+    if (!caller || caller.role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
     const { identityId } = request.body as any
     await service.unlink(identityId as IdentityId)
     return { ok: true }

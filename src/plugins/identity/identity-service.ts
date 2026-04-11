@@ -154,7 +154,7 @@ export class IdentityServiceImpl implements IdentityService {
       await this.store.setUsernameIndex(data.username, userId)
     }
 
-    this.emitEvent('identity:userCreated', { userId, identityId })
+    this.emitEvent('identity:created', { userId, identityId, source: data.source, displayName: data.displayName })
     return { user, identity }
   }
 
@@ -185,6 +185,7 @@ export class IdentityServiceImpl implements IdentityService {
       updatedAt: new Date().toISOString(),
     }
     await this.store.putUser(updated)
+    this.emitEvent('identity:updated', { userId, changes: Object.keys(changes) })
     return updated
   }
 
@@ -294,9 +295,13 @@ export class IdentityServiceImpl implements IdentityService {
     await this.store.putUser(updatedKeep)
     await this.store.deleteUser(merge.userId)
 
-    this.emitEvent('identity:linked', { keepUserId: keep.userId, mergedUserId: merge.userId })
+    // The "linked" identity is the one that belonged to the merged user — i.e. identityIdB
+    // (the caller-supplied second identity). If the merge resolved in the opposite direction,
+    // identityIdA is the one moving to the survivor.
+    const linkedIdentityId = identityA.userId === merge.userId ? identityIdA : identityIdB
+    this.emitEvent('identity:linked', { userId: keep.userId, identityId: linkedIdentityId, linkedFrom: merge.userId })
     this.emitEvent('identity:userMerged', {
-      survivorUserId: keep.userId,
+      keptUserId: keep.userId,
       mergedUserId: merge.userId,
       movedIdentities: merge.identities,
     })
@@ -346,8 +351,8 @@ export class IdentityServiceImpl implements IdentityService {
     await this.store.putUser(updatedUser)
 
     this.emitEvent('identity:unlinked', {
+      userId: user.userId,
       identityId,
-      oldUserId: user.userId,
       newUserId,
     })
   }

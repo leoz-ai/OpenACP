@@ -15,6 +15,12 @@ export interface NotificationOptions {
   excludePlatforms?: string[]
 }
 
+/** User-facing notification content — distinct from system NotificationMessage. */
+export interface UserNotificationContent {
+  type: 'text'
+  text: string
+}
+
 /**
  * Minimal identity service interface — avoids hard dependency on identity plugin types.
  * NotificationService only needs resolution capabilities, not full CRUD.
@@ -84,7 +90,7 @@ export class NotificationService {
    */
   async notifyUser(
     target: NotificationTarget,
-    message: { type: 'text'; text: string },
+    message: UserNotificationContent,
     options?: NotificationOptions,
   ): Promise<void> {
     try {
@@ -96,14 +102,15 @@ export class NotificationService {
 
   private async _resolveAndDeliver(
     target: NotificationTarget,
-    message: { type: 'text'; text: string },
+    message: UserNotificationContent,
     options?: NotificationOptions,
   ): Promise<void> {
-    // Direct adapter call — bypass identity resolution
+    // Direct adapter call — bypass identity resolution.
+    // sendUserNotification accepts NotificationMessage which covers UserNotificationContent shape.
     if ('channelId' in target && 'platformId' in target) {
       const adapter = this.adapters.get(target.channelId)
       if (!adapter?.sendUserNotification) return
-      await adapter.sendUserNotification(target.platformId, message as any, {
+      await adapter.sendUserNotification(target.platformId, message as unknown as NotificationMessage, {
         via: options?.via,
         topicId: options?.topicId,
         sessionId: options?.sessionId,
@@ -139,7 +146,7 @@ export class NotificationService {
       const adapter = this.adapters.get(identity.source)
       if (!adapter?.sendUserNotification) continue
       try {
-        await adapter.sendUserNotification(identity.platformId, message as any, {
+        await adapter.sendUserNotification(identity.platformId, message as unknown as NotificationMessage, {
           via: options?.via,
           topicId: options?.topicId,
           sessionId: options?.sessionId,

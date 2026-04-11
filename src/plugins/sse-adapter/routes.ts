@@ -265,6 +265,15 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       return reply.status(403).send({ error: 'Identity not set up. Complete /identity/setup first.' });
     }
 
+    // Check connection limits before hijacking — once hijacked, Fastify can no longer
+    // write error responses, so we must gate on limits before committing to the stream.
+    try {
+      deps.connectionManager.addUserConnection(userId, auth.tokenId, reply.raw);
+    } catch (err: any) {
+      return reply.status(503).send({ error: err.message });
+    }
+
+    reply.hijack();
     const raw = reply.raw;
     raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -273,14 +282,6 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       // Disable buffering in Nginx/Cloudflare so events arrive without delay
       'X-Accel-Buffering': 'no',
     });
-
-    try {
-      deps.connectionManager.addUserConnection(userId, auth.tokenId, raw);
-    } catch (err: any) {
-      raw.writeHead(503, { 'Content-Type': 'application/json' });
-      raw.end(JSON.stringify({ error: err.message }));
-      return;
-    }
 
     // Initial heartbeat to confirm the stream is live
     raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
