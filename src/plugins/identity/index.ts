@@ -1,0 +1,86 @@
+import type { OpenACPPlugin } from '../../core/plugin/types.js'
+import { IdentityServiceImpl } from './identity-service.js'
+import { KvIdentityStore } from './store/kv-identity-store.js'
+import { createAutoRegisterHandler } from './middleware/auto-register.js'
+import { formatIdentityId } from './types.js'
+import type { IdentityId } from './types.js'
+import { Hook } from '../../core/events.js'
+
+/**
+ * Identity plugin — user identity, cross-platform linking, and role-based access.
+ *
+ * Boot order requirement: must come after @openacp/security so that blocked users
+ * are rejected (at priority 100) before we create identity records for them
+ * (this middleware runs at priority 110).
+ */
+function createIdentityPlugin(): OpenACPPlugin {
+  return {
+    name: '@openacp/identity',
+    version: '1.0.0',
+    description: 'User identity, cross-platform linking, and role-based access',
+    essential: false,
+    permissions: [
+      'storage:read',
+      'storage:write',
+      'middleware:register',
+      'services:register',
+      'services:use',
+      'events:emit',
+      'events:read',
+      'commands:register',
+      'kernel:access',
+    ],
+    optionalPluginDependencies: {
+      '@openacp/api-server': '>=1.0.0',
+    },
+
+    async setup(ctx) {
+      const store = new KvIdentityStore(ctx.storage)
+      const service = new IdentityServiceImpl(store, (event, data) => {
+        ctx.emit(event, data)
+      })
+
+      ctx.registerService('identity', service)
+
+      // Auto-registration runs at priority 110 — after security (100) rejects blocked users
+      ctx.registerMiddleware(Hook.MESSAGE_INCOMING, {
+        priority: 110,
+        handler: createAutoRegisterHandler(service, store),
+      })
+
+      // /whoami — lets users set their display name and username
+      ctx.registerCommand({
+        name: 'whoami',
+        description: 'Set your display name and username',
+        usage: '[name]',
+        category: 'plugin',
+        async handler(args) {
+          const name = args.raw.trim()
+          if (!name) {
+            return { type: 'text', text: 'Usage: /whoami <name>' }
+          }
+
+          const identityId = formatIdentityId(args.channelId, args.userId) as IdentityId
+          const user = await service.getUserByIdentity(identityId)
+          if (!user) {
+            return { type: 'error', message: 'User not found — send a message first.' }
+          }
+
+          try {
+            // Derive username from display name by lowercasing and stripping invalid chars
+            const username = name.toLowerCase().replace(/[^a-z0-9_]/g, '')
+            await service.updateUser(user.userId, { displayName: name, username })
+            return { type: 'text', text: `Display name set to "${name}", username: @${username}` }
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err)
+            return { type: 'error', message }
+          }
+        },
+      })
+
+      ctx.log.info(`Identity service ready (${await service.getUserCount()} users)`)
+    },
+  }
+}
+
+export default createIdentityPlugin()
