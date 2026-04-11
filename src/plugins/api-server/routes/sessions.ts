@@ -4,7 +4,8 @@ import { nanoid } from 'nanoid';
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
 import { resolveAttachments } from './attachment-utils.js';
-import { BusEvent } from '../../../core/events.js';
+import { BusEvent, Hook } from '../../../core/events.js';
+import type { TurnMeta } from '../../../core/types.js';
 import {
   SessionIdParamSchema,
   ConfigIdParamSchema,
@@ -253,8 +254,23 @@ export async function sessionRoutes(
         attachments = await resolveAttachments(fileService, sessionId, body.attachments);
       }
 
-      const sourceAdapterId = body.sourceAdapterId ?? 'api';
+      const sourceAdapterId = body.sourceAdapterId ?? 'sse';
       const turnId = body.turnId ?? nanoid(8);
+      const userId = (request as any).auth?.tokenId ?? 'api';
+
+      // Build TurnMeta and run message:incoming middleware so plugins (e.g. workspace-plugin)
+      // can resolve the sender identity, extract @mentions, etc. — same as Telegram/SSE-adapter.
+      // channelUser is placed in meta so plugins like workspace-plugin can read it via
+      // meta['channelUser'] (TURN_META_CHANNEL_USER_KEY).
+      const meta: TurnMeta = { turnId, channelUser: { channelId: 'sse', userId } };
+      if (deps.lifecycleManager?.middlewareChain) {
+        await deps.lifecycleManager.middlewareChain.execute(
+          Hook.MESSAGE_INCOMING,
+          { channelId: sourceAdapterId, threadId: session.id, userId, text: body.prompt, attachments, meta },
+          async (p) => p,
+        );
+        // message:incoming plugins mutate meta in-place (e.g. setting TURN_META_SENDER_KEY)
+      }
 
       // Emit message:queued so all SSE clients (including other connected App windows)
       // see the user message immediately, not just the sender's optimistic UI update.
@@ -271,7 +287,7 @@ export async function sessionRoutes(
       await session.enqueuePrompt(body.prompt, attachments, {
         sourceAdapterId,
         responseAdapterId: body.responseAdapterId,
-      }, turnId);
+      }, turnId, meta);
       return {
         ok: true,
         sessionId,
