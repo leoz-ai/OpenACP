@@ -358,11 +358,11 @@ mockServices.context(overrides?)     // buildContext, registerProvider
 ctx.registerCommand({
   name: 'mycommand',
   description: 'Does something useful',
-  usage: '<arg>',
+  usage: '[arg]',
   category: 'plugin',
   async handler(args) {
     const input = args.raw.trim()
-    if (!input) return { type: 'error', message: 'Usage: /mycommand <arg>' }
+    if (!input) return { type: 'error', message: 'Usage: /mycommand [arg]' }
     return { type: 'text', text: \\\`Result: \\\${input}\\\` }
   },
 })

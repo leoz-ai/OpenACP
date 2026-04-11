@@ -33,7 +33,7 @@ export function registerSessionCommands(registry: CommandRegistry, _core: unknow
         await assistant.enqueuePrompt(prompt)
         return { type: 'delegated' }
       }
-      return { type: 'text', text: 'Usage: /new <agent> <workspace>\nOr use the Assistant topic for guided setup.' }
+      return { type: 'text', text: 'Usage: /new [agent] [workspace]\nOr use the Assistant topic for guided setup.' }
     },
   })
 
@@ -107,7 +107,7 @@ export function registerSessionCommands(registry: CommandRegistry, _core: unknow
   registry.register({
     name: 'resume',
     description: 'Resume a previous session',
-    usage: '<session-number>',
+    usage: '[session-number]',
     category: 'system',
     handler: async (args) => {
       const assistant = core.assistantManager?.get(args.channelId)
@@ -122,7 +122,7 @@ export function registerSessionCommands(registry: CommandRegistry, _core: unknow
   registry.register({
     name: 'handoff',
     description: 'Hand off session to another agent',
-    usage: '<agent-name>',
+    usage: '[agent-name]',
     category: 'system',
     handler: async (args) => {
       if (!args.sessionId) return { type: 'text', text: 'Use /handoff inside a session topic.' }

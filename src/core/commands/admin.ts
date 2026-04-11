@@ -50,7 +50,7 @@ export function registerAdminCommands(registry: CommandRegistry, _core: unknown)
   registry.register({
     name: 'integrate',
     description: 'Set up a new channel integration',
-    usage: '<channel>',
+    usage: '[channel]',
     category: 'system',
     handler: async (args) => {
       const channel = args.raw.trim()

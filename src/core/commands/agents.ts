@@ -51,7 +51,7 @@ export function registerAgentCommands(registry: CommandRegistry, _core: unknown)
   registry.register({
     name: 'install',
     description: 'Install an agent',
-    usage: '<agent-name>',
+    usage: '[agent-name]',
     category: 'system',
     handler: async (args) => {
       const agentName = args.raw.trim()

@@ -48,8 +48,8 @@ export async function commandRoutes(
     const result = await deps.commandRegistry.execute(commandString, {
       raw: '',
       sessionId: body.sessionId ?? null,
-      channelId: 'api',
-      userId: 'api',
+      channelId: 'sse',
+      userId: (request as any).auth?.tokenId ?? 'api',
       reply: async () => {},
     });
 
