@@ -689,7 +689,7 @@ export class OpenACPCore {
         } else if (processedEvent.type === "error") {
           session.fail((processedEvent as { message: string }).message);
         }
-        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, event: processedEvent });
+        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, turnId: session.activeTurnContext?.turnId ?? '', event: processedEvent });
       });
 
       // Persist status changes and notify SSE clients — normally wired by SessionBridge.

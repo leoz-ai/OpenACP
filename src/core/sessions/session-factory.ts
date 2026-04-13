@@ -179,6 +179,7 @@ export class SessionFactory {
       const failedSessionId = createParams.existingSessionId ?? `failed-${Date.now()}`;
       this.eventBus.emit(BusEvent.AGENT_EVENT, {
         sessionId: failedSessionId,
+        turnId: '',
         event: guidance,
       });
 
