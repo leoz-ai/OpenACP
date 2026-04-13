@@ -263,6 +263,7 @@ describe("SessionBridge — EventBus integration", () => {
 
     expect((deps.eventBus as any).emit).toHaveBeenCalledWith("agent:event", {
       sessionId: session.id,
+      turnId: expect.any(String),
       event: { type: "text", content: "hi" },
     });
   });

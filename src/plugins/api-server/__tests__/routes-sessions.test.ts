@@ -88,6 +88,7 @@ function createMockDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
         getAvailableAgents: vi.fn().mockReturnValue([]),
       },
       eventBus: { emit: vi.fn() },
+      handleMessageInSession: vi.fn().mockResolvedValue({ turnId: 'test-turn', queueDepth: 0 }),
     } as any,
     topicManager: undefined,
     startedAt: Date.now(),
@@ -189,6 +190,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -310,8 +312,13 @@ describe('session routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.ok).toBe(true);
-      const session = (deps.core.sessionManager.getSession as any).mock.results[0].value;
-      expect(session.enqueuePrompt).toHaveBeenCalledWith('Hello!', undefined, expect.objectContaining({ sourceAdapterId: 'api' }), expect.any(String));
+      expect(body.turnId).toBe('test-turn');
+      expect(deps.core.handleMessageInSession).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sess-1' }),
+        expect.objectContaining({ text: 'Hello!' }),
+        expect.any(Object),
+        expect.any(Object),
+      );
     });
 
     it('returns 404 for unknown session', async () => {
@@ -501,6 +508,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -580,6 +588,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -655,6 +664,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'DELETE',

@@ -7,9 +7,9 @@ describe("PromptQueue — Comprehensive Edge Cases", () => {
       const processor = vi.fn().mockResolvedValue(undefined);
       const queue = new PromptQueue(processor);
 
-      await queue.enqueue("hello");
+      await queue.enqueue("hello", undefined as any);
 
-      expect(processor).toHaveBeenCalledWith("hello", undefined, undefined, undefined, undefined);
+      expect(processor).toHaveBeenCalledWith("hello", undefined, undefined, undefined, undefined, undefined);
     });
 
     it("passes attachments to processor", async () => {
@@ -17,9 +17,9 @@ describe("PromptQueue — Comprehensive Edge Cases", () => {
       const queue = new PromptQueue(processor);
       const attachments = [{ type: "image" as const, filePath: "/a", fileName: "a", mimeType: "image/png", size: 1 }];
 
-      await queue.enqueue("hello", attachments);
+      await queue.enqueue("hello", undefined as any, attachments);
 
-      expect(processor).toHaveBeenCalledWith("hello", attachments, undefined, undefined, undefined);
+      expect(processor).toHaveBeenCalledWith("hello", undefined, attachments, undefined, undefined, undefined);
     });
   });
 
@@ -185,8 +185,8 @@ describe("PromptQueue — Comprehensive Edge Cases", () => {
       queue.clear();
 
       // Should be able to process new items
-      await queue.enqueue("after-clear");
-      expect(processor).toHaveBeenCalledWith("after-clear", undefined, undefined, undefined, undefined);
+      await queue.enqueue("after-clear", undefined as any);
+      expect(processor).toHaveBeenCalledWith("after-clear", undefined, undefined, undefined, undefined, undefined);
     });
   });
 
@@ -203,8 +203,8 @@ describe("PromptQueue — Comprehensive Edge Cases", () => {
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
 
       // Queue should still work
-      await queue.enqueue("second");
-      expect(processor).toHaveBeenCalledWith("second", undefined, undefined, undefined, undefined);
+      await queue.enqueue("second", undefined as any);
+      expect(processor).toHaveBeenCalledWith("second", undefined, undefined, undefined, undefined, undefined);
     });
 
     it("abort error is NOT forwarded to onError", async () => {

@@ -43,6 +43,7 @@ function createMockCore(session: ReturnType<typeof createMockSession> | null = n
     // existing assertions on enqueuePrompt remain valid in unit tests.
     handleMessageInSession: vi.fn().mockImplementation(async (sess: any, msg: any) => {
       await sess.enqueuePrompt(msg.text, msg.attachments, { sourceAdapterId: msg.channelId });
+      return { turnId: 'test-turn', queueDepth: 0 };
     }),
   } as any;
 }
