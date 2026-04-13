@@ -273,7 +273,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     if (this.middlewareChain) {
       const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId, meta: turnMeta };
       const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_PROMPT, payload, async (p) => p);
-      if (!result) return turnId; // blocked by middleware
+      if (!result) throw new Error('PROMPT_BLOCKED'); // blocked by middleware — caller must emit message:failed
       text = result.text;
       attachments = result.attachments;
     }

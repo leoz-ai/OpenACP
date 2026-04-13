@@ -134,6 +134,8 @@ export const BusEvent = {
   MESSAGE_QUEUED: 'message:queued',
   /** Fired when a queued message starts processing. */
   MESSAGE_PROCESSING: 'message:processing',
+  /** Fired when a queued message is rejected (e.g. blocked by middleware). */
+  MESSAGE_FAILED: 'message:failed',
 
   // --- System lifecycle ---
   /** Fired after kernel (core + plugin infrastructure) has booted. */

@@ -92,6 +92,13 @@ export interface EventBusEvents {
     timestamp: string;
   }) => void;
 
+  /** Fired when a queued message is rejected before processing (e.g. blocked by middleware). */
+  "message:failed": (data: {
+    sessionId: string;
+    turnId: string;
+    reason: string;
+  }) => void;
+
   // Agent switch lifecycle (used by UI & dashboards)
   "session:agentSwitch": (data: {
     sessionId: string;

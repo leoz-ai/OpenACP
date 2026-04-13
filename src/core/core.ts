@@ -493,7 +493,18 @@ export class OpenACPCore {
       sender: extractSender(meta),
     });
 
-    await session.enqueuePrompt(text, attachments, routing, turnId, meta);
+    // Fire-and-forget: return immediately after enqueueing so callers (API route, adapters)
+    // get a fast response without waiting for the agent to finish processing.
+    // Errors (e.g. blocked by middleware) surface via MESSAGE_FAILED on the event bus.
+    session.enqueuePrompt(text, attachments, routing, turnId, meta).catch(err => {
+      const reason = err instanceof Error ? err.message : String(err);
+      log.warn({ err, sessionId: session.id, turnId, reason }, 'enqueuePrompt failed — emitting message:failed');
+      this.eventBus.emit(BusEvent.MESSAGE_FAILED, {
+        sessionId: session.id,
+        turnId,
+        reason,
+      });
+    });
   }
 
   /**

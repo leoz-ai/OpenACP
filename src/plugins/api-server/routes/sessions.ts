@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
+import { AuthError, BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
 import { resolveAttachments } from './attachment-utils.js';
 import {
@@ -254,14 +254,20 @@ export async function sessionRoutes(
       const sourceAdapterId = body.sourceAdapterId ?? 'sse';
       const userId = (request as any).auth?.tokenId ?? 'api';
 
-      const { turnId, queueDepth } = await deps.core.handleMessageInSession(
+      const result = await deps.core.handleMessageInSession(
         session,
         { channelId: sourceAdapterId, userId, text: body.prompt, attachments },
         { channelUser: { channelId: 'sse', userId } },
         { externalTurnId: body.turnId, responseAdapterId: body.responseAdapterId },
       );
 
-      return { ok: true, sessionId, queueDepth, turnId };
+      // handleMessageInSession returns undefined when a middleware (e.g. security) blocks
+      // the message. Surface this as a 403 so the caller knows it was rejected.
+      if (!result) {
+        throw new AuthError('MESSAGE_BLOCKED', 'Message was blocked by a middleware plugin.', 403);
+      }
+
+      return { ok: true, sessionId, queueDepth: result.queueDepth, turnId: result.turnId };
     },
   );
 

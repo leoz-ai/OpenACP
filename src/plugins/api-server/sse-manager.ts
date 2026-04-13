@@ -63,6 +63,7 @@ export class SSEManager {
       BusEvent.PERMISSION_RESOLVED,
       BusEvent.MESSAGE_QUEUED,
       BusEvent.MESSAGE_PROCESSING,
+      BusEvent.MESSAGE_FAILED,
     ] as const;
 
     for (const eventName of events) {
@@ -159,6 +160,7 @@ export class SSEManager {
       BusEvent.SESSION_UPDATED,
       BusEvent.MESSAGE_QUEUED,
       BusEvent.MESSAGE_PROCESSING,
+      BusEvent.MESSAGE_FAILED,
     ];
     for (const res of this.sseConnections) {
       const filter = (res as SSEResponse).sessionFilter;
