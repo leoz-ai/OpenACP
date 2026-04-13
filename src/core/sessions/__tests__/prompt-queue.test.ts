@@ -110,4 +110,47 @@ describe('PromptQueue', () => {
     expect(calls).toEqual(['fail', 'after-fail'])
     expect(onError).toHaveBeenCalledWith(expect.any(Error))
   })
+
+  it('carries userPrompt distinctly from text (finalPrompt) to the processor', async () => {
+    let capturedText: string | undefined
+    let capturedUserPrompt: string | undefined
+
+    const processor = vi.fn().mockImplementation(async (text: string, userPrompt: string) => {
+      capturedText = text
+      capturedUserPrompt = userPrompt
+    })
+
+    const queue = new PromptQueue(processor)
+    await queue.enqueue('final-prompt', 'original-user-prompt')
+
+    expect(capturedText).toBe('final-prompt')
+    expect(capturedUserPrompt).toBe('original-user-prompt')
+    // Ensure they are distinct values, not aliased
+    expect(capturedText).not.toBe(capturedUserPrompt)
+  })
+
+  it('pendingItems returns userPrompt (not text) for queued items', async () => {
+    let resolveFirst!: () => void
+    const firstPromise = new Promise<void>((r) => { resolveFirst = r })
+
+    const processor = vi.fn().mockImplementation(async (text: string) => {
+      // Block the first item so the second stays queued
+      if (text === 'text-1') await firstPromise
+    })
+
+    const queue = new PromptQueue(processor)
+
+    // First item starts processing immediately
+    queue.enqueue('text-1', 'user-prompt-1')
+    // Second item is queued with distinct text and userPrompt
+    queue.enqueue('text-2', 'user-prompt-2')
+
+    expect(queue.pending).toBe(1)
+
+    // pendingItems should expose userPrompt, not text
+    expect(queue.pendingItems).toEqual([{ userPrompt: 'user-prompt-2', turnId: undefined }])
+
+    resolveFirst()
+    await vi.waitFor(() => expect(queue.isProcessing).toBe(false))
+  })
 })
