@@ -48,29 +48,39 @@ function createIdentityPlugin(): OpenACPPlugin {
         handler: createAutoRegisterHandler(service, store),
       })
 
-      // /whoami — lets users set their display name and username
+      // /whoami — lets users set their username and display name
       ctx.registerCommand({
         name: 'whoami',
-        description: 'Set your display name and username',
-        usage: '[name]',
+        description: 'Set your username and display name',
+        usage: '@username [Display Name]',
         category: 'plugin',
         async handler(args) {
-          const name = args.raw.trim()
-          if (!name) {
-            return { type: 'text', text: 'Usage: /whoami <name>' }
+          const raw = args.raw.trim()
+          if (!raw) return { type: 'error', message: 'Usage: /whoami @username [Display Name]' }
+
+          const tokens = raw.split(/\s+/)
+          const first = tokens[0]
+
+          // First token must be a username (with or without leading @)
+          const usernameRaw = first.startsWith('@') ? first.slice(1) : first
+          if (!/^[a-zA-Z0-9_.-]+$/.test(usernameRaw)) {
+            return { type: 'error', message: 'Invalid username. Only letters, numbers, _ . - allowed.' }
           }
+
+          const username = usernameRaw
+          const displayName = tokens.slice(1).join(' ') || undefined
 
           const identityId = formatIdentityId(args.channelId, args.userId) as IdentityId
           const user = await service.getUserByIdentity(identityId)
           if (!user) {
-            return { type: 'error', message: 'User not found — send a message first.' }
+            return { type: 'error', message: 'Identity not found. Send a message first.' }
           }
 
           try {
-            // Derive username from display name by lowercasing and stripping invalid chars
-            const username = name.toLowerCase().replace(/[^a-z0-9_]/g, '')
-            await service.updateUser(user.userId, { displayName: name, username })
-            return { type: 'text', text: `Display name set to "${name}", username: @${username}` }
+            await service.updateUser(user.userId, { username, ...(displayName && { displayName }) })
+            const parts = [`@${username}`]
+            if (displayName) parts.push(`"${displayName}"`)
+            return { type: 'text', text: `✅ Profile updated: ${parts.join(' ')}` }
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err)
             return { type: 'error', message }
