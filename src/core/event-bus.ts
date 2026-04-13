@@ -41,7 +41,7 @@ export interface EventBusEvents {
   "system:ready": () => void;
   "system:shutdown": () => void;
   "system:commands-ready": (data: {
-    commands: Array<{ name: string; description: string }>;
+    commands: Array<{ name: string; description: string; category?: string; usage?: string }>;
   }) => void;
 
   // Plugin lifecycle
