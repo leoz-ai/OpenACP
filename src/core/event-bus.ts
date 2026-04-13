@@ -1,5 +1,6 @@
 import { TypedEmitter } from "./utils/typed-emitter.js";
 import type { AgentEvent, PermissionRequest, SessionStatus, UsageRecordEvent } from "./types.js";
+import type { TurnSender } from "./sessions/turn-context.js";
 
 /**
  * Event map for the global EventBus.
@@ -22,7 +23,7 @@ export interface EventBusEvents {
     clientOverrides?: { bypassPermissions?: boolean };
   }) => void;
   "session:deleted": (data: { sessionId: string }) => void;
-  "agent:event": (data: { sessionId: string; event: AgentEvent }) => void;
+  "agent:event": (data: { sessionId: string; turnId: string; event: AgentEvent }) => void;
   "permission:request": (data: {
     sessionId: string;
     permission: PermissionRequest;
@@ -78,11 +79,16 @@ export interface EventBusEvents {
     attachments?: unknown[];
     timestamp: string;
     queueDepth: number;
+    sender?: TurnSender | null;
   }) => void;
   "message:processing": (data: {
     sessionId: string;
     turnId: string;
     sourceAdapterId: string;
+    userPrompt: string;
+    finalPrompt: string;
+    attachments?: unknown[];
+    sender?: TurnSender | null;
     timestamp: string;
   }) => void;
 
