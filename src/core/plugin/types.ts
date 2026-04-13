@@ -547,6 +547,9 @@ export interface MiddlewarePayloadMap {
     promptNumber: number
     turnId: string
     meta?: TurnMeta
+    userPrompt?: string
+    sourceAdapterId?: string
+    responseAdapterId?: string | null
   }
   'turn:end': {
     sessionId: string
