@@ -139,7 +139,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.log.info({ agentName: this.agentName }, "Session created");
 
     this.queue = new PromptQueue(
-      (text, attachments, routing, turnId, meta) => this.processPrompt(text, attachments, routing, turnId, meta),
+      (text, userPrompt, attachments, routing, turnId, meta) => this.processPrompt(text, userPrompt, attachments, routing, turnId, meta),
       (err) => {
         this.log.error({ err }, "Prompt execution failed");
         const message = err instanceof Error ? err.message : String(err);
@@ -234,6 +234,11 @@ export class Session extends TypedEmitter<SessionEvents> {
     return this.queue.isProcessing;
   }
 
+  /** Snapshot of queued (not yet processing) items — for inspection by API consumers. */
+  get queueItems() {
+    return this.queue.pendingItems;
+  }
+
   // --- Context Injection ---
 
   /** Store context markdown to be prepended to the next prompt (used for session resume with history). */
@@ -262,19 +267,21 @@ export class Session extends TypedEmitter<SessionEvents> {
     // Use pre-generated turnId if provided (so callers can emit events before awaiting the queue)
     const turnId = externalTurnId ?? nanoid(8);
     const turnMeta: TurnMeta = meta ?? { turnId };
+    // Capture raw user prompt before middleware can modify it
+    const userPrompt = text;
     // Hook: agent:beforePrompt — modifiable, can block
     if (this.middlewareChain) {
       const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId, meta: turnMeta };
       const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_PROMPT, payload, async (p) => p);
-      if (!result) return turnId; // blocked by middleware
+      if (!result) throw new Error('PROMPT_BLOCKED'); // blocked by middleware — caller must emit message:failed
       text = result.text;
       attachments = result.attachments;
     }
-    await this.queue.enqueue(text, attachments, routing, turnId, turnMeta);
+    await this.queue.enqueue(text, userPrompt, attachments, routing, turnId, turnMeta);
     return turnId;
   }
 
-  private async processPrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta): Promise<void> {
+  private async processPrompt(text: string, userPrompt: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta): Promise<void> {
     // Don't process prompts for finished sessions (queue may still drain)
     if (this._status === "finished") return;
 
@@ -284,6 +291,10 @@ export class Session extends TypedEmitter<SessionEvents> {
       routing?.sourceAdapterId ?? this.channelId,
       routing?.responseAdapterId,
       turnId,
+      userPrompt,
+      text,      // finalPrompt (after middleware transformations)
+      attachments,
+      meta,
     );
 
     // Emit turn_started so SessionBridge can emit message:processing on EventBus
@@ -358,7 +369,16 @@ export class Session extends TypedEmitter<SessionEvents> {
 
     // Hook: turn:start — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute(Hook.TURN_START, { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount, turnId: this.activeTurnContext?.turnId ?? turnId ?? '', meta }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.TURN_START, {
+        sessionId: this.id,
+        promptText: processed.text,
+        promptNumber: this.promptCount,
+        turnId: this.activeTurnContext?.turnId ?? turnId ?? '',
+        meta,
+        userPrompt: this.activeTurnContext?.userPrompt,
+        sourceAdapterId: this.activeTurnContext?.sourceAdapterId,
+        responseAdapterId: this.activeTurnContext?.responseAdapterId,
+      }, async (p) => p).catch(() => {});
     }
 
     let stopReason: string = 'end_turn';

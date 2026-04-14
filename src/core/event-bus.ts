@@ -1,5 +1,6 @@
 import { TypedEmitter } from "./utils/typed-emitter.js";
 import type { AgentEvent, PermissionRequest, SessionStatus, UsageRecordEvent } from "./types.js";
+import type { TurnSender } from "./sessions/turn-context.js";
 
 /**
  * Event map for the global EventBus.
@@ -13,6 +14,7 @@ export interface EventBusEvents {
     sessionId: string;
     agent: string;
     status: SessionStatus;
+    userId?: string;
   }) => void;
   "session:updated": (data: {
     sessionId: string;
@@ -21,7 +23,7 @@ export interface EventBusEvents {
     clientOverrides?: { bypassPermissions?: boolean };
   }) => void;
   "session:deleted": (data: { sessionId: string }) => void;
-  "agent:event": (data: { sessionId: string; event: AgentEvent }) => void;
+  "agent:event": (data: { sessionId: string; turnId: string; event: AgentEvent }) => void;
   "permission:request": (data: {
     sessionId: string;
     permission: PermissionRequest;
@@ -39,7 +41,7 @@ export interface EventBusEvents {
   "system:ready": () => void;
   "system:shutdown": () => void;
   "system:commands-ready": (data: {
-    commands: Array<{ name: string; description: string }>;
+    commands: Array<{ name: string; description: string; category?: string; usage?: string }>;
   }) => void;
 
   // Plugin lifecycle
@@ -77,12 +79,24 @@ export interface EventBusEvents {
     attachments?: unknown[];
     timestamp: string;
     queueDepth: number;
+    sender?: TurnSender | null;
   }) => void;
   "message:processing": (data: {
     sessionId: string;
     turnId: string;
     sourceAdapterId: string;
+    userPrompt: string;
+    finalPrompt: string;
+    attachments?: unknown[];
+    sender?: TurnSender | null;
     timestamp: string;
+  }) => void;
+
+  /** Fired when a queued message is rejected before processing (e.g. blocked by middleware). */
+  "message:failed": (data: {
+    sessionId: string;
+    turnId: string;
+    reason: string;
   }) => void;
 
   // Agent switch lifecycle (used by UI & dashboards)
@@ -94,6 +108,15 @@ export interface EventBusEvents {
     resumed?: boolean;
     error?: string;
   }) => void;
+
+  // Identity lifecycle (emitted by @openacp/identity built-in plugin)
+  "identity:created": (data: { userId: string; identityId: string; source: string; displayName: string }) => void;
+  "identity:updated": (data: { userId: string; changes: string[] }) => void;
+  "identity:linked": (data: { userId: string; identityId: string; linkedFrom?: string }) => void;
+  "identity:unlinked": (data: { userId: string; identityId: string; newUserId: string }) => void;
+  "identity:userMerged": (data: { keptUserId: string; mergedUserId: string; movedIdentities: string[] }) => void;
+  "identity:roleChanged": (data: { userId: string; oldRole: string; newRole: string; changedBy?: string }) => void;
+  "identity:seen": (data: { userId: string; identityId: string; sessionId: string }) => void;
 }
 
 /**

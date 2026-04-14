@@ -28,6 +28,8 @@ export interface SSERouteDeps {
   connectionManager: ConnectionManager;
   eventBuffer: EventBuffer;
   commandRegistry?: CommandRegistry;
+  /** Resolves a tokenId to a userId for user-level connections. Provided by the token-store service. */
+  getUserId?: (tokenId: string) => string | undefined;
 }
 
 /**
@@ -134,20 +136,14 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
         attachments = await resolveAttachments(fileService, sessionId, body.attachments);
       }
 
-      // Snapshot queue depth before enqueue — reading after the await is a race since
-      // the prompt may start processing before handleMessageInSession resolves.
-      const queueDepth = session.queueDepth + 1;
-
-      // Route through core's middleware chain (message:incoming → agent:beforePrompt) so plugins
-      // like workspace-plugin can identify the sender and inject team context — same as Telegram.
       const userId = (request as any).auth?.tokenId ?? 'api';
-      await deps.core.handleMessageInSession(
+      const { turnId, queueDepth } = await deps.core.handleMessageInSession(
         session,
         { channelId: 'sse', userId, text: body.prompt, attachments },
         { channelUser: { channelId: 'sse', userId } },
       );
 
-      return { ok: true, sessionId, queueDepth };
+      return { ok: true, sessionId, queueDepth, turnId };
     },
   );
 
@@ -247,5 +243,52 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       })),
       total: connections.length,
     };
+  });
+
+  // GET /events — user-level SSE stream (notifications + system events)
+  // Not session-scoped — delivers notifications to any authenticated user with identity set up.
+  app.get('/events', async (request, reply) => {
+    const auth = (request as any).auth;
+    if (!auth?.tokenId) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    // Resolve userId from the token-store mapping set during identity setup
+    const userId = deps.getUserId?.(auth.tokenId);
+    if (!userId) {
+      return reply.status(403).send({ error: 'Identity not set up. Complete /identity/setup first.' });
+    }
+
+    // Check connection limits before hijacking — once hijacked, Fastify can no longer
+    // write error responses, so we must gate on limits before committing to the stream.
+    try {
+      deps.connectionManager.addUserConnection(userId, auth.tokenId, reply.raw);
+    } catch (err: any) {
+      return reply.status(503).send({ error: err.message });
+    }
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      // Disable buffering in Nginx/Cloudflare so events arrive without delay
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Initial heartbeat to confirm the stream is live
+    raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+
+    // Keep-alive heartbeat every 30s to survive proxy idle-connection timeouts
+    const heartbeat = setInterval(() => {
+      if (raw.writableEnded) {
+        clearInterval(heartbeat);
+        return;
+      }
+      raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+    }, 30_000);
+
+    raw.on('close', () => clearInterval(heartbeat));
   });
 }

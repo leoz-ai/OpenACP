@@ -76,6 +76,7 @@ describe("ApiServer", () => {
     requestRestart: vi.fn(),
     tunnelService: undefined as unknown,
     eventBus: new EventBus(),
+    handleMessageInSession: vi.fn().mockResolvedValue({ turnId: 'test-turn', queueDepth: 0 }),
   };
 
   beforeEach(() => {
@@ -672,7 +673,6 @@ describe("ApiServer", () => {
       id: "abc123",
       status: "active",
       queueDepth: 0,
-      enqueuePrompt: vi.fn().mockResolvedValue(undefined),
     };
     mockCore.sessionManager.getSession.mockReturnValueOnce(mockSession);
     const port = await startServer();
@@ -687,7 +687,13 @@ describe("ApiServer", () => {
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(data.sessionId).toBe("abc123");
-    expect(mockSession.enqueuePrompt).toHaveBeenCalledWith("Hello world", undefined, expect.objectContaining({ sourceAdapterId: "api" }), expect.any(String));
+    expect(data.turnId).toBe("test-turn");
+    expect(mockCore.handleMessageInSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "abc123" }),
+      expect.objectContaining({ text: "Hello world" }),
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 
   it("POST /api/sessions/:id/prompt returns 404 for unknown session", async () => {

@@ -33,6 +33,7 @@ import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import type { InstanceContext } from "./instance/instance-context.js";
 import { Hook, BusEvent, SessionEv } from "./events.js";
+import { extractSender, type TurnContext, type TurnRouting } from "./sessions/turn-context.js";
 const log = createChildLogger({ module: "core" });
 
 /**
@@ -441,11 +442,6 @@ export class OpenACPCore {
       return;
     }
 
-    // Update activity timestamp
-    this.sessionManager.patchRecord(session.id, {
-      lastActiveAt: new Date().toISOString(),
-    });
-
     // For assistant sessions, prepend deferred system prompt on first real message
     let text = message.text;
     if (this.assistantManager?.isAssistant(session.id)) {
@@ -455,61 +451,85 @@ export class OpenACPCore {
       }
     }
 
-    // Emit message:queued immediately (before awaiting the queue) so SSE clients
-    // see the incoming message right away, not after the AI finishes processing.
-
     // Merge sourceAdapterId into routing so middleware hooks (e.g. history recorder)
     // can identify the originating adapter even when the message is processed by a
     // different adapter (e.g. an API-sourced message routed through a Telegram session).
-    const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
-    const routing = sourceAdapterId !== message.routing?.sourceAdapterId
-      ? { ...message.routing, sourceAdapterId }
-      : message.routing;
     // Carry enriched meta from middleware result (plugins may have attached sender info etc.)
     const enrichedMeta = (message as any).meta as TurnMeta | undefined ?? meta;
 
-    // Skip queue event for SSE/API sources — they already have the message
-    if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
-      this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
+    await this._dispatchToSession(session, text, message.attachments, {
+      sourceAdapterId: message.routing?.sourceAdapterId ?? message.channelId,
+      responseAdapterId: message.routing?.responseAdapterId,
+    }, turnId, enrichedMeta);
+  }
+
+  /**
+   * Shared dispatch path for sending a prompt to a session.
+   * Called by both handleMessage (Telegram) and handleMessageInSession (SSE/API)
+   * after their respective middleware/enrichment steps.
+   */
+  private async _dispatchToSession(
+    session: Session,
+    text: string,
+    attachments: Attachment[] | undefined,
+    routing: TurnRouting,
+    turnId: string,
+    meta: TurnMeta,
+  ): Promise<void> {
+    // Update activity timestamp for all sources
+    this.sessionManager.patchRecord(session.id, {
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // Emit MESSAGE_QUEUED — always, for all sources, no adapter-specific conditions
+    this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
+      sessionId: session.id,
+      turnId,
+      text,
+      sourceAdapterId: routing.sourceAdapterId,
+      attachments,
+      timestamp: new Date().toISOString(),
+      queueDepth: session.queueDepth + 1,
+      sender: extractSender(meta),
+    });
+
+    // Fire-and-forget: return immediately after enqueueing so callers (API route, adapters)
+    // get a fast response without waiting for the agent to finish processing.
+    // Errors (e.g. blocked by middleware) surface via MESSAGE_FAILED on the event bus.
+    session.enqueuePrompt(text, attachments, routing, turnId, meta).catch(err => {
+      const reason = err instanceof Error ? err.message : String(err);
+      log.warn({ err, sessionId: session.id, turnId, reason }, 'enqueuePrompt failed — emitting message:failed');
+      this.eventBus.emit(BusEvent.MESSAGE_FAILED, {
         sessionId: session.id,
         turnId,
-        text,
-        sourceAdapterId,
-        attachments: message.attachments,
-        timestamp: new Date().toISOString(),
-        queueDepth: session.queueDepth,
+        reason,
       });
-      await session.enqueuePrompt(text, message.attachments, routing, turnId, enrichedMeta);
-    } else {
-      await session.enqueuePrompt(text, message.attachments, routing, turnId, enrichedMeta);
-    }
+    });
   }
 
   /**
    * Send a message to a known session, running the full message:incoming → agent:beforePrompt
    * middleware chain (same as handleMessage) but without the threadId-based session lookup.
    *
-   * Used by channels that already hold a direct session reference (e.g. SSE adapter), where
-   * looking up by channelId+threadId is unreliable (API sessions may have no threadId).
+   * Used by channels that already hold a direct session reference (e.g. SSE adapter, api-server),
+   * where looking up by channelId+threadId is unreliable (API sessions may have no threadId).
    *
    * @param session  The target session — caller is responsible for validating its status.
    * @param message  Sender context and message content.
    * @param initialMeta  Optional adapter-specific context to seed the TurnMeta bag
    *                     (e.g. channelUser with display name/username).
+   * @param options  Optional turnId override and response routing.
    */
   async handleMessageInSession(
     session: Session,
     message: { channelId: string; userId: string; text: string; attachments?: Attachment[] },
     initialMeta?: Record<string, unknown>,
-  ): Promise<void> {
-    const turnId = nanoid(8);
+    options?: { externalTurnId?: string; responseAdapterId?: string | null },
+  ): Promise<{ turnId: string; queueDepth: number }> {
+    const turnId = options?.externalTurnId ?? nanoid(8);
     const meta: TurnMeta = { turnId, ...initialMeta };
 
     // Run message:incoming middleware so plugins can enrich meta (sender identity, @mentions, etc.)
-    // Note: only text, attachments, and meta are forwarded from the result — other field mutations
-    // (channelId, userId) are intentionally ignored since callers own these for the session lifetime.
-    // Note: assistantManager deferred system prompt injection is intentionally skipped here —
-    // handleMessageInSession is only called for regular (non-assistant) sessions.
     let text = message.text;
     let { attachments } = message;
     let enrichedMeta: TurnMeta = meta;
@@ -527,15 +547,19 @@ export class OpenACPCore {
         payload,
         async (p) => p,
       );
-      if (!result) return; // blocked by middleware
+      if (!result) return { turnId, queueDepth: session.queueDepth };
       text = result.text;
       attachments = result.attachments;
-      // Re-extract meta: plugins typically mutate in-place, but guard against replacement
       enrichedMeta = (result as any).meta as TurnMeta ?? meta;
     }
 
-    const routing = { sourceAdapterId: message.channelId };
-    await session.enqueuePrompt(text, attachments, routing, turnId, enrichedMeta);
+    const routing: TurnRouting = {
+      sourceAdapterId: message.channelId,
+      responseAdapterId: options?.responseAdapterId,
+    };
+    await this._dispatchToSession(session, text, attachments, routing, turnId, enrichedMeta);
+
+    return { turnId, queueDepth: session.queueDepth };
   }
 
   // --- Unified Session Creation Pipeline ---
@@ -689,7 +713,7 @@ export class OpenACPCore {
         } else if (processedEvent.type === "error") {
           session.fail((processedEvent as { message: string }).message);
         }
-        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, event: processedEvent });
+        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, turnId: session.activeTurnContext?.turnId ?? '', event: processedEvent });
       });
 
       // Persist status changes and notify SSE clients — normally wired by SessionBridge.
@@ -704,6 +728,21 @@ export class OpenACPCore {
       // Persist prompt count after each prompt — normally wired by SessionBridge.
       session.on(SessionEv.PROMPT_COUNT_CHANGED, (count: number) => {
         this.sessionManager.patchRecord(session.id, { currentPromptCount: count });
+      });
+
+      // Emit message:processing so SSE clients (App) can transition pending → conversation.
+      // Normally handled by SessionBridge; headless sessions have no bridge.
+      session.on(SessionEv.TURN_STARTED, (ctx: TurnContext) => {
+        this.eventBus.emit(BusEvent.MESSAGE_PROCESSING, {
+          sessionId: session.id,
+          turnId: ctx.turnId,
+          sourceAdapterId: ctx.sourceAdapterId,
+          userPrompt: ctx.userPrompt,
+          finalPrompt: ctx.finalPrompt,
+          attachments: ctx.attachments,
+          sender: extractSender(ctx.meta),
+          timestamp: new Date().toISOString(),
+        });
       });
     }
 

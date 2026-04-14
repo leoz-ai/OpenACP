@@ -97,7 +97,7 @@ export class AgentSwitchHandler {
       message: `Switching from ${fromAgent} to ${toAgent}...`,
     };
     session.emit(SessionEv.AGENT_EVENT, startEvent);
-    eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: startEvent });
+    eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, turnId: '', event: startEvent });
     eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
       sessionId,
       fromAgent,
@@ -176,7 +176,7 @@ export class AgentSwitchHandler {
           : `Switched to ${toAgent} (new session).`,
       };
       session.emit(SessionEv.AGENT_EVENT, successEvent);
-      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: successEvent });
+      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, turnId: '', event: successEvent });
       eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
         sessionId,
         fromAgent,
@@ -192,7 +192,7 @@ export class AgentSwitchHandler {
         message: `Failed to switch to ${toAgent}: ${errorMessage}`,
       };
       session.emit(SessionEv.AGENT_EVENT, failedEvent);
-      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, event: failedEvent });
+      eventBus.emit(BusEvent.AGENT_EVENT, { sessionId, turnId: '', event: failedEvent });
       eventBus.emit(BusEvent.SESSION_AGENT_SWITCH, {
         sessionId,
         fromAgent,

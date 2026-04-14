@@ -123,7 +123,18 @@ function createSecurityPlugin(): OpenACPPlugin {
         handler: async (payload: MiddlewarePayloadMap['message:incoming'], next) => {
           const access = await guard.checkAccess(payload as unknown as IncomingMessage)
           if (!access.allowed) {
-            ctx.log.info(`Access denied: ${access.reason}`)
+            ctx.log.info(`Access denied for user=${payload.userId} channel=${payload.channelId}: ${access.reason}`)
+            // Notify the user via their adapter if possible (Telegram, Slack, etc.).
+            // SSE/API callers receive a 403 HTTP response from the API route instead.
+            const adapter = (core as any).adapters?.get?.(payload.channelId)
+            if (adapter?.sendMessage && payload.threadId) {
+              adapter.sendMessage(payload.threadId, {
+                type: 'error',
+                message: `Access denied: ${access.reason ?? 'You are not allowed to use this service.'}`,
+              }).catch((err: unknown) => {
+                ctx.log.warn(`Failed to send access-denied message to adapter: ${err}`)
+              })
+            }
             return null  // block
           }
           return next()

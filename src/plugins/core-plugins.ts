@@ -4,6 +4,7 @@
  * Adapter plugins depend on service plugins, so they boot last.
  */
 import securityPlugin from './security/index.js'
+import identityPlugin from './identity/index.js'
 import fileServicePlugin from './file-service/index.js'
 import contextPlugin from './context/index.js'
 import speechPlugin from './speech/index.js'
@@ -30,6 +31,7 @@ import telegramPlugin from './telegram/index.js'
 export const corePlugins = [
   // Service plugins (no adapter dependencies)
   securityPlugin,
+  identityPlugin,   // Must boot after security (blocked users rejected before identity records are created)
   fileServicePlugin,
   contextPlugin,
   speechPlugin,

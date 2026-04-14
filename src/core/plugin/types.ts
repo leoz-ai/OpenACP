@@ -44,6 +44,14 @@ export type PluginPermission =
   | 'kernel:access'
   /** Read-only session metadata without kernel:access */
   | 'sessions:read'
+  /** Read identity data (users, identities, search) */
+  | 'identity:read'
+  /** Write identity data (create, update, link, unlink, roles) */
+  | 'identity:write'
+  /** Register an identity source (adapters register their platform name) */
+  | 'identity:register-source'
+  /** Send push notifications to users */
+  | 'notifications:send'
 
 /**
  * The runtime plugin instance — the object a plugin module default-exports.
@@ -426,6 +434,23 @@ export interface PluginContext {
   sendMessage(sessionId: string, content: OutgoingMessage): Promise<void>
 
   /**
+   * Send a user-targeted notification. Fire-and-forget, best-effort.
+   * Resolves target via identity system — one call delivers across all linked platforms.
+   * Requires 'notifications:send' permission.
+   */
+  notify(
+    target: { identityId: string } | { userId: string } | { channelId: string; platformId: string },
+    message: { type: 'text'; text: string },
+    options?: {
+      via?: 'dm' | 'thread' | 'topic'
+      topicId?: string
+      sessionId?: string
+      onlyPlatforms?: string[]
+      excludePlatforms?: string[]
+    }
+  ): void
+
+  /**
    * Define a custom hook that other plugins can register middleware on.
    * The hook name is automatically prefixed with `plugin:{pluginName}:`.
    */
@@ -522,6 +547,9 @@ export interface MiddlewarePayloadMap {
     promptNumber: number
     turnId: string
     meta?: TurnMeta
+    userPrompt?: string
+    sourceAdapterId?: string
+    responseAdapterId?: string | null
   }
   'turn:end': {
     sessionId: string
@@ -707,6 +735,18 @@ export interface FileServiceInterface {
 export interface NotificationService {
   notify(channelId: string, notification: NotificationMessage): Promise<void>
   notifyAll(notification: NotificationMessage): Promise<void>
+  /** Send a notification to a user across all their linked platforms. Fire-and-forget. */
+  notifyUser?(
+    target: { identityId: string } | { userId: string } | { channelId: string; platformId: string },
+    message: { type: 'text'; text: string },
+    options?: {
+      via?: 'dm' | 'thread' | 'topic'
+      topicId?: string
+      sessionId?: string
+      onlyPlatforms?: string[]
+      excludePlatforms?: string[]
+    }
+  ): Promise<void>
 }
 
 export interface UsageService {

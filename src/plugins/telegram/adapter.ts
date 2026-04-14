@@ -319,8 +319,14 @@ export class TelegramAdapter extends MessagingAdapter {
       return prev(method, payload, signal);
     });
 
-    // Register static commands for Telegram autocomplete (non-critical, retry in background)
-    this.registerCommandsWithRetry();
+    // Register Telegram autocomplete commands after all plugins finish setup.
+    // system:commands-ready fires with the full command list (system + plugin).
+    // We merge it with STATIC_COMMANDS so plugin commands (e.g. /teamwork) appear in autocomplete.
+    const onCommandsReady = ({ commands }: { commands: Array<{ name: string; description: string; category?: string }> }) => {
+      this.core.eventBus.off(BusEvent.SYSTEM_COMMANDS_READY, onCommandsReady as Parameters<typeof this.core.eventBus.on<'system:commands-ready'>>[1]);
+      this.syncCommandsWithRetry(commands);
+    };
+    this.core.eventBus.on(BusEvent.SYSTEM_COMMANDS_READY, onCommandsReady);
 
     // Middleware: only accept updates from configured chatId
     this.bot.use((ctx, next) => {
@@ -606,12 +612,23 @@ export class TelegramAdapter extends MessagingAdapter {
   }
 
   /**
-   * Register Telegram commands in the background with retries.
-   * Non-critical — bot works fine without autocomplete commands.
+   * Sync Telegram autocomplete commands after all plugins are ready.
+   * Merges STATIC_COMMANDS (hardcoded system commands) with plugin commands
+   * from the registry, deduplicating by command name. Non-critical.
    */
-  private registerCommandsWithRetry(): void {
+  private syncCommandsWithRetry(registryCommands: Array<{ name: string; description: string; category?: string }>): void {
+    const staticNames = new Set(STATIC_COMMANDS.map((c) => c.command));
+
+    // Only add plugin commands not already in STATIC_COMMANDS.
+    // Telegram command names must be lowercase alphanumeric + underscore only.
+    const pluginCommands = registryCommands
+      .filter((c) => c.category === 'plugin' && !staticNames.has(c.name) && /^[a-z0-9_]+$/.test(c.name))
+      .map((c) => ({ command: c.name, description: c.description.slice(0, 256) }))
+
+    const allCommands = [...STATIC_COMMANDS, ...pluginCommands].slice(0, 100)
+
     this.retryWithBackoff(
-      () => this.bot.api.setMyCommands(STATIC_COMMANDS, {
+      () => this.bot.api.setMyCommands(allCommands, {
         scope: { type: "chat", chat_id: this.telegramConfig.chatId },
       }),
       "setMyCommands",

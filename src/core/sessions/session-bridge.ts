@@ -10,7 +10,7 @@ import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import type { DebugTracer } from "../utils/debug-tracer.js";
 import { createChildLogger } from "../utils/log.js";
 import { isPermissionBypass } from "../utils/bypass-detection.js";
-import { isSystemEvent, getEffectiveTarget, type TurnContext } from "./turn-context.js";
+import { isSystemEvent, getEffectiveTarget, extractSender, type TurnContext } from "./turn-context.js";
 import { Hook, BusEvent, SessionEv } from "../events.js";
 
 const log = createChildLogger({ module: "session-bridge" });
@@ -126,7 +126,7 @@ export class SessionBridge {
       } else {
         // Event is not forwarded to this adapter's channel, but EventBus observers
         // (e.g. /events SSE stream) still need to see it for cross-adapter visibility.
-        this.deps.eventBus?.emit(BusEvent.AGENT_EVENT, { sessionId: this.session.id, event });
+        this.deps.eventBus?.emit(BusEvent.AGENT_EVENT, { sessionId: this.session.id, turnId: '', event });
       }
     });
 
@@ -205,14 +205,16 @@ export class SessionBridge {
     // Wire turn_started: emit message:processing on EventBus so SSE clients
     // (including other connected App windows) can show the streaming assistant stub.
     this.listen(this.session, SessionEv.TURN_STARTED, (ctx: TurnContext) => {
-      if (ctx.sourceAdapterId !== 'sse') {
-        this.deps.eventBus?.emit(BusEvent.MESSAGE_PROCESSING, {
-          sessionId: this.session.id,
-          turnId: ctx.turnId,
-          sourceAdapterId: ctx.sourceAdapterId,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      this.deps.eventBus?.emit(BusEvent.MESSAGE_PROCESSING, {
+        sessionId: this.session.id,
+        turnId: ctx.turnId,
+        sourceAdapterId: ctx.sourceAdapterId,
+        userPrompt: ctx.userPrompt,
+        finalPrompt: ctx.finalPrompt,
+        attachments: ctx.attachments,
+        sender: extractSender(ctx.meta),
+        timestamp: new Date().toISOString(),
+      });
     });
 
     // Replay any commands_update that arrived before the bridge connected
@@ -405,6 +407,7 @@ export class SessionBridge {
 
       this.deps.eventBus?.emit(BusEvent.AGENT_EVENT, {
         sessionId: this.session.id,
+        turnId: this.session.activeTurnContext?.turnId ?? '',
         event,
       });
 

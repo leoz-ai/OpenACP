@@ -63,6 +63,19 @@ export interface IChannelAdapter {
 
   // Agent switch cleanup — optional, called when switching agents to clear adapter-side per-session state
   cleanupSessionState?(sessionId: string): Promise<void>
+
+  // --- User-targeted notifications (optional) ---
+  /** Send a notification directly to a user by platform ID. Best-effort delivery. */
+  sendUserNotification?(
+    platformId: string,
+    message: NotificationMessage,
+    options?: {
+      via?: 'dm' | 'thread' | 'topic'
+      topicId?: string
+      sessionId?: string
+      platformMention?: { platformUsername?: string; platformId: string }
+    }
+  ): Promise<void>
 }
 
 /**
@@ -100,4 +113,5 @@ export abstract class ChannelAdapter<TCore = unknown> implements IChannelAdapter
   async cleanupSkillCommands(_sessionId: string): Promise<void> {}
   async cleanupSessionState(_sessionId: string): Promise<void> {}
   async archiveSessionTopic(_sessionId: string): Promise<void> {}
+  async sendUserNotification(_platformId: string, _message: NotificationMessage, _options?: any): Promise<void> {}
 }

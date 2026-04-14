@@ -1,11 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
-import { nanoid } from 'nanoid';
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
+import { AuthError, BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
 import { resolveAttachments } from './attachment-utils.js';
-import { BusEvent, Hook } from '../../../core/events.js';
-import type { TurnMeta } from '../../../core/types.js';
 import {
   SessionIdParamSchema,
   ConfigIdParamSchema,
@@ -255,44 +252,43 @@ export async function sessionRoutes(
       }
 
       const sourceAdapterId = body.sourceAdapterId ?? 'sse';
-      const turnId = body.turnId ?? nanoid(8);
       const userId = (request as any).auth?.tokenId ?? 'api';
 
-      // Build TurnMeta and run message:incoming middleware so plugins (e.g. workspace-plugin)
-      // can resolve the sender identity, extract @mentions, etc. — same as Telegram/SSE-adapter.
-      // channelUser is placed in meta so plugins like workspace-plugin can read it via
-      // meta['channelUser'] (TURN_META_CHANNEL_USER_KEY).
-      const meta: TurnMeta = { turnId, channelUser: { channelId: 'sse', userId } };
-      if (deps.lifecycleManager?.middlewareChain) {
-        await deps.lifecycleManager.middlewareChain.execute(
-          Hook.MESSAGE_INCOMING,
-          { channelId: sourceAdapterId, threadId: session.id, userId, text: body.prompt, attachments, meta },
-          async (p) => p,
-        );
-        // message:incoming plugins mutate meta in-place (e.g. setting TURN_META_SENDER_KEY)
+      const result = await deps.core.handleMessageInSession(
+        session,
+        { channelId: sourceAdapterId, userId, text: body.prompt, attachments },
+        { channelUser: { channelId: 'sse', userId } },
+        { externalTurnId: body.turnId, responseAdapterId: body.responseAdapterId },
+      );
+
+      // handleMessageInSession returns undefined when a middleware (e.g. security) blocks
+      // the message. Surface this as a 403 so the caller knows it was rejected.
+      if (!result) {
+        throw new AuthError('MESSAGE_BLOCKED', 'Message was blocked by a middleware plugin.', 403);
       }
 
-      // Emit message:queued so all SSE clients (including other connected App windows)
-      // see the user message immediately, not just the sender's optimistic UI update.
-      deps.core.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
-        sessionId,
-        turnId,
-        text: body.prompt,
-        sourceAdapterId,
-        attachments: attachments,
-        timestamp: new Date().toISOString(),
-        queueDepth: session.queueDepth,
-      });
+      return { ok: true, sessionId, queueDepth: result.queueDepth, turnId: result.turnId };
+    },
+  );
 
-      await session.enqueuePrompt(body.prompt, attachments, {
-        sourceAdapterId,
-        responseAdapterId: body.responseAdapterId,
-      }, turnId, meta);
+  // GET /sessions/:sessionId/queue — get pending queue state
+  app.get<{ Params: { sessionId: string } }>(
+    '/:sessionId/queue',
+    { preHandler: requireScopes('sessions:read') },
+    async (request) => {
+      const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
+      const sessionId = decodeURIComponent(rawId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
+      if (!session) {
+        throw new NotFoundError(
+          'SESSION_NOT_FOUND',
+          `Session "${sessionId}" not found`,
+        );
+      }
       return {
-        ok: true,
-        sessionId,
+        pending: session.queueItems,
+        processing: session.promptRunning,
         queueDepth: session.queueDepth,
-        turnId,
       };
     },
   );
