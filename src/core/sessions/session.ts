@@ -115,6 +115,8 @@ export class Session extends TypedEmitter<SessionEvents> {
   private readonly queue: PromptQueue;
   private speechService?: SpeechService;
   private pendingContext: string | null = null;
+  /** Set by abortPrompt(), read by processPrompt() to override stopReason */
+  private _promptAborted = false;
 
   constructor(opts: {
     id?: string;
@@ -381,6 +383,7 @@ export class Session extends TypedEmitter<SessionEvents> {
       }, async (p) => p).catch(() => {});
     }
 
+    this._promptAborted = false;
     let stopReason: string = 'end_turn';
     let promptError: unknown;
     try {
@@ -409,10 +412,11 @@ export class Session extends TypedEmitter<SessionEvents> {
       this.off(SessionEv.AGENT_EVENT, turnTextListener);
 
       const finalTurnId = this.activeTurnContext?.turnId ?? turnId ?? '';
+      const finalStopReason = this._promptAborted ? 'interrupted' : stopReason;
 
       // Hook: turn:end — always fires, even on error
       if (this.middlewareChain) {
-        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart, turnId: finalTurnId, meta }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: finalStopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart, turnId: finalTurnId, meta }, async (p) => p).catch(() => {});
       }
 
       // Hook: agent:afterTurn — full assembled text, read-only, fire-and-forget
@@ -421,7 +425,7 @@ export class Session extends TypedEmitter<SessionEvents> {
           sessionId: this.id,
           turnId: finalTurnId,
           fullText: turnTextBuffer.join(''),
-          stopReason: stopReason as import('../types.js').StopReason,
+          stopReason: finalStopReason as import('../types.js').StopReason,
           meta,
         }, async (p) => p).catch(() => {});
       }
@@ -695,15 +699,16 @@ export class Session extends TypedEmitter<SessionEvents> {
     return this.agentCapabilities?.sessionCapabilities?.[cap] === true;
   }
 
-  /** Cancel the current prompt and clear the queue. Stays in active state. */
+  /** Cancel the current prompt. Queued prompts continue processing. Stays in active state. */
   async abortPrompt(): Promise<void> {
     // Hook: agent:beforeCancel — modifiable, can block
     if (this.middlewareChain) {
       const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_CANCEL, { sessionId: this.id }, async (p) => p);
       if (!result) return; // blocked by middleware
     }
-    this.queue.clear();
-    this.log.info("Prompt aborted");
+    this._promptAborted = true;
+    this.queue.abortCurrent();
+    this.log.info("Prompt aborted (queue preserved, %d pending)", this.queue.pending);
     await this.agentInstance.cancel();
   }
 
