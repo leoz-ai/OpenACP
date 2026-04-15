@@ -75,6 +75,15 @@ export class SSEManager {
       this.boundHandlers.push({ event: eventName, handler });
     }
 
+    // user:notification is broadcast as notification:text so the App's existing
+    // SSE listener picks it up without any client-side changes.
+    const userNotificationHandler = (data: unknown) => {
+      const { text, sessionId } = data as { userId: string; text: string; sessionId?: string };
+      this.broadcast('notification:text', { text, sessionId });
+    };
+    this.eventBus.on(BusEvent.USER_NOTIFICATION, userNotificationHandler);
+    this.boundHandlers.push({ event: BusEvent.USER_NOTIFICATION, handler: userNotificationHandler });
+
     // Health heartbeat every 15s
     this.healthInterval = setInterval(() => {
       const mem = process.memoryUsage();

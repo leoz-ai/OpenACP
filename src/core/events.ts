@@ -181,6 +181,10 @@ export const BusEvent = {
   IDENTITY_ROLE_CHANGED: 'identity:roleChanged',
   /** Fired when a user is seen (throttled). */
   IDENTITY_SEEN: 'identity:seen',
+
+  // --- Notifications ---
+  /** Fired when a user-targeted notification is dispatched (e.g. agent mention). */
+  USER_NOTIFICATION: 'user:notification',
 } as const satisfies Record<string, keyof EventBusEvents>;
 
 export type BusEventName = typeof BusEvent[keyof typeof BusEvent];

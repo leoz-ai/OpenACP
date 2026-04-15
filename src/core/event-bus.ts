@@ -131,6 +131,9 @@ export interface EventBusEvents {
   "identity:userMerged": (data: { keptUserId: string; mergedUserId: string; movedIdentities: string[] }) => void;
   "identity:roleChanged": (data: { userId: string; oldRole: string; newRole: string; changedBy?: string }) => void;
   "identity:seen": (data: { userId: string; identityId: string; sessionId: string }) => void;
+
+  // User-targeted notifications (delivered to app via SSE)
+  "user:notification": (data: { userId: string; text: string; sessionId?: string }) => void;
 }
 
 /**
