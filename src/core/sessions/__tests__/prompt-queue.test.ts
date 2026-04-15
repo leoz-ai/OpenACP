@@ -129,6 +129,114 @@ describe('PromptQueue', () => {
     expect(capturedText).not.toBe(capturedUserPrompt)
   })
 
+  it('clearPending discards queued items without aborting current', async () => {
+    let resolveFirst!: () => void
+    const firstPromise = new Promise<void>((r) => { resolveFirst = r })
+    const calls: string[] = []
+
+    const processor = vi.fn().mockImplementation(async (text: string) => {
+      calls.push(text)
+      if (text === 'first') await firstPromise
+    })
+
+    const queue = new PromptQueue(processor)
+
+    const p1 = queue.enqueue('first')
+    const p2 = queue.enqueue('second')
+    const p3 = queue.enqueue('third')
+
+    expect(queue.pending).toBe(2)
+
+    // Clear pending — should discard second and third, but NOT abort first
+    queue.clearPending()
+    expect(queue.pending).toBe(0)
+    expect(queue.isProcessing).toBe(true)
+
+    // Resolve first — should complete without processing second/third
+    resolveFirst()
+    await p1
+    // p2 and p3 should also resolve (not hang)
+    await p2
+    await p3
+
+    expect(calls).toEqual(['first'])
+    expect(queue.isProcessing).toBe(false)
+  })
+
+  it('abort + clear prevents offset responses', async () => {
+    let resolveFirst!: () => void
+    const firstPromise = new Promise<void>((r) => { resolveFirst = r })
+    const calls: string[] = []
+
+    const processor = vi.fn().mockImplementation(async (text: string) => {
+      calls.push(text)
+      if (text === 'stuck') await firstPromise
+    })
+
+    const queue = new PromptQueue(processor)
+
+    // Simulate: stuck prompt + queued messages
+    queue.enqueue('stuck')
+    queue.enqueue('queued-1')
+    queue.enqueue('queued-2')
+
+    expect(queue.pending).toBe(2)
+    expect(queue.isProcessing).toBe(true)
+
+    // User does /flush: clear everything
+    queue.clear()
+    expect(queue.pending).toBe(0)
+
+    // Resolve the stuck prompt (simulates agent responding to cancel)
+    resolveFirst()
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(queue.isProcessing).toBe(false)
+
+    // User sends fresh message — should process immediately, no offset
+    const freshPromise = queue.enqueue('fresh')
+    await freshPromise
+
+    expect(calls).toEqual(['stuck', 'fresh'])
+  })
+
+  it('prioritize promotes target item and discards others', async () => {
+    let resolveFirst!: () => void
+    const firstPromise = new Promise<void>((r) => { resolveFirst = r })
+    const calls: string[] = []
+
+    const processor = vi.fn().mockImplementation(async (text: string) => {
+      calls.push(text)
+      if (text === 'first') await firstPromise
+    })
+
+    const queue = new PromptQueue(processor)
+
+    queue.enqueue('first')
+    queue.enqueue('second', 'second', undefined, undefined, 'turn-2')
+    queue.enqueue('third', 'third', undefined, undefined, 'turn-3')
+    queue.enqueue('fourth', 'fourth', undefined, undefined, 'turn-4')
+
+    expect(queue.pending).toBe(3)
+
+    const found = queue.prioritize('turn-4')
+    expect(found).toBe(true)
+    expect(queue.pending).toBe(1)
+
+    resolveFirst()
+    await new Promise(r => setTimeout(r, 10))
+
+    await vi.waitFor(() => expect(queue.isProcessing).toBe(false))
+
+    expect(calls).toEqual(['first', 'fourth'])
+  })
+
+  it('prioritize returns false if turnId not found', () => {
+    const processor = vi.fn().mockResolvedValue(undefined)
+    const queue = new PromptQueue(processor)
+    expect(queue.prioritize('nonexistent')).toBe(false)
+  })
+
   it('pendingItems returns userPrompt (not text) for queued items', async () => {
     let resolveFirst!: () => void
     const firstPromise = new Promise<void>((r) => { resolveFirst = r })
