@@ -40,8 +40,12 @@ const plugin: OpenACPPlugin = {
     _adapter = adapter;
     _connectionManager = connectionManager;
 
-    // Register adapter as a service so main.ts wires it into core
+    // Register adapter as a service so main.ts wires it into core.
+    // 'sse' is the routing key; 'api' is the identity source for app users —
+    // both must be registered so NotificationService can resolve the adapter
+    // when delivering user-targeted notifications to app clients.
     ctx.registerService('adapter:sse', adapter);
+    ctx.registerService('adapter:api', adapter);
 
     // Get command registry for command execution in routes
     const commandRegistry = ctx.getService<CommandRegistry>('command-registry');
