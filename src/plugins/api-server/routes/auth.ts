@@ -8,16 +8,39 @@ import { requireScopes, requireRole } from '../middleware/auth.js';
 
 export interface AuthRouteDeps {
   tokenStore: TokenStore;
+  /** Returns the current JWT signing secret. Fetched lazily to support future rotation. */
   getJwtSecret: () => string;
+  /**
+   * Optional resolver for the identity service. Provided lazily so the auth plugin
+   * does not hard-depend on identity — if identity is not loaded, this returns undefined.
+   */
+  getIdentityService?: () => { getUser(userId: string): Promise<{ displayName: string } | undefined> } | undefined;
 }
 
+/**
+ * Auth management routes under `/api/v1/auth`.
+ *
+ * Token lifecycle:
+ * - `POST /tokens` — create a scoped JWT (secret-token auth only).
+ * - `GET /tokens` — list non-revoked tokens.
+ * - `DELETE /tokens/:id` — revoke a token by ID.
+ * - `POST /refresh` — re-issue an expired JWT within the refresh deadline window.
+ * - `GET /me` — return the current authenticated identity.
+ * - `POST /codes` — generate a one-time code for the App login flow (secret-token only).
+ * - `GET /codes` — list active (unused, unexpired) codes (truncated for security).
+ * - `DELETE /codes/:code` — revoke a pending code.
+ *
+ * The `POST /exchange` endpoint lives in `index.ts` (unauthenticated, separate Fastify scope).
+ */
 export async function authRoutes(
   app: FastifyInstance,
   deps: AuthRouteDeps,
 ): Promise<void> {
   const { tokenStore, getJwtSecret } = deps;
 
-  // POST /tokens — generate a new JWT (secret token auth only)
+  // POST /tokens — generate a new JWT (secret token auth only).
+  // Restricting to secret-token type prevents a compromised JWT from self-escalating
+  // by minting additional tokens with different roles or longer lifetimes.
   app.post('/tokens', async (request) => {
     if (request.auth.type !== 'secret') {
       throw new AuthError('FORBIDDEN', 'Only secret token can create new tokens', 403);
@@ -46,6 +69,7 @@ export async function authRoutes(
       accessToken,
       expiresAt,
       refreshDeadline: stored.refreshDeadline,
+      identitySecret: stored.identitySecret,
     };
   });
 
@@ -124,14 +148,29 @@ export async function authRoutes(
     };
   });
 
-  // GET /me — current auth info
+  // GET /me — current auth info, enriched with identity data if available.
+  // Identity fields are optional — callers must not assume they are always present.
   app.get('/me', async (request) => {
     const { auth } = request;
+    const userId = auth.tokenId ? deps.tokenStore.getUserId(auth.tokenId) : undefined;
+
+    let displayName: string | null = null;
+    if (userId && deps.getIdentityService) {
+      const identityService = deps.getIdentityService();
+      if (identityService) {
+        const user = await identityService.getUser(userId);
+        displayName = user?.displayName ?? null;
+      }
+    }
+
     return {
       type: auth.type,
       tokenId: auth.tokenId,
       role: auth.role,
       scopes: auth.scopes,
+      userId: userId ?? null,
+      displayName,
+      claimed: !!userId,
     };
   });
 
@@ -152,7 +191,9 @@ export async function authRoutes(
     return reply.send({ code: code.code, expiresAt: code.expiresAt });
   });
 
-  // GET /codes — list active codes (auth:manage scope)
+  // GET /codes — list active codes (auth:manage scope).
+  // The code value itself is truncated to prevent this endpoint from being used to
+  // harvest valid codes — it's for audit/display purposes only.
   app.get('/codes', {
     preHandler: [requireScopes('auth:manage')],
   }, async (_request, reply) => {

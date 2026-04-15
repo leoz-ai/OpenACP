@@ -59,8 +59,40 @@ export function createTestContext(opts: TestContextOpts): TestPluginContext {
     async list(): Promise<string[]> {
       return Array.from(storageData.keys())
     },
+    async keys(prefix?: string): Promise<string[]> {
+      const all = Array.from(storageData.keys())
+      return prefix ? all.filter(k => k.startsWith(prefix)) : all
+    },
+    async clear(): Promise<void> {
+      storageData.clear()
+    },
     getDataDir(): string {
       return '/tmp/openacp-test-data'
+    },
+    forSession(sessionId: string): PluginStorage {
+      // Create a prefixed proxy into the same Map for test isolation
+      const prefix = `session:${sessionId}:`
+      return {
+        get: <T>(key: string) => storage.get<T>(`${prefix}${key}`),
+        set: <T>(key: string, value: T) => storage.set(`${prefix}${key}`, value),
+        delete: (key: string) => storage.delete(`${prefix}${key}`),
+        list: async () => {
+          const all = Array.from(storageData.keys())
+          return all.filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length))
+        },
+        keys: async (p?: string) => {
+          const full = p ? `${prefix}${p}` : prefix
+          const all = Array.from(storageData.keys())
+          return all.filter(k => k.startsWith(full)).map(k => k.slice(prefix.length))
+        },
+        clear: async () => {
+          for (const key of storageData.keys()) {
+            if (key.startsWith(prefix)) storageData.delete(key)
+          }
+        },
+        getDataDir: () => '/tmp/openacp-test-data',
+        forSession: (nestedId: string) => storage.forSession(`${sessionId}:${nestedId}`),
+      }
     },
   }
 
@@ -116,10 +148,19 @@ export function createTestContext(opts: TestContextOpts): TestPluginContext {
     unregisterMenuItem(_id: string): void {},
     registerAssistantSection(_section: import('@openacp/cli').AssistantSection): void {},
     unregisterAssistantSection(_id: string): void {},
+    registerEditableFields(_fields: import('@openacp/cli').FieldDef[]): void {},
     storage,
     log: silentLog,
     async sendMessage(sessionId: string, content: OutgoingMessage): Promise<void> {
       sentMessages.push({ sessionId, content })
+    },
+    notify(_target: any, _message: any, _options?: any): void {},
+    defineHook(_name: string): void {},
+    async emitHook<T extends Record<string, unknown>>(_name: string, payload: T): Promise<T | null> {
+      return payload
+    },
+    async getSessionInfo(_sessionId: string) {
+      return undefined
     },
 
     // Kernel access stubs

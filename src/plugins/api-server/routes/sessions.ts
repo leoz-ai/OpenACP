@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteDeps } from './types.js';
-import { NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
+import { AuthError, BadRequestError, NotFoundError, ServiceUnavailableError } from '../middleware/error-handler.js';
 import { requireScopes } from '../middleware/auth.js';
+import { resolveAttachments } from './attachment-utils.js';
 import {
   SessionIdParamSchema,
   ConfigIdParamSchema,
@@ -16,6 +17,19 @@ import {
 } from '../schemas/sessions.js';
 
 
+/**
+ * Session management routes under `/api/v1/sessions`.
+ *
+ * Covers the full session lifecycle:
+ * - CRUD: list, get, create (POST /), adopt (from existing agent), delete (cancel)
+ * - Messaging: prompt (POST /:id/prompt), permission resolution (POST /:id/permission)
+ * - Mutation: patch agent/voice/dangerousMode, archive, attach/detach adapter
+ * - Config: read/write per-session config options and client overrides
+ * - History: retrieve full conversation history via context manager
+ *
+ * `sessions:dangerous` scope is required for bypass-permissions routes because it is
+ * not included in the default `operator` role — it must be explicitly granted.
+ */
 export async function sessionRoutes(
   app: FastifyInstance,
   deps: RouteDeps,
@@ -49,33 +63,51 @@ export async function sessionRoutes(
     { preHandler: requireScopes('sessions:read') },
     async (request) => {
       const { sessionId } = SessionIdParamSchema.parse(request.params);
-      const session = deps.core.sessionManager.getSession(
-        decodeURIComponent(sessionId),
-      );
-      if (!session) {
-        throw new NotFoundError(
-          'SESSION_NOT_FOUND',
-          `Session "${sessionId}" not found`,
-        );
+      const id = decodeURIComponent(sessionId);
+      const session = deps.core.sessionManager.getSession(id);
+
+      if (session) {
+        return {
+          session: {
+            id: session.id,
+            agent: session.agentName,
+            status: session.status,
+            name: session.name ?? null,
+            workspace: session.workingDirectory,
+            createdAt: session.createdAt.toISOString(),
+            dangerousMode: session.clientOverrides.bypassPermissions ?? false,
+            queueDepth: session.queueDepth,
+            promptRunning: session.promptRunning,
+            threadId: session.threadId,
+            channelId: session.channelId,
+            agentSessionId: session.agentSessionId,
+            configOptions: session.configOptions?.length ? session.configOptions : undefined,
+            capabilities: session.agentCapabilities ?? null,
+          },
+        };
       }
 
+      // Fallback: serve from persisted record without resuming the agent
+      const record = deps.core.sessionManager.getSessionRecord(id);
+      if (!record) {
+        throw new NotFoundError('SESSION_NOT_FOUND', `Session "${id}" not found`);
+      }
       return {
         session: {
-          id: session.id,
-          agent: session.agentName,
-          status: session.status,
-          name: session.name ?? null,
-          workspace: session.workingDirectory,
-          createdAt: session.createdAt.toISOString(),
-          dangerousMode: session.clientOverrides.bypassPermissions ?? false,
-          queueDepth: session.queueDepth,
-          promptRunning: session.promptRunning,
-          threadId: session.threadId,
-          channelId: session.channelId,
-          agentSessionId: session.agentSessionId,
-          // ACP state
-          configOptions: session.configOptions?.length ? session.configOptions : undefined,
-          capabilities: session.agentCapabilities ?? null,
+          id: record.sessionId,
+          agent: record.agentName,
+          status: record.status,
+          name: record.name ?? null,
+          workspace: record.workingDir,
+          createdAt: record.createdAt,
+          dangerousMode: record.clientOverrides?.bypassPermissions ?? false,
+          queueDepth: 0,
+          promptRunning: false,
+          threadId: null,
+          channelId: record.channelId,
+          agentSessionId: record.agentSessionId,
+          configOptions: record.acpState?.configOptions?.length ? record.acpState.configOptions : undefined,
+          capabilities: record.acpState?.agentCapabilities ?? null,
         },
       };
     },
@@ -85,14 +117,16 @@ export async function sessionRoutes(
   app.post('/', { preHandler: requireScopes('sessions:write') }, async (request, reply) => {
     const body = CreateSessionBodySchema.parse(request.body ?? {});
 
-    // Check max concurrent sessions
-    const config = deps.core.configManager.get();
+    // Check max concurrent sessions (default 20; security plugin may override via plugin settings)
+    const settingsManager = deps.lifecycleManager?.settingsManager
+    const secSettings = settingsManager ? await settingsManager.loadSettings('@openacp/security') : {}
+    const maxConcurrentSessions = (secSettings.maxConcurrentSessions as number) ?? 20;
     const activeSessions = deps.core.sessionManager
       .listSessions()
       .filter((s) => s.status === 'active' || s.status === 'initializing');
-    if (activeSessions.length >= config.security.maxConcurrentSessions) {
+    if (activeSessions.length >= maxConcurrentSessions) {
       return reply.status(429).send({
-        error: `Max concurrent sessions (${config.security.maxConcurrentSessions}) reached. Cancel a session first.`,
+        error: `Max concurrent sessions (${maxConcurrentSessions}) reached. Cancel a session first.`,
       });
     }
 
@@ -116,18 +150,26 @@ export async function sessionRoutes(
 
     const channelId = adapterId ?? 'api';
 
-    const resolvedAgent = body.agent || config.defaultAgent;
+    const resolvedAgent = body.agent || deps.core.configManager.get().defaultAgent;
     const agentDef = deps.core.agentCatalog.resolve(resolvedAgent);
-    const resolvedWorkspace = deps.core.configManager.resolveWorkspace(
-      body.workspace || agentDef?.workingDirectory,
-    );
+
+    let resolvedWorkspace: string;
+    try {
+      resolvedWorkspace = deps.core.configManager.resolveWorkspace(
+        body.workspace || agentDef?.workingDirectory,
+      );
+    } catch (err) {
+      throw new BadRequestError(
+        'INVALID_WORKSPACE',
+        err instanceof Error ? err.message : 'Invalid workspace path',
+      );
+    }
 
     const session = await deps.core.createSession({
       channelId,
       agentName: resolvedAgent,
       workingDirectory: resolvedWorkspace,
       createThread: !!adapter,
-      initialName: `🔄 ${resolvedAgent} — New Session`,
     });
 
     return {
@@ -168,10 +210,11 @@ export async function sessionRoutes(
     },
   );
 
-  // POST /sessions/:sessionId/prompt — send a prompt to a session
+  // POST /sessions/:sessionId/prompt — send a prompt (with optional file attachments) to a session.
+  // bodyLimit is raised to 110 MB to accommodate up to 10 attachments × ~10 MB base64 each plus prompt overhead.
   app.post<{ Params: { sessionId: string } }>(
     '/:sessionId/prompt',
-    { preHandler: requireScopes('sessions:prompt') },
+    { preHandler: requireScopes('sessions:prompt'), bodyLimit: 115_000_000 },
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
@@ -193,13 +236,66 @@ export async function sessionRoutes(
 
       const body = PromptBodySchema.parse(request.body);
 
-      await session.enqueuePrompt(body.prompt, undefined, {
-        sourceAdapterId: body.sourceAdapterId ?? 'api',
-        responseAdapterId: body.responseAdapterId,
-      });
+      // Decode base64 attachments and persist via FileService when provided
+      let attachments;
+      if (body.attachments?.length) {
+        let fileService;
+        try {
+          fileService = deps.core.fileService;
+        } catch {
+          throw new ServiceUnavailableError(
+            'FILE_SERVICE_UNAVAILABLE',
+            'File attachments are not supported: file-service plugin is not loaded',
+          );
+        }
+        attachments = await resolveAttachments(fileService, sessionId, body.attachments);
+      }
+
+      const sourceAdapterId = body.sourceAdapterId ?? 'sse';
+      const userId = (request as any).auth?.tokenId ?? 'api';
+
+      // Use 'api' as channelId so auto-register creates identity with source='api',
+      // matching POST /identity/setup. Response routing still uses sourceAdapterId ('sse')
+      // because 'api' is not an adapter — it's just the identity namespace.
+      const result = await deps.core.handleMessageInSession(
+        session,
+        { channelId: 'api', userId, text: body.prompt, attachments },
+        { channelUser: { channelId: 'api', userId } },
+        {
+          externalTurnId: body.turnId,
+          // Preserve null (suppress response) but fall back to sourceAdapterId when
+          // responseAdapterId is not specified, since 'api' has no adapter to route to.
+          responseAdapterId: body.responseAdapterId !== undefined ? body.responseAdapterId : sourceAdapterId,
+        },
+      );
+
+      // handleMessageInSession returns undefined when a middleware (e.g. security) blocks
+      // the message. Surface this as a 403 so the caller knows it was rejected.
+      if (!result) {
+        throw new AuthError('MESSAGE_BLOCKED', 'Message was blocked by a middleware plugin.', 403);
+      }
+
+      return { ok: true, sessionId, queueDepth: result.queueDepth, turnId: result.turnId };
+    },
+  );
+
+  // GET /sessions/:sessionId/queue — get pending queue state
+  app.get<{ Params: { sessionId: string } }>(
+    '/:sessionId/queue',
+    { preHandler: requireScopes('sessions:read') },
+    async (request) => {
+      const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
+      const sessionId = decodeURIComponent(rawId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
+      if (!session) {
+        throw new NotFoundError(
+          'SESSION_NOT_FOUND',
+          `Session "${sessionId}" not found`,
+        );
+      }
       return {
-        ok: true,
-        sessionId,
+        pending: session.queueItems,
+        processing: session.promptRunning,
         queueDepth: session.queueDepth,
       };
     },
@@ -212,7 +308,7 @@ export async function sessionRoutes(
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
       if (!session) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
@@ -232,6 +328,16 @@ export async function sessionRoutes(
       }
 
       session.permissionGate.resolve(body.optionId);
+
+      if (body.feedback) {
+        // Abort current turn so the agent doesn't respond about the refusal,
+        // then queue feedback as next prompt.
+        await session.abortPrompt().catch((err: unknown) => {
+          request.log.warn({ err }, 'Failed to abort prompt before feedback enqueue');
+        });
+        await session.enqueuePrompt(body.feedback, undefined, { sourceAdapterId: 'api' });
+      }
+
       return { ok: true };
     },
   );
@@ -243,7 +349,7 @@ export async function sessionRoutes(
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
       if (!session) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
@@ -287,7 +393,7 @@ export async function sessionRoutes(
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
       if (!session) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
@@ -313,16 +419,21 @@ export async function sessionRoutes(
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
       const session = deps.core.sessionManager.getSession(sessionId);
-      if (!session) {
-        throw new NotFoundError(
-          'SESSION_NOT_FOUND',
-          `Session "${sessionId}" not found`,
-        );
+      if (session) {
+        return {
+          configOptions: session.configOptions,
+          clientOverrides: session.clientOverrides,
+        };
       }
 
+      // Fallback: serve cached ACP state from persisted record
+      const record = deps.core.sessionManager.getSessionRecord(sessionId);
+      if (!record) {
+        throw new NotFoundError('SESSION_NOT_FOUND', `Session "${sessionId}" not found`);
+      }
       return {
-        configOptions: session.configOptions,
-        clientOverrides: session.clientOverrides,
+        configOptions: record.acpState?.configOptions,
+        clientOverrides: record.clientOverrides ?? {},
       };
     },
   );
@@ -334,7 +445,7 @@ export async function sessionRoutes(
     async (request) => {
       const { sessionId: rawId, configId } = ConfigIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
       if (!session) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
@@ -365,14 +476,16 @@ export async function sessionRoutes(
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
       const session = deps.core.sessionManager.getSession(sessionId);
-      if (!session) {
-        throw new NotFoundError(
-          'SESSION_NOT_FOUND',
-          `Session "${sessionId}" not found`,
-        );
+      if (session) {
+        return { clientOverrides: session.clientOverrides };
       }
 
-      return { clientOverrides: session.clientOverrides };
+      // Fallback: serve from persisted record
+      const record = deps.core.sessionManager.getSessionRecord(sessionId);
+      if (!record) {
+        throw new NotFoundError('SESSION_NOT_FOUND', `Session "${sessionId}" not found`);
+      }
+      return { clientOverrides: record.clientOverrides ?? {} };
     },
   );
 
@@ -383,7 +496,7 @@ export async function sessionRoutes(
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
+      const session = await deps.core.getOrResumeSessionById(sessionId);
       if (!session) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
@@ -462,8 +575,10 @@ export async function sessionRoutes(
     { preHandler: requireScopes('sessions:read') },
     async (request, reply) => {
       const { sessionId } = SessionIdParamSchema.parse(request.params);
-      const session = deps.core.sessionManager.getSession(sessionId);
-      if (!session) {
+      // History is stored by sessionId — no need to resume the agent, just verify the session exists
+      const isKnown = deps.core.sessionManager.getSession(sessionId)
+        ?? deps.core.sessionManager.getSessionRecord(sessionId);
+      if (!isKnown) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
           `Session "${sessionId}" not found`,
@@ -487,8 +602,10 @@ export async function sessionRoutes(
     async (request) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeURIComponent(rawId);
-      const session = deps.core.sessionManager.getSession(sessionId);
-      if (!session) {
+      // cancelSession handles both live and store-only sessions; just verify it exists first
+      const isKnown = deps.core.sessionManager.getSession(sessionId)
+        ?? deps.core.sessionManager.getSessionRecord(sessionId);
+      if (!isKnown) {
         throw new NotFoundError(
           'SESSION_NOT_FOUND',
           `Session "${sessionId}" not found`,

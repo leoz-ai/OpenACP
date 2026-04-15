@@ -11,7 +11,7 @@ function makeEmptyConfig(): Config {
     channels: {},
     agents: {},
     defaultAgent: 'test-agent',
-    workspace: { baseDir: '/tmp/ws' },
+    workspace: {},
     security: { allowedUserIds: [], maxConcurrentSessions: 20, sessionTimeoutMinutes: 60 },
     logging: { level: 'info', logDir: '/tmp/logs', maxFileSize: '10m', maxFiles: 7, sessionLogRetentionDays: 30 },
     runMode: 'foreground',
@@ -58,21 +58,6 @@ describe('getChannelStatuses', () => {
 
     const tg = statuses.find(s => s.id === 'telegram')
     expect(tg?.configured).toBe(false)
-  })
-
-  it('shows telegram as configured when config.channels has legacy data (no settingsManager)', async () => {
-    const config = makeEmptyConfig()
-    ;(config.channels as Record<string, unknown>).telegram = {
-      botToken: 'legacy-token',
-      chatId: -1001111111111,
-      enabled: true,
-    }
-
-    const statuses = await getChannelStatuses(config)
-
-    const tg = statuses.find(s => s.id === 'telegram')
-    expect(tg?.configured).toBe(true)
-    expect(tg?.enabled).toBe(true)
   })
 
   it('prefers plugin settings over legacy config.channels', async () => {

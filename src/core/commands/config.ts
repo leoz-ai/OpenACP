@@ -3,6 +3,7 @@ import type { CommandResponse } from '../plugin/types.js'
 import type { OpenACPCore } from '../core.js'
 import type { ConfigSelectChoice, ConfigSelectGroup } from '../types.js'
 import { createChildLogger } from '../utils/log.js'
+import { BusEvent } from '../events.js'
 
 const log = createChildLogger({ module: 'commands/config' })
 
@@ -67,6 +68,14 @@ function getLabels(category: string, commandName: string): CategoryLabels {
 
 // ── Generic category command factory ─────────────────────────────────
 
+/**
+ * Register a command that reads/writes a session config option by category.
+ *
+ * Each agent exposes config options (mode, model, thought_level) as select menus.
+ * This factory creates a command that:
+ * - With no args: shows a menu of available values with the current one checked
+ * - With a value arg: validates and applies the new value via `session.setConfigOption`
+ */
 function registerCategoryCommand(
   registry: CommandRegistry,
   core: OpenACPCore,
@@ -125,7 +134,7 @@ function registerCategoryCommand(
 
       try {
         await session.setConfigOption(configOption.id, { type: 'select', value: raw })
-        core.eventBus.emit('session:configChanged', { sessionId: session.id })
+        core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
         return { type: 'text', text: labels.successMsg(match.name, configOption.name) } satisfies CommandResponse
       } catch (err) {
         log.error({ err, commandName, configId: configOption.id }, 'setConfigOption failed')
@@ -141,6 +150,15 @@ function registerCategoryCommand(
 
 // ── /bypass_permissions command ───────────────────────────────────────────────
 
+/**
+ * Register /bypass_permissions — toggles auto-approval of permission requests.
+ *
+ * Two mechanisms are supported:
+ * 1. If the agent has a bypass value in its mode options (e.g. Claude Code's "dangermode"),
+ *    the command switches the agent mode via setConfigOption.
+ * 2. Otherwise, falls back to a client-side override on the Session that auto-approves
+ *    all permission requests before they reach the user.
+ */
 function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore): void {
   registry.register({
     name: 'bypass_permissions',
@@ -210,7 +228,7 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
         try {
           const targetValue = wantOn ? bypassValue : nonBypassDefault!
           await session.setConfigOption(modeConfig.id, { type: 'select', value: targetValue })
-          core.eventBus.emit('session:configChanged', { sessionId: session.id })
+          core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
           return {
             type: 'text',
             text: wantOn
@@ -232,7 +250,7 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
       await core.sessionManager.patchRecord(session.id, {
         clientOverrides: { ...session.clientOverrides },
       })
-      core.eventBus.emit('session:configChanged', { sessionId: session.id })
+      core.eventBus.emit(BusEvent.SESSION_CONFIG_CHANGED, { sessionId: session.id })
       return {
         type: 'text',
         text: wantOn
@@ -245,6 +263,12 @@ function registerDangerousCommand(registry: CommandRegistry, core: OpenACPCore):
 
 // ── Public registration ──────────────────────────────────────────────
 
+/**
+ * Register session configuration commands: /mode, /model, /thought, /bypass_permissions.
+ *
+ * These commands let users change agent behavior at runtime. Each maps to
+ * a config option category exposed by the agent via ACP config_option events.
+ */
 export function registerConfigCommands(registry: CommandRegistry, _core: unknown): void {
   const core = _core as OpenACPCore
   registerCategoryCommand(registry, core, 'mode', 'mode')

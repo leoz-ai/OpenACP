@@ -1,6 +1,19 @@
+/**
+ * Doctor check: Telegram — validates bot token, chat ID, and bot permissions.
+ *
+ * Performs live API calls to verify:
+ *   1. Bot token format matches Telegram's pattern
+ *   2. Bot token is accepted by the Telegram API (getMe)
+ *   3. Chat ID points to a valid supergroup with topics enabled
+ *   4. Bot has administrator privileges in the group
+ *
+ * Skipped if Telegram is not configured (no bot token or chat ID in settings).
+ */
+
 import * as path from "node:path";
 import type { DoctorCheck, CheckResult } from "../types.js";
 
+/** Telegram bot tokens follow the pattern: <bot_id>:<alphanumeric_secret> */
 const BOT_TOKEN_REGEX = /^\d+:[A-Za-z0-9_-]{35,}$/;
 
 export const telegramCheck: DoctorCheck = {
@@ -14,15 +27,13 @@ export const telegramCheck: DoctorCheck = {
       return results;
     }
 
-    // Check plugin settings first (new-style), then fall back to legacy config.channels
+    // Read Telegram settings from plugin settings (migrated out of config.json)
     const { SettingsManager } = await import("../../plugin/settings-manager.js");
     const sm = new SettingsManager(path.join(ctx.pluginsDir, "data"));
     const ps = await sm.loadSettings("@openacp/telegram");
 
-    const legacyCh = ctx.config.channels.telegram as Record<string, unknown> | undefined;
-
-    const botToken = (ps.botToken as string | undefined) ?? (legacyCh?.botToken as string | undefined);
-    const chatId = (ps.chatId as number | undefined) ?? (legacyCh?.chatId as number | undefined);
+    const botToken = ps.botToken as string | undefined;
+    const chatId = ps.chatId as number | undefined;
 
     if (!botToken && !chatId) {
       results.push({ status: "pass", message: "Telegram not configured (skipped)" });

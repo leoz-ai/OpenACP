@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentInstance } from "../agents/agent-instance.js";
-import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption, SessionModeState, SessionModelState } from "../types.js";
+import type { AgentCapabilities, AgentCommand, AgentEvent, AgentSwitchEntry, Attachment, PermissionRequest, SessionStatus, ConfigOption, SessionModeState, SessionModelState, TurnMeta } from "../types.js";
 import { TypedEmitter } from "../utils/typed-emitter.js";
 import { PromptQueue } from "./prompt-queue.js";
 import { PermissionGate } from "./permission-gate.js";
@@ -10,15 +10,29 @@ import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import * as fs from "node:fs";
 import type { TurnRouting } from "./turn-context.js";
 import { createTurnContext, type TurnContext } from "./turn-context.js";
+import { Hook, SessionEv } from "../events.js";
 const moduleLog = createChildLogger({ module: "session" });
 
-// TTS constants
+// TTS injection pattern: we append TTS_PROMPT_INSTRUCTION to the user's prompt so the
+// agent includes a [TTS]...[/TTS] block in its response. After the response completes,
+// we extract that block via TTS_BLOCK_REGEX and synthesize speech from it. The TTS block
+// is then stripped from the text shown to the user (via tts_strip event).
 export const TTS_PROMPT_INSTRUCTION = `\n\nAdditionally, include a [TTS]...[/TTS] block with a spoken-friendly summary of your response. Focus on key information, decisions the user needs to make, or actions required. The agent decides what to say and how long. Respond in the same language the user is using. This instruction applies to this message only.`;
 export const TTS_BLOCK_REGEX = /\[TTS\]([\s\S]*?)\[\/TTS\]/;
 export const TTS_MAX_LENGTH = 5000;
 export const TTS_TIMEOUT_MS = 30_000;
 
-// Valid state transitions: from → Set<to>
+// Session state machine — valid transitions: from → Set<to>
+//
+//   initializing → active (first prompt received)
+//                → error  (agent spawn failed)
+//   active       → error     (unrecoverable prompt failure)
+//                → finished  (agent signaled session_end)
+//                → cancelled (user cancelled the session)
+//   error        → active    (retry: user sends a new prompt)
+//                → cancelled (user gives up)
+//   cancelled    → active    (resume: user sends a new prompt)
+//   finished     → (terminal — no further transitions)
 const VALID_TRANSITIONS: Record<SessionStatus, Set<SessionStatus>> = {
   initializing: new Set(["active", "error"]),
   active: new Set(["error", "finished", "cancelled"]),
@@ -27,6 +41,7 @@ const VALID_TRANSITIONS: Record<SessionStatus, Set<SessionStatus>> = {
   finished: new Set(),
 };
 
+/** Events emitted by a Session instance — SessionBridge subscribes to relay them to adapters. */
 export interface SessionEvents {
   agent_event: (event: AgentEvent) => void;
   permission_request: (request: PermissionRequest) => void;
@@ -38,6 +53,17 @@ export interface SessionEvents {
   turn_started: (ctx: TurnContext) => void;
 }
 
+/**
+ * Manages a single conversation between a user and an AI agent.
+ *
+ * Wraps an AgentInstance with serial prompt queuing (via PromptQueue), permission
+ * gating (via PermissionGate), TTS/STT integration, auto-naming, and a state
+ * machine tracking the session lifecycle. SessionBridge subscribes to this
+ * emitter to forward agent output to channel adapters.
+ *
+ * A session can be attached to multiple adapters simultaneously (e.g., Telegram
+ * and SSE). The `threadIds` map tracks which thread each adapter uses.
+ */
 export class Session extends TypedEmitter<SessionEvents> {
   id: string;
   channelId: string;
@@ -52,7 +78,15 @@ export class Session extends TypedEmitter<SessionEvents> {
   }
   agentName: string;
   workingDirectory: string;
-  agentInstance: AgentInstance;
+  private _agentInstance!: AgentInstance;
+  get agentInstance(): AgentInstance { return this._agentInstance; }
+  /** Setting agentInstance wires the agent→session event relay and commands buffer.
+   *  This happens both at construction and on agent switch (switchAgent). */
+  set agentInstance(agent: AgentInstance) {
+    this._agentInstance = agent;
+    this.wireAgentRelay();
+    this.wireCommandsBuffer();
+  }
   agentSessionId: string = "";
   private _status: SessionStatus = "initializing";
   name?: string;
@@ -81,6 +115,8 @@ export class Session extends TypedEmitter<SessionEvents> {
   private readonly queue: PromptQueue;
   private speechService?: SpeechService;
   private pendingContext: string | null = null;
+  /** Per-turn abort tracking — avoids race when next turn resets before current turn reads */
+  private _abortedTurnIds = new Set<string>();
 
   constructor(opts: {
     id?: string;
@@ -105,16 +141,30 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.log.info({ agentName: this.agentName }, "Session created");
 
     this.queue = new PromptQueue(
-      (text, attachments, routing, turnId) => this.processPrompt(text, attachments, routing, turnId),
+      (text, userPrompt, attachments, routing, turnId, meta) => this.processPrompt(text, userPrompt, attachments, routing, turnId, meta),
       (err) => {
         this.log.error({ err }, "Prompt execution failed");
         const message = err instanceof Error ? err.message : String(err);
         this.fail(message);
-        this.emit("agent_event", { type: "error", message: `Prompt execution failed: ${message}` });
+        this.emit(SessionEv.AGENT_EVENT, { type: "error", message: `Prompt execution failed: ${message}` });
       },
     );
 
-    this.wireCommandsBuffer();
+  }
+
+  /** Wire the agent→session event relay on the current agentInstance.
+   *  Removes any previous relay first to avoid duplicates on agent switch.
+   *  This relay ensures session.emit("agent_event") fires for ALL sessions,
+   *  including headless API sessions that have no SessionBridge attached. */
+  private agentRelayCleanup?: () => void;
+  private wireAgentRelay(): void {
+    this.agentRelayCleanup?.();
+    const instance = this._agentInstance;
+    const handler = (event: AgentEvent) => {
+      this.emit(SessionEv.AGENT_EVENT, event);
+    };
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.agentRelayCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   /** Wire a listener on the current agentInstance to buffer commands_update events.
@@ -123,13 +173,14 @@ export class Session extends TypedEmitter<SessionEvents> {
   private wireCommandsBuffer(): void {
     // Remove previous listener (if switching agents) to avoid leaks
     this.commandsBufferCleanup?.();
+    const instance = this._agentInstance;
     const handler = (event: AgentEvent) => {
       if (event.type === "commands_update") {
         this.latestCommands = event.commands;
       }
     };
-    this.agentInstance.on("agent_event", handler);
-    this.commandsBufferCleanup = () => this.agentInstance.off("agent_event", handler);
+    instance.on(SessionEv.AGENT_EVENT, handler);
+    this.commandsBufferCleanup = () => instance.off(SessionEv.AGENT_EVENT, handler);
   }
 
   // --- State Machine ---
@@ -148,16 +199,16 @@ export class Session extends TypedEmitter<SessionEvents> {
   fail(reason: string): void {
     if (this._status === "error") return;
     this.transition("error");
-    this.emit("error", new Error(reason));
+    this.emit(SessionEv.ERROR, new Error(reason));
   }
 
   /** Transition to finished — from active only. Emits session_end for backward compat. */
   finish(reason?: string): void {
     this.transition("finished");
-    this.emit("session_end", reason ?? "completed");
+    this.emit(SessionEv.SESSION_END, reason ?? "completed");
   }
 
-  /** Transition to cancelled — from active only (terminal session cancel) */
+  /** Transition to cancelled — from active or error (terminal session cancel) */
   markCancelled(): void {
     this.transition("cancelled");
   }
@@ -172,7 +223,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
     this._status = to;
     this.log.debug({ from, to }, "Session status transition");
-    this.emit("status_change", from, to);
+    this.emit(SessionEv.STATUS_CHANGE, from, to);
   }
 
   /** Number of prompts waiting in queue */
@@ -180,18 +231,26 @@ export class Session extends TypedEmitter<SessionEvents> {
     return this.queue.pending;
   }
 
+  /** Whether a prompt is currently being processed by the agent */
   get promptRunning(): boolean {
     return this.queue.isProcessing;
   }
 
+  /** Snapshot of queued (not yet processing) items — for inspection by API consumers. */
+  get queueItems() {
+    return this.queue.pendingItems;
+  }
+
   // --- Context Injection ---
 
+  /** Store context markdown to be prepended to the next prompt (used for session resume with history). */
   setContext(markdown: string): void {
     this.pendingContext = markdown;
   }
 
   // --- Voice Mode ---
 
+  /** Set TTS mode: "off" = disabled, "next" = one-shot (auto-resets after prompt), "on" = persistent. */
   setVoiceMode(mode: "off" | "next" | "on"): void {
     this.voiceMode = mode;
     this.log.info({ voiceMode: mode }, "TTS mode changed");
@@ -199,22 +258,32 @@ export class Session extends TypedEmitter<SessionEvents> {
 
   // --- Public API ---
 
-  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, externalTurnId?: string): Promise<string> {
+  /**
+   * Enqueue a user prompt for serial processing.
+   *
+   * Runs the prompt through agent:beforePrompt middleware (which can modify or block),
+   * then adds it to the PromptQueue. Returns a turnId that callers can use to correlate
+   * queued/processing events before the prompt actually runs.
+   */
+  async enqueuePrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, externalTurnId?: string, meta?: TurnMeta): Promise<string> {
     // Use pre-generated turnId if provided (so callers can emit events before awaiting the queue)
     const turnId = externalTurnId ?? nanoid(8);
+    const turnMeta: TurnMeta = meta ?? { turnId };
+    // Capture raw user prompt before middleware can modify it
+    const userPrompt = text;
     // Hook: agent:beforePrompt — modifiable, can block
     if (this.middlewareChain) {
-      const payload = { text, attachments, sessionId: this.id };
-      const result = await this.middlewareChain.execute('agent:beforePrompt', payload, async (p) => p);
-      if (!result) return turnId; // blocked by middleware
+      const payload = { text, attachments, sessionId: this.id, sourceAdapterId: routing?.sourceAdapterId, meta: turnMeta };
+      const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_PROMPT, payload, async (p) => p);
+      if (!result) throw new Error('PROMPT_BLOCKED'); // blocked by middleware — caller must emit message:failed
       text = result.text;
       attachments = result.attachments;
     }
-    await this.queue.enqueue(text, attachments, routing, turnId);
+    await this.queue.enqueue(text, userPrompt, attachments, routing, turnId, turnMeta);
     return turnId;
   }
 
-  private async processPrompt(text: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string): Promise<void> {
+  private async processPrompt(text: string, userPrompt: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta): Promise<void> {
     // Don't process prompts for finished sessions (queue may still drain)
     if (this._status === "finished") return;
 
@@ -224,13 +293,17 @@ export class Session extends TypedEmitter<SessionEvents> {
       routing?.sourceAdapterId ?? this.channelId,
       routing?.responseAdapterId,
       turnId,
+      userPrompt,
+      text,      // finalPrompt (after middleware transformations)
+      attachments,
+      meta,
     );
 
     // Emit turn_started so SessionBridge can emit message:processing on EventBus
-    this.emit("turn_started", this.activeTurnContext);
+    this.emit(SessionEv.TURN_STARTED, this.activeTurnContext);
 
     this.promptCount++;
-    this.emit('prompt_count_changed', this.promptCount);
+    this.emit(SessionEv.PROMPT_COUNT_CHANGED, this.promptCount);
 
     if (this._status === "initializing" || this._status === "cancelled" || this._status === "error") {
       this.activate();
@@ -269,12 +342,45 @@ export class Session extends TypedEmitter<SessionEvents> {
       : null;
 
     if (accumulatorListener) {
-      this.on("agent_event", accumulatorListener);
+      this.on(SessionEv.AGENT_EVENT, accumulatorListener);
+    }
+
+    // Buffer text events for agent:afterTurn hook — accumulates full response text
+    const turnTextBuffer: string[] = [];
+    const turnTextListener = (event: AgentEvent) => {
+      if (event.type === 'text' && typeof (event as any).content === 'string') {
+        turnTextBuffer.push((event as any).content);
+      }
+    };
+    this.on(SessionEv.AGENT_EVENT, turnTextListener);
+
+    // Hook: agent:afterEvent — fire for every agent event, including headless API sessions.
+    // Listens directly on agentInstance so it works regardless of whether a SessionBridge is connected.
+    // The bridge previously fired this hook from dispatchAgentEvent, but that path is skipped when
+    // no adapter is attached (headless), causing AI response steps to be missing from history.
+    const mw = this.middlewareChain;
+    const afterEventListener = mw
+      ? (event: AgentEvent) => {
+          mw.execute(Hook.AGENT_AFTER_EVENT, { sessionId: this.id, event, outgoingMessage: { type: 'text' as const, text: '' } }, async (e) => e).catch(() => {});
+        }
+      : null;
+
+    if (afterEventListener) {
+      this.agentInstance.on(SessionEv.AGENT_EVENT, afterEventListener);
     }
 
     // Hook: turn:start — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute('turn:start', { sessionId: this.id, promptText: processed.text, promptNumber: this.promptCount }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.TURN_START, {
+        sessionId: this.id,
+        promptText: processed.text,
+        promptNumber: this.promptCount,
+        turnId: this.activeTurnContext?.turnId ?? turnId ?? '',
+        meta,
+        userPrompt: this.activeTurnContext?.userPrompt,
+        sourceAdapterId: this.activeTurnContext?.sourceAdapterId,
+        responseAdapterId: this.activeTurnContext?.responseAdapterId,
+      }, async (p) => p).catch(() => {});
     }
 
     let stopReason: string = 'end_turn';
@@ -297,12 +403,34 @@ export class Session extends TypedEmitter<SessionEvents> {
       promptError = err;
     } finally {
       if (accumulatorListener) {
-        this.off("agent_event", accumulatorListener);
+        this.off(SessionEv.AGENT_EVENT, accumulatorListener);
       }
+      if (afterEventListener) {
+        this.agentInstance.off(SessionEv.AGENT_EVENT, afterEventListener);
+      }
+      this.off(SessionEv.AGENT_EVENT, turnTextListener);
+
+      const finalTurnId = this.activeTurnContext?.turnId ?? turnId ?? '';
+      const wasAborted = this._abortedTurnIds.has(finalTurnId);
+      if (wasAborted) this._abortedTurnIds.delete(finalTurnId);
+      const finalStopReason = wasAborted ? 'interrupted' : stopReason;
+
       // Hook: turn:end — always fires, even on error
       if (this.middlewareChain) {
-        this.middlewareChain.execute('turn:end', { sessionId: this.id, stopReason: stopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.TURN_END, { sessionId: this.id, stopReason: finalStopReason as import('../types.js').StopReason, durationMs: Date.now() - promptStart, turnId: finalTurnId, meta }, async (p) => p).catch(() => {});
       }
+
+      // Hook: agent:afterTurn — full assembled text, read-only, fire-and-forget
+      if (this.middlewareChain) {
+        this.middlewareChain.execute(Hook.AGENT_AFTER_TURN, {
+          sessionId: this.id,
+          turnId: finalTurnId,
+          fullText: turnTextBuffer.join(''),
+          stopReason: finalStopReason as import('../types.js').StopReason,
+          meta,
+        }, async (p) => p).catch(() => {});
+      }
+
       // Always clear turn context so routing state is never stale after a failed turn
       this.activeTurnContext = null;
     }
@@ -329,6 +457,10 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
   }
 
+  /**
+   * Transcribe audio attachments to text if the agent doesn't support audio natively.
+   * Audio attachments are removed and their transcriptions are appended to the prompt text.
+   */
   private async maybeTranscribeAudio(
     text: string,
     attachments?: Attachment[],
@@ -362,7 +494,7 @@ export class Session extends TypedEmitter<SessionEvents> {
         const result = await this.speechService.transcribe(audioBuffer, audioMime);
         this.log.info({ provider: "stt", duration: result.duration }, "Voice transcribed");
         // Notify user of transcription result
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "system_message",
           message: `🎤 You said: ${result.text}`,
         });
@@ -373,7 +505,7 @@ export class Session extends TypedEmitter<SessionEvents> {
           : result.text;
       } catch (err) {
         this.log.warn({ err }, "STT transcription failed, keeping audio attachment");
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "error",
           message: `Voice transcription failed: ${(err as Error).message}`,
         });
@@ -387,6 +519,7 @@ export class Session extends TypedEmitter<SessionEvents> {
     };
   }
 
+  /** Extract [TTS] block from agent response, synthesize speech, and emit audio_content event. */
   private async processTTSResponse(responseText: string): Promise<void> {
     const match = TTS_BLOCK_REGEX.exec(responseText);
     if (!match?.[1]) {
@@ -412,12 +545,12 @@ export class Session extends TypedEmitter<SessionEvents> {
           timeoutPromise,
         ]);
         const base64 = result.audioBuffer.toString("base64");
-        this.emit("agent_event", {
+        this.emit(SessionEv.AGENT_EVENT, {
           type: "audio_content",
           data: base64,
           mimeType: result.mimeType,
         });
-        this.emit("agent_event", { type: "tts_strip" });
+        this.emit(SessionEv.AGENT_EVENT, { type: "tts_strip" });
         this.log.info("TTS synthesis completed");
       } finally {
         clearTimeout(ttsTimer!);
@@ -427,7 +560,9 @@ export class Session extends TypedEmitter<SessionEvents> {
     }
   }
 
-  // NOTE: This injects a summary prompt into the agent's conversation history.
+  // Sends a special prompt to the agent to generate a short session title.
+  // The session emitter is paused (excluding non-agent_event emissions) so the naming
+  // prompt's output is intercepted by a capture handler instead of being forwarded to adapters.
   private async autoName(): Promise<void> {
     let title = "";
 
@@ -441,8 +576,8 @@ export class Session extends TypedEmitter<SessionEvents> {
     // Pause the session emitter so agent_event emissions from SessionBridge
     // don't reach the adapter during auto-name. The AgentInstance emitter
     // stays active — we just intercept with our capture handler.
-    this.pause((event) => event !== "agent_event");
-    this.agentInstance.on("agent_event", captureHandler);
+    this.pause((event) => event !== SessionEv.AGENT_EVENT);
+    this.agentInstance.on(SessionEv.AGENT_EVENT, captureHandler);
 
     try {
       await this.agentInstance.prompt(
@@ -452,11 +587,11 @@ export class Session extends TypedEmitter<SessionEvents> {
       this.log.info({ name: this.name }, "Session auto-named");
 
       // Emit named event — SessionBridge listens to rename the thread
-      this.emit("named", this.name);
+      this.emit(SessionEv.NAMED, this.name);
     } catch {
       this.name = `Session ${this.id.slice(0, 6)}`;
     } finally {
-      this.agentInstance.off("agent_event", captureHandler);
+      this.agentInstance.off(SessionEv.AGENT_EVENT, captureHandler);
       // Discard buffered auto-name agent_events, then resume normal delivery
       this.clearBuffer();
       this.resume();
@@ -525,7 +660,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   /** Set session name explicitly and emit 'named' event */
   setName(name: string): void {
     this.name = name;
-    this.emit("named", name);
+    this.emit(SessionEv.NAMED, name);
   }
 
   /** Send a config option change to the agent and update local state from the response. */
@@ -545,7 +680,7 @@ export class Session extends TypedEmitter<SessionEvents> {
   async updateConfigOptions(options: ConfigOption[]): Promise<void> {
     // Hook: config:beforeChange — await-able, can block
     if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('config:beforeChange', { sessionId: this.id, configId: 'options', oldValue: this.configOptions, newValue: options }, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.CONFIG_BEFORE_CHANGE, { sessionId: this.id, configId: 'options', oldValue: this.configOptions, newValue: options }, async (p) => p);
       if (!result) return; // blocked by middleware
     }
     this.configOptions = options;
@@ -565,15 +700,17 @@ export class Session extends TypedEmitter<SessionEvents> {
     return this.agentCapabilities?.sessionCapabilities?.[cap] === true;
   }
 
-  /** Cancel the current prompt and clear the queue. Stays in active state. */
+  /** Cancel the current prompt. Queued prompts continue processing. Stays in active state. */
   async abortPrompt(): Promise<void> {
     // Hook: agent:beforeCancel — modifiable, can block
     if (this.middlewareChain) {
-      const result = await this.middlewareChain.execute('agent:beforeCancel', { sessionId: this.id }, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_CANCEL, { sessionId: this.id }, async (p) => p);
       if (!result) return; // blocked by middleware
     }
-    this.queue.clear();
-    this.log.info("Prompt aborted");
+    const turnId = this.activeTurnContext?.turnId;
+    if (turnId) this._abortedTurnIds.add(turnId);
+    this.queue.abortCurrent();
+    this.log.info("Prompt aborted (queue preserved, %d pending)", this.queue.pending);
     await this.agentInstance.cancel();
   }
 
@@ -624,11 +761,11 @@ export class Session extends TypedEmitter<SessionEvents> {
     this.configOptions = [];
     this.latestCommands = null;
     this.applySpawnResponse(newAgent.initialSessionResponse, newAgent.agentCapabilities);
-    this.wireCommandsBuffer();
 
     this.log.info({ from: this.agentSwitchHistory.at(-1)!.agentName, to: agentName }, "Agent switched");
   }
 
+  /** Tear down the session: reject pending permissions, clear queue, destroy agent subprocess. */
   async destroy(): Promise<void> {
     this.log.info("Session destroyed");
     // Reject any pending permission promise so callers don't hang

@@ -10,25 +10,59 @@ import type {
   UsageRecord,
 } from '../types.js'
 import type { IChannelAdapter } from '../channel.js'
+import type { TurnMeta } from '../types.js'
 
-// Re-export IChannelAdapter for plugin authors
+/** Re-export IChannelAdapter for plugin authors */
 export type { IChannelAdapter }
 
 // ============================================================
 // Section 2: Plugin Interface
 // ============================================================
 
+/**
+ * Permission tokens that gate access to PluginContext capabilities.
+ * Declared in a plugin's `permissions` array; enforced at runtime by PluginContext.
+ */
 export type PluginPermission =
+  /** Subscribe to EventBus events */
   | 'events:read'
+  /** Emit custom events on the EventBus */
   | 'events:emit'
+  /** Register services in the ServiceRegistry */
   | 'services:register'
+  /** Look up and consume services from the ServiceRegistry */
   | 'services:use'
+  /** Register middleware handlers on hook points */
   | 'middleware:register'
+  /** Register slash commands, menu items, assistant sections, and editable fields */
   | 'commands:register'
+  /** Read from plugin-scoped storage */
   | 'storage:read'
+  /** Write to plugin-scoped storage */
   | 'storage:write'
+  /** Direct access to OpenACPCore internals (sessions, config, eventBus) */
   | 'kernel:access'
+  /** Read-only session metadata without kernel:access */
+  | 'sessions:read'
+  /** Read identity data (users, identities, search) */
+  | 'identity:read'
+  /** Write identity data (create, update, link, unlink, roles) */
+  | 'identity:write'
+  /** Register an identity source (adapters register their platform name) */
+  | 'identity:register-source'
+  /** Send push notifications to users */
+  | 'notifications:send'
 
+/**
+ * The runtime plugin instance — the object a plugin module default-exports.
+ *
+ * This is distinct from `PluginEntry` (the registry's persisted metadata about
+ * an installed plugin). `OpenACPPlugin` defines behavior (setup/teardown hooks),
+ * while `PluginEntry` tracks install state (version, source, enabled flag).
+ *
+ * Lifecycle: LifecycleManager topo-sorts plugins by `pluginDependencies`,
+ * then calls `setup()` on each in order, passing a scoped `PluginContext`.
+ */
 export interface OpenACPPlugin {
   /** Unique identifier, e.g., '@openacp/security' */
   name: string
@@ -42,17 +76,26 @@ export interface OpenACPPlugin {
   optionalPluginDependencies?: Record<string, string>
   /** Override a built-in plugin (replaces it entirely) */
   overrides?: string
-  /** Required permissions — PluginContext enforces these */
+  /** Required permissions — PluginContext enforces these at runtime */
   permissions?: PluginPermission[]
-  /** Called during startup in dependency order */
+  /** Called during startup in dependency order. 30s timeout. */
   setup(ctx: PluginContext): Promise<void>
-  /** Called during shutdown in reverse order. 10s timeout. */
+  /** Called during shutdown in reverse dependency order. 10s timeout. */
   teardown?(): Promise<void>
+  /** Called once when the plugin is first installed via CLI */
   install?(ctx: InstallContext): Promise<void>
+  /** Called when the plugin is removed via CLI. `purge` deletes data too. */
   uninstall?(ctx: InstallContext, opts: { purge: boolean }): Promise<void>
+  /** Interactive configuration via CLI (post-install) */
   configure?(ctx: InstallContext): Promise<void>
+  /**
+   * Called at boot when the registry's stored version differs from the plugin's
+   * current version. Returns new settings to persist, or void to keep existing.
+   */
   migrate?(ctx: MigrateContext, oldSettings: unknown, oldVersion: string): Promise<unknown>
+  /** Zod schema to validate settings before setup(). Validation failure skips the plugin. */
   settingsSchema?: import('zod').ZodSchema
+  /** If true, the plugin is critical to core operation (informational flag) */
   essential?: boolean
   /** Settings keys that can be copied when creating a new instance from this one */
   inheritableKeys?: string[]
@@ -62,16 +105,31 @@ export interface OpenACPPlugin {
 // Section 3: PluginContext, PluginStorage, CommandDef
 // ============================================================
 
+/**
+ * Per-plugin key-value storage backed by a JSON file on disk.
+ * Each plugin gets an isolated namespace at `~/.openacp/plugins/<name>/kv.json`.
+ */
 export interface PluginStorage {
   get<T>(key: string): Promise<T | undefined>
   set<T>(key: string, value: T): Promise<void>
   delete(key: string): Promise<void>
   list(): Promise<string[]>
+  /** Returns keys matching the given prefix, or all keys if prefix is omitted. */
+  keys(prefix?: string): Promise<string[]>
+  /** Deletes all keys in this storage scope. */
+  clear(): Promise<void>
+  /** Returns the plugin's dedicated data directory, creating it if needed */
   getDataDir(): string
+  /** Returns a storage instance scoped to the given session. Auto-isolated from global storage. */
+  forSession(sessionId: string): PluginStorage
 }
 
 // ─── Settings API (per-plugin settings.json) ───
 
+/**
+ * Typed API for reading and writing a plugin's settings.json file.
+ * Backed by SettingsManager; available in InstallContext and MigrateContext.
+ */
 export interface SettingsAPI {
   get<T = unknown>(key: string): Promise<T | undefined>
   set<T = unknown>(key: string, value: T): Promise<void>
@@ -82,8 +140,30 @@ export interface SettingsAPI {
   has(key: string): Promise<boolean>
 }
 
+// ─── Plugin Field Declaration ───
+
+/** Describes a settings field that a plugin exposes as editable via API/UI */
+export interface FieldDef {
+  /** Settings key (matches the key in plugin settings.json) */
+  key: string
+  /** Human-readable label for UI display */
+  displayName: string
+  type: "toggle" | "select" | "number" | "string"
+  /** safe = readable via API; sensitive = write-only (e.g., tokens) */
+  scope: "safe" | "sensitive"
+  /** Whether the change takes effect without restart. Default: false */
+  hotReload?: boolean
+  /** Valid values for "select" type */
+  options?: string[]
+}
+
 // ─── Terminal I/O (interactive CLI for plugins) ───
 
+/**
+ * Interactive CLI primitives for plugin install/configure flows.
+ * Wraps @clack/prompts — only available during CLI operations (install, configure),
+ * NOT during normal runtime. Plugins use this in their `install()` and `configure()` hooks.
+ */
 export interface TerminalIO {
   text(opts: {
     message: string
@@ -133,11 +213,15 @@ export interface TerminalIO {
 
 // ─── Install Context (for install/configure/uninstall) ───
 
+/**
+ * Context provided to plugin install/uninstall/configure hooks.
+ * Unlike PluginContext (runtime), InstallContext provides terminal I/O
+ * for interactive setup but no access to services, middleware, or events.
+ */
 export interface InstallContext {
   pluginName: string
   terminal: TerminalIO
   settings: SettingsAPI
-  legacyConfig?: Record<string, unknown>
   dataDir: string
   log: Logger
   /** Root of the OpenACP instance directory (e.g. ~/.openacp) */
@@ -146,6 +230,10 @@ export interface InstallContext {
 
 // ─── Migrate Context (for boot-time migration) ───
 
+/**
+ * Context provided to the `migrate()` hook at boot time when the plugin's
+ * current version differs from the version stored in the registry.
+ */
 export interface MigrateContext {
   pluginName: string
   settings: SettingsAPI
@@ -154,13 +242,36 @@ export interface MigrateContext {
 
 // ─── Command Response Types ───
 
+/**
+ * Possible response shapes from a command handler.
+ * Adapters render each type per-platform (e.g., Telegram inline keyboards for menus).
+ */
 export type CommandResponse =
   | { type: 'text'; text: string }
+  | {
+      /**
+       * Adapter-aware response: each adapter reads its own key from `variants`.
+       * Adapters without a matching variant render `fallback` as plain text.
+       *
+       * Variant shapes by adapter ID:
+       *   telegram: { text: string; parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2' }
+       *   discord:  { content?: string; embeds?: unknown[] }
+       *   slack:    { text: string; blocks?: unknown[] }
+       *   sse:      { text: string; format?: 'plain' | 'markdown' | 'html' }
+       */
+      type: 'adaptive'
+      /** Plain text rendered by adapters without a matching variant */
+      fallback: string
+      /** Per-adapter payloads, keyed by adapter ID */
+      variants?: Record<string, unknown>
+    }
   | { type: 'menu'; title: string; options: MenuOption[] }
   | { type: 'list'; title: string; items: ListItem[] }
   | { type: 'confirm'; question: string; onYes: string; onNo: string }
   | { type: 'error'; message: string }
+  /** Command handled successfully but produces no visible output */
   | { type: 'silent' }
+  /** Command delegates further processing to another system (e.g., agent prompt) */
   | { type: 'delegated' }
 
 // ─── Menu Types ───
@@ -221,7 +332,7 @@ export interface CommandDef {
 }
 
 // Forward declarations for kernel types used in PluginContext.
-// These are structural types to avoid circular imports.
+// Structural (index-signature) types to avoid circular imports with core modules.
 export interface SessionManager {
   [key: string]: unknown
 }
@@ -245,6 +356,7 @@ export interface CoreAccess {
   adapters: Map<string, IChannelAdapter>
 }
 
+/** Pino-compatible logger interface used throughout the plugin system. */
 export interface Logger {
   trace(msg: string, ...args: unknown[]): void
   debug(msg: string, ...args: unknown[]): void
@@ -252,9 +364,21 @@ export interface Logger {
   warn(msg: string, ...args: unknown[]): void
   error(msg: string, ...args: unknown[]): void
   fatal(msg: string, ...args: unknown[]): void
+  /** Create a child logger with additional context bindings (e.g., `{ plugin: name }`) */
   child(bindings: Record<string, unknown>): Logger
 }
 
+/**
+ * Scoped API surface given to each plugin during setup().
+ *
+ * Each plugin receives its own PluginContext instance with permission-gated
+ * access. This provides isolation: storage is namespaced per-plugin, logs are
+ * prefixed with the plugin name, and only declared permissions are allowed.
+ *
+ * Tier 1 (Events) — subscribe/emit on the shared EventBus.
+ * Tier 2 (Actions) — register services, middleware, commands.
+ * Tier 3 (Kernel)  — direct access to core internals (requires kernel:access).
+ */
 export interface PluginContext {
   // === Identity ===
   pluginName: string
@@ -263,6 +387,13 @@ export interface PluginContext {
   // === Tier 1 — Events ===
   /** Subscribe to events. Auto-cleaned on teardown. Requires 'events:read'. */
   on(event: string, handler: (...args: unknown[]) => void): void
+  /**
+   * Unsubscribes a previously registered event handler.
+   *
+   * Called automatically for all listeners registered via `on()` during plugin teardown.
+   * Use manually only when conditional unsubscription is needed before teardown.
+   * Requires 'events:read' permission.
+   */
   off(event: string, handler: (...args: unknown[]) => void): void
   /** Emit custom events. Event names MUST be prefixed with plugin name. Requires 'events:emit'. */
   emit(event: string, payload: unknown): void
@@ -284,6 +415,12 @@ export interface PluginContext {
   registerAssistantSection(section: import('../assistant/assistant-registry.js').AssistantSection): void
   /** Unregister an assistant section by id. Requires 'commands:register'. */
   unregisterAssistantSection(id: string): void
+  /**
+   * Declare this plugin's settings fields as editable via API/UI.
+   * Call in setup() after registering services.
+   * Requires 'commands:register'.
+   */
+  registerEditableFields(fields: FieldDef[]): void
   /** Plugin-scoped storage. Requires 'storage:read' and/or 'storage:write'. */
   storage: PluginStorage
   /** Plugin-scoped logger. Always available (no permission needed). */
@@ -296,9 +433,55 @@ export interface PluginContext {
    */
   sendMessage(sessionId: string, content: OutgoingMessage): Promise<void>
 
+  /**
+   * Send a user-targeted notification. Fire-and-forget, best-effort.
+   * Resolves target via identity system — one call delivers across all linked platforms.
+   * Requires 'notifications:send' permission.
+   */
+  notify(
+    target: { identityId: string } | { userId: string } | { channelId: string; platformId: string },
+    message: { type: 'text'; text: string },
+    options?: {
+      via?: 'dm' | 'thread' | 'topic'
+      topicId?: string
+      sessionId?: string
+      onlyPlatforms?: string[]
+      excludePlatforms?: string[]
+    }
+  ): void
+
+  /**
+   * Define a custom hook that other plugins can register middleware on.
+   * The hook name is automatically prefixed with `plugin:{pluginName}:`.
+   */
+  defineHook(name: string): void
+
+  /**
+   * Fire a custom hook through the middleware chain.
+   * Name is auto-prefixed: `emitHook('foo', p)` fires `plugin:{pluginName}:foo`.
+   * Returns the final payload (possibly modified by middleware), or null if blocked.
+   */
+  emitHook<T extends Record<string, unknown>>(name: string, payload: T): Promise<T | null>
+
+  /**
+   * Read-only session metadata. Requires `sessions:read` permission.
+   * Returns undefined if the session does not exist.
+   */
+  getSessionInfo(sessionId: string): Promise<{
+    id: string
+    status: import('../types.js').SessionStatus
+    name?: string
+    promptCount: number
+    channelId: string
+    agentName: string
+  } | undefined>
+
   // === Tier 3 — Kernel access (requires 'kernel:access') ===
+  /** Direct access to SessionManager. Requires 'kernel:access'. */
   sessions: SessionManager
+  /** Direct access to ConfigManager. Requires 'kernel:access'. */
   config: ConfigManager
+  /** Direct access to EventBus. Requires 'kernel:access'. */
   eventBus: EventBus
   /** Direct access to OpenACPCore instance. Requires 'kernel:access'. */
   core: unknown
@@ -314,6 +497,14 @@ export interface PluginContext {
 // Section 4: Middleware System
 // ============================================================
 
+/**
+ * Maps each middleware hook name to its payload type.
+ *
+ * Middleware handlers receive the payload, can modify it, and call `next()` to pass
+ * it down the chain. Returning `null` short-circuits the chain (blocks the operation).
+ * There are 19 hook points covering message flow, agent lifecycle, file system,
+ * terminal, permissions, sessions, config changes, and agent switching.
+ */
 export interface MiddlewarePayloadMap {
   // === Message flow ===
   'message:incoming': {
@@ -322,6 +513,8 @@ export interface MiddlewarePayloadMap {
     userId: string
     text: string
     attachments?: Attachment[]
+    /** Per-turn context bag. Undefined for messages that bypass the normal handleMessage flow. */
+    meta?: TurnMeta
   }
   'message:outgoing': {
     sessionId: string
@@ -333,6 +526,9 @@ export interface MiddlewarePayloadMap {
     sessionId: string
     text: string
     attachments?: Attachment[]
+    sourceAdapterId?: string
+    /** Per-turn context bag carried from message:incoming. */
+    meta?: TurnMeta
   }
   'agent:beforeEvent': {
     sessionId: string
@@ -349,11 +545,27 @@ export interface MiddlewarePayloadMap {
     sessionId: string
     promptText: string
     promptNumber: number
+    turnId: string
+    meta?: TurnMeta
+    userPrompt?: string
+    sourceAdapterId?: string
+    responseAdapterId?: string | null
   }
   'turn:end': {
     sessionId: string
     stopReason: StopReason
     durationMs: number
+    turnId: string
+    meta?: TurnMeta
+  }
+  /** Fires after the full turn response is assembled. Read-only, fire-and-forget. */
+  'agent:afterTurn': {
+    sessionId: string
+    turnId: string
+    /** Complete response text — all text chunks concatenated. Empty if agent produced no text. */
+    fullText: string
+    stopReason: StopReason
+    meta?: TurnMeta
   }
 
   // === File system ===
@@ -440,8 +652,15 @@ export interface MiddlewarePayloadMap {
   }
 }
 
+/** Union of all valid middleware hook names */
 export type MiddlewareHook = keyof MiddlewarePayloadMap
 
+/**
+ * Middleware handler signature. Receives the current payload and a `next` function.
+ * - Call `next()` to continue the chain (optionally with a modified payload).
+ * - Return the (possibly modified) payload to pass it upstream.
+ * - Return `null` to short-circuit — the operation is blocked entirely.
+ */
 export type MiddlewareFn<T> = (payload: T, next: () => Promise<T>) => Promise<T | null>
 
 export interface MiddlewareOptions<T> {
@@ -455,6 +674,11 @@ export interface MiddlewareOptions<T> {
 // Section 8: Plugin Events
 // ============================================================
 
+/**
+ * Well-known events emitted on the EventBus.
+ * Plugins can subscribe via `ctx.on(event, handler)`.
+ * Custom plugin events use the `pluginName:eventName` convention.
+ */
 export interface PluginEventMap {
   // System lifecycle
   'kernel:booted': Record<string, never>
@@ -490,6 +714,10 @@ export interface PluginEventMap {
 // Section 6: Service Contract Interfaces
 // ============================================================
 
+// These interfaces define the typed contracts for services registered in
+// the ServiceRegistry. Plugins register implementations; core and other
+// plugins retrieve them via `serviceRegistry.get<T>(name)`.
+
 export interface SecurityService {
   checkAccess(userId: string): Promise<{ allowed: boolean; reason?: string }>
   checkSessionLimit(userId: string): Promise<{ allowed: boolean; reason?: string }>
@@ -507,6 +735,18 @@ export interface FileServiceInterface {
 export interface NotificationService {
   notify(channelId: string, notification: NotificationMessage): Promise<void>
   notifyAll(notification: NotificationMessage): Promise<void>
+  /** Send a notification to a user across all their linked platforms. Fire-and-forget. */
+  notifyUser?(
+    target: { identityId: string } | { userId: string } | { channelId: string; platformId: string },
+    message: { type: 'text'; text: string },
+    options?: {
+      via?: 'dm' | 'thread' | 'topic'
+      topicId?: string
+      sessionId?: string
+      onlyPlatforms?: string[]
+      excludePlatforms?: string[]
+    }
+  ): Promise<void>
 }
 
 export interface UsageService {

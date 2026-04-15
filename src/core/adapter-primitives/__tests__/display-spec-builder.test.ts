@@ -344,6 +344,8 @@ describe("DisplaySpecBuilder.buildToolSpec", () => {
       });
       const spec = builder.buildToolSpec(entry, "medium");
       expect(spec.title).toBe("/repo/src/app.ts");
+      expect(spec.kind).toBe("edit");
+      expect(spec.icon).toBe("✏️");
     });
 
     it("todowrite title summarizes progress when kind is other", () => {

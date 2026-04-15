@@ -37,23 +37,14 @@ describe("ApiServer", () => {
       getAvailableAgents: vi.fn(() => []),
     },
     agentCatalog: {
+      load: vi.fn(),
       resolve: vi.fn((name: string) => ({ name, workingDirectory: "/tmp/ws" })),
     },
     configManager: {
       get: vi.fn(() => ({
         defaultAgent: "claude",
-        agents: {
-          claude: { command: "claude", args: [], workingDirectory: "/tmp/ws" },
-        },
-        security: {
-          maxConcurrentSessions: 5,
-          sessionTimeoutMinutes: 60,
-          allowedUserIds: [],
-        },
-        channels: {
-          telegram: { enabled: false, botToken: "secret-token", chatId: 0 },
-        },
-        workspace: { baseDir: "~/openacp-workspace" },
+        agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
+        workspace: {},
         logging: {
           level: "info",
           logDir: "~/.openacp/logs",
@@ -61,23 +52,11 @@ describe("ApiServer", () => {
           maxFiles: 7,
           sessionLogRetentionDays: 30,
         },
-        tunnel: {
-          enabled: true,
-          port: 3100,
-          provider: "cloudflare",
-          options: {},
-          storeTtlMinutes: 60,
-          auth: { enabled: false },
-        },
         sessionStore: { ttlDays: 30 },
         runMode: "foreground",
         autoStart: false,
-        api: { port: 21420, host: "127.0.0.1" },
         integrations: {},
-        speech: {
-          stt: { provider: null, providers: {} },
-          tts: { provider: null, providers: {} },
-        },
+        agentSwitch: { labelHistory: true },
       })),
       save: vi.fn(),
       setPath: vi.fn(),
@@ -97,6 +76,7 @@ describe("ApiServer", () => {
     requestRestart: vi.fn(),
     tunnelService: undefined as unknown,
     eventBus: new EventBus(),
+    handleMessageInSession: vi.fn().mockResolvedValue({ turnId: 'test-turn', queueDepth: 0 }),
   };
 
   beforeEach(() => {
@@ -116,7 +96,7 @@ describe("ApiServer", () => {
     } catch { /* ignore */ }
   });
 
-  async function startServer(portOverride?: number) {
+  async function startServer(portOverride?: number, lifecycleManagerOverride?: unknown) {
     // Create or load the test secret
     const dir = path.dirname(secretFilePath);
     fs.mkdirSync(dir, { recursive: true });
@@ -155,13 +135,16 @@ describe("ApiServer", () => {
 
     const authPreHandler = createAuthPreHandler(() => secret, () => jwtSecret, tokenStore);
 
-    const deps = {
+    const deps: Record<string, unknown> = {
       core: mockCore as any,
       topicManager: mockTopicManager as any,
       startedAt: Date.now(),
       getVersion: () => "0.0.0-dev",
       authPreHandler,
     };
+    if (lifecycleManagerOverride !== undefined) {
+      deps.lifecycleManager = lifecycleManagerOverride;
+    }
 
     server.registerPlugin('/api/v1/sessions', async (app: any) => sessionRoutes(app, deps));
     server.registerPlugin('/api/v1/agents', async (app: any) => agentRoutes(app, deps));
@@ -317,7 +300,13 @@ describe("ApiServer", () => {
       { status: "active" },
       { status: "initializing" },
     ]);
-    const port = await startServer();
+    // Provide lifecycleManager with settingsManager returning maxConcurrentSessions=5
+    const mockLifecycleManager = {
+      settingsManager: {
+        loadSettings: vi.fn().mockResolvedValue({ maxConcurrentSessions: 5 }),
+      },
+    };
+    const port = await startServer(undefined, mockLifecycleManager);
 
     const res = await apiFetch(port, "/api/v1/sessions", { method: "POST" });
     expect(res.status).toBe(429);
@@ -676,7 +665,6 @@ describe("ApiServer", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.config).toBeDefined();
-    expect(data.config.channels.telegram.botToken).toBe("***");
     expect(data.config.defaultAgent).toBe("claude");
   });
 
@@ -685,7 +673,6 @@ describe("ApiServer", () => {
       id: "abc123",
       status: "active",
       queueDepth: 0,
-      enqueuePrompt: vi.fn().mockResolvedValue(undefined),
     };
     mockCore.sessionManager.getSession.mockReturnValueOnce(mockSession);
     const port = await startServer();
@@ -700,7 +687,13 @@ describe("ApiServer", () => {
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(data.sessionId).toBe("abc123");
-    expect(mockSession.enqueuePrompt).toHaveBeenCalledWith("Hello world", undefined, expect.objectContaining({ sourceAdapterId: "api" }));
+    expect(data.turnId).toBe("test-turn");
+    expect(mockCore.handleMessageInSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "abc123" }),
+      expect.objectContaining({ text: "Hello world" }),
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 
   it("POST /api/sessions/:id/prompt returns 404 for unknown session", async () => {
@@ -897,7 +890,7 @@ describe("ApiServer", () => {
       },
       channels: { telegram: { botToken: "secret-token" } },
       agents: { claude: { command: "claude-agent-acp", args: [], env: {} } },
-      workspace: { baseDir: "~/openacp-workspace" },
+      workspace: {},
       logging: { level: "info", pretty: true },
       runMode: "foreground",
       autoStart: false,
@@ -1021,23 +1014,23 @@ describe("ApiServer", () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        path: "security.maxConcurrentSessions",
-        value: 10,
+        path: "logging.level",
+        value: "debug",
       }),
     });
     const data1 = (await res1.json()) as any;
     expect(data1.ok).toBe(true);
     expect(data1.needsRestart).toBe(false);
 
-    // Non-hot-reloadable field — should need restart
+    // Unknown/unsafe field — should return 403
     const res2 = await apiFetch(port, "/api/v1/config", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "tunnel.enabled", value: false }),
+      body: JSON.stringify({ path: "nonexistent.field", value: false }),
     });
     const data2 = (await res2.json()) as any;
-    expect(data2.ok).toBe(true);
-    expect(data2.needsRestart).toBe(true);
+    expect(res2.status).toBe(403);
+    expect(data2.error).toContain("cannot be modified");
   });
 
   it("GET /api/events returns SSE headers", async () => {
@@ -1457,12 +1450,12 @@ describe("ApiServer", () => {
 
     it("rejects invalid config values (string for number field)", async () => {
       const port = await startServer();
-      // Pass a string where the field expects a number
+      // Pass a string where the field expects a number (sessionStore.ttlDays is a number field in registry)
       const res = await apiFetch(port, "/api/v1/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: "security.maxConcurrentSessions",
+          path: "sessionStore.ttlDays",
           value: "not-a-number",
         }),
       });
@@ -1477,18 +1470,7 @@ describe("ApiServer", () => {
     it("redacts sensitive keys inside arrays", async () => {
       mockCore.configManager.get.mockReturnValueOnce({
         defaultAgent: "claude",
-        agents: {
-          claude: { command: "claude", args: [], workingDirectory: "/tmp/ws" },
-        },
-        security: {
-          maxConcurrentSessions: 5,
-          sessionTimeoutMinutes: 60,
-          allowedUserIds: [],
-        },
-        channels: {
-          telegram: { enabled: false, botToken: "secret-token", chatId: 0 },
-        },
-        workspace: { baseDir: "~/openacp-workspace" },
+        workspace: {},
         logging: {
           level: "info",
           logDir: "~/.openacp/logs",
@@ -1496,24 +1478,16 @@ describe("ApiServer", () => {
           maxFiles: 7,
           sessionLogRetentionDays: 30,
         },
-        tunnel: {
-          enabled: true,
-          port: 3100,
-          provider: "cloudflare",
-          options: {},
-          storeTtlMinutes: 60,
-          auth: { enabled: false },
-        },
         sessionStore: { ttlDays: 30 },
         runMode: "foreground",
         autoStart: false,
-        api: { port: 21420, host: "127.0.0.1" },
         integrations: {
           webhooks: [
             { name: "webhook1", token: "super-secret-token" },
             { name: "webhook2", token: "another-secret" },
           ],
         },
+        agentSwitch: { labelHistory: true },
       });
       const port = await startServer();
 

@@ -4,7 +4,9 @@ import type { SessionStore } from "./session-store.js";
 import type { EventBus } from "../event-bus.js";
 import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import type { SessionStatus, ConfigOption, AgentCapabilities } from "../types.js";
+import { Hook, BusEvent } from "../events.js";
 
+/** Flattened view of a session for API consumers — merges live state with stored record. */
 export interface SessionSummary {
   id: string;
   agent: string;
@@ -22,12 +24,24 @@ export interface SessionSummary {
   isLive: boolean;
 }
 
+/**
+ * Registry for live Session instances. Provides lookup by session ID, channel+thread,
+ * or agent session ID. Coordinates session lifecycle: creation, cancellation, persistence,
+ * and graceful shutdown.
+ *
+ * Live sessions are kept in an in-memory Map. The optional SessionStore handles
+ * disk persistence — the manager delegates save/patch/remove operations to the store.
+ */
 export class SessionManager {
   private sessions: Map<string, Session> = new Map();
   private store: SessionStore | null;
   private eventBus?: EventBus;
   middlewareChain?: MiddlewareChain;
 
+  /**
+   * Inject the EventBus after construction. Deferred because EventBus is created
+   * after SessionManager during bootstrap, so it cannot be passed to the constructor.
+   */
   setEventBus(eventBus: EventBus): void {
     this.eventBus = eventBus;
   }
@@ -36,6 +50,7 @@ export class SessionManager {
     this.store = store;
   }
 
+  /** Create a new session by spawning an agent and persisting the initial record. */
   async createSession(
     channelId: string,
     agentName: string,
@@ -71,10 +86,12 @@ export class SessionManager {
     return session;
   }
 
+  /** Look up a live session by its OpenACP session ID. */
   getSession(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
   }
 
+  /** Look up a live session by adapter channel and thread ID (checks per-adapter threadIds map first, then legacy fields). */
   getSessionByThread(channelId: string, threadId: string): Session | undefined {
     for (const session of this.sessions.values()) {
       // New: check per-adapter threadIds map
@@ -88,6 +105,7 @@ export class SessionManager {
     return undefined;
   }
 
+  /** Look up a live session by the agent's internal session ID (assigned by the ACP subprocess). */
   getSessionByAgentSessionId(agentSessionId: string): Session | undefined {
     for (const session of this.sessions.values()) {
       if (session.agentSessionId === agentSessionId) {
@@ -97,12 +115,14 @@ export class SessionManager {
     return undefined;
   }
 
+  /** Look up the persisted SessionRecord by the agent's internal session ID. */
   getRecordByAgentSessionId(
     agentSessionId: string,
   ): import("../types.js").SessionRecord | undefined {
     return this.store?.findByAgentSessionId(agentSessionId);
   }
 
+  /** Look up the persisted SessionRecord by channel and thread ID. */
   getRecordByThread(
     channelId: string,
     threadId: string,
@@ -113,10 +133,16 @@ export class SessionManager {
     );
   }
 
+  /** Register a session that was created externally (e.g. restored from store on startup). */
   registerSession(session: Session): void {
     this.sessions.set(session.id, session);
   }
 
+  /**
+   * Merge a partial update into the stored SessionRecord. If no record exists yet and
+   * the patch includes `sessionId`, it is treated as an initial save.
+   * Pass `{ immediate: true }` to flush the store to disk synchronously.
+   */
   async patchRecord(
     sessionId: string,
     patch: Partial<import("../types.js").SessionRecord>,
@@ -135,12 +161,14 @@ export class SessionManager {
     }
   }
 
+  /** Retrieve the persisted SessionRecord for a given session ID. Returns undefined if no store or record not found. */
   getSessionRecord(
     sessionId: string,
   ): import("../types.js").SessionRecord | undefined {
     return this.store?.get(sessionId);
   }
 
+  /** Cancel a session: abort in-flight prompt, transition to cancelled, destroy agent, and persist. */
   async cancelSession(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session) {
@@ -150,6 +178,7 @@ export class SessionManager {
         // Agent may already be dead — continue with cleanup
       }
       session.markCancelled();
+      await session.destroy();
       this.sessions.delete(sessionId);
     }
     if (this.store) {
@@ -160,19 +189,24 @@ export class SessionManager {
     }
     // Hook: session:afterDestroy — read-only, fire-and-forget
     if (this.middlewareChain) {
-      this.middlewareChain.execute('session:afterDestroy', { sessionId }, async (p) => p).catch(() => {});
+      this.middlewareChain.execute(Hook.SESSION_AFTER_DESTROY, { sessionId }, async (p) => p).catch(() => {});
     }
   }
 
+  /** List live (in-memory) sessions, optionally filtered by channel. Excludes assistant sessions. */
   listSessions(channelId?: string): Session[] {
-    const all = Array.from(this.sessions.values());
+    const all = Array.from(this.sessions.values()).filter(s => !s.isAssistant);
     if (channelId) return all.filter((s) => s.channelId === channelId);
     return all;
   }
 
+  /**
+   * List all sessions (live + stored) as SessionSummary. Live sessions take precedence
+   * over stored records — their real-time state (queueDepth, promptRunning) is used.
+   */
   listAllSessions(channelId?: string): SessionSummary[] {
     if (this.store) {
-      let records = this.store.list();
+      let records = this.store.list().filter(r => !r.isAssistant);
       if (channelId) records = records.filter((r) => r.channelId === channelId);
       return records.map((record) => {
         const live = this.sessions.get(record.sessionId);
@@ -214,7 +248,7 @@ export class SessionManager {
     }
 
     // Fallback: no store — return live sessions only
-    let live = Array.from(this.sessions.values());
+    let live = Array.from(this.sessions.values()).filter(s => !s.isAssistant);
     if (channelId) live = live.filter((s) => s.channelId === channelId);
     return live.map((s) => ({
       id: s.id,
@@ -234,21 +268,23 @@ export class SessionManager {
     }));
   }
 
+  /** List all stored SessionRecords, optionally filtered by status. Excludes assistant sessions. */
   listRecords(filter?: {
     statuses?: string[];
   }): import("../types.js").SessionRecord[] {
     if (!this.store) return [];
-    let records = this.store.list();
+    let records = this.store.list().filter(r => !r.isAssistant);
     if (filter?.statuses?.length) {
       records = records.filter((r) => filter.statuses!.includes(r.status));
     }
     return records;
   }
 
+  /** Remove a session's stored record and emit a SESSION_DELETED event. */
   async removeRecord(sessionId: string): Promise<void> {
     if (!this.store) return;
     await this.store.remove(sessionId);
-    this.eventBus?.emit("session:deleted", { sessionId });
+    this.eventBus?.emit(BusEvent.SESSION_DELETED, { sessionId });
   }
 
   /**
@@ -299,7 +335,7 @@ export class SessionManager {
     // Hook: session:afterDestroy — read-only, fire-and-forget
     if (this.middlewareChain) {
       for (const sessionId of sessionIds) {
-        this.middlewareChain.execute('session:afterDestroy', { sessionId }, async (p) => p).catch(() => {});
+        this.middlewareChain.execute(Hook.SESSION_AFTER_DESTROY, { sessionId }, async (p) => p).catch(() => {});
       }
     }
   }

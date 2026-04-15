@@ -15,13 +15,22 @@ ERROR='\033[38;2;239;68;68m'           # red #ef4444
 MUTED='\033[38;2;90;100;128m'          # text-muted #5a6480
 NC='\033[0m'
 
-INSTALLER_VERSION="1.0.2"
+INSTALLER_VERSION="1.0.3"
 
 DEFAULT_TAGLINE="AI coding agents, anywhere."
 NODE_DEFAULT_MAJOR=20
 NODE_MIN_MAJOR=20
 NODE_MIN_MINOR=0
 NODE_MIN_VERSION="${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}"
+
+# Initialize Homebrew PATH for non-login shells (macOS).
+# ~/.zprofile is not sourced when running as 'bash install.sh' or 'curl | bash',
+# so /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) may be missing from PATH.
+if [[ -x "/opt/homebrew/bin/brew" ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
+elif [[ -x "/usr/local/bin/brew" ]]; then
+    eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
+fi
 
 ORIGINAL_PATH="${PATH:-}"
 
@@ -689,11 +698,13 @@ node_is_at_least_required() {
 
 check_node() {
     if command -v node &>/dev/null; then
+        local node_path
+        node_path="$(command -v node)"
         if node_is_at_least_required; then
-            ui_success "Node.js v$(node -v | cut -d'v' -f2) found"
+            ui_success "Node.js v$(node -v | cut -d'v' -f2) found (${node_path})"
             return 0
         else
-            ui_info "Node.js $(node -v) found, need v${NODE_MIN_VERSION}+"
+            ui_info "Node.js $(node -v) found at ${node_path}, need v${NODE_MIN_VERSION}+"
             return 1
         fi
     else
@@ -703,14 +714,28 @@ check_node() {
 }
 
 ensure_default_node_active_shell() {
-    if node_is_at_least_required; then
-        return 0
-    fi
+    # Always try version managers first (nvm, fnm, nodenv) before falling back to
+    # system node. This is important because version-manager-installed node has a
+    # user-writable npm prefix, whereas system node (installed via pkg/brew without
+    # a version manager) typically uses /usr/local which may require sudo for global
+    # installs — even when the node version itself meets the minimum requirement.
 
-    # Try sourcing nvm
+    # Try sourcing nvm.
+    # Check NVM_DIR first, then fall back to the default ~/.nvm location.
+    # The fallback is critical: in non-login shells (e.g. when launched from a
+    # GUI app like the OpenACP desktop), ~/.zshrc is never sourced so NVM_DIR
+    # is unset even when nvm is properly installed.
+    local nvm_sh=""
     if [[ -n "${NVM_DIR:-}" && -s "${NVM_DIR}/nvm.sh" ]]; then
+        nvm_sh="${NVM_DIR}/nvm.sh"
+    elif [[ -s "${HOME}/.nvm/nvm.sh" ]]; then
+        nvm_sh="${HOME}/.nvm/nvm.sh"
+    elif [[ -n "${XDG_CONFIG_HOME:-}" && -s "${XDG_CONFIG_HOME}/nvm/nvm.sh" ]]; then
+        nvm_sh="${XDG_CONFIG_HOME}/nvm/nvm.sh"
+    fi
+    if [[ -n "$nvm_sh" ]]; then
         # shellcheck source=/dev/null
-        source "${NVM_DIR}/nvm.sh" 2>/dev/null || true
+        source "$nvm_sh" 2>/dev/null || true
         if node_is_at_least_required; then
             return 0
         fi
@@ -731,6 +756,23 @@ ensure_default_node_active_shell() {
             return 0
         fi
     fi
+
+    # Fall back to whatever node is already in PATH (system node, Homebrew, etc.)
+    if node_is_at_least_required; then
+        return 0
+    fi
+
+    # Try Homebrew-managed Node (macOS) — covers cases where Homebrew shellenv
+    # was not initialized (e.g. non-login shell without ~/.zprofile sourced).
+    for brew_bin in "/opt/homebrew/bin" "/usr/local/bin"; do
+        if [[ -x "${brew_bin}/node" ]]; then
+            export PATH="${brew_bin}:${PATH}"
+            hash -r 2>/dev/null || true
+            if node_is_at_least_required; then
+                return 0
+            fi
+        fi
+    done
 
     return 1
 }
@@ -1002,17 +1044,22 @@ install_git() {
 }
 
 fix_npm_permissions() {
-    if [[ "$OS" != "linux" ]]; then
-        return 0
-    fi
-
     local npm_prefix
     npm_prefix="$(npm config get prefix 2>/dev/null || true)"
     if [[ -z "$npm_prefix" ]]; then
         return 0
     fi
 
-    if [[ -w "$npm_prefix" || -w "$npm_prefix/lib" ]]; then
+    # Check if npm global installs would succeed by verifying write access to the
+    # node_modules directory specifically. Checking $prefix or $prefix/lib alone is
+    # not sufficient: on Intel Macs with Homebrew, /usr/local/lib is user-writable
+    # (Homebrew sets this up) but /usr/local/lib/node_modules may be owned by root
+    # if Node was previously installed via the official pkg installer.
+    local nm_dir="$npm_prefix/lib/node_modules"
+    if [[ -d "$nm_dir" && -w "$nm_dir" ]]; then
+        return 0
+    fi
+    if [[ ! -d "$nm_dir" && -w "$npm_prefix/lib" ]]; then
         return 0
     fi
 
@@ -1327,6 +1374,14 @@ main() {
     # ── Stage 1: Prepare environment ──
     ui_stage "Preparing environment"
 
+    # Attempt to activate an existing node installation (e.g. via nvm, fnm, nodenv,
+    # or Homebrew) before checking whether node is present. This is necessary because
+    # the script may run in a non-login shell (e.g. launched from a GUI app) where
+    # shell rc files are never sourced and PATH-based node managers are invisible.
+    # If activation fails silently here that is fine — check_node / install_node below
+    # will handle the missing-node case.
+    ensure_default_node_active_shell 2>/dev/null || true
+
     if ! check_node; then
         install_node
     fi
@@ -1347,6 +1402,10 @@ main() {
     # ── Stage 2: Install ──
     ui_stage "Installing OpenACP"
 
+    # Fix npm permissions before any npm global install, regardless of install method.
+    # Both "npm" and "git" paths may call `npm install -g` (pnpm, openacp).
+    fix_npm_permissions
+
     if [[ "$INSTALL_METHOD" == "git" ]]; then
         if ! check_git; then
             install_git
@@ -1358,8 +1417,6 @@ main() {
         fi
         install_openacp_from_git "$GIT_DIR"
     else
-        fix_npm_permissions
-
         local install_spec=""
         install_spec="$(resolve_package_install_spec "$INSTALL_TAG")"
         install_openacp_npm "$install_spec"

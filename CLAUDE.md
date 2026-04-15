@@ -75,13 +75,13 @@ src/
 
 All features are plugins. Core only provides infrastructure (ServiceRegistry, MiddlewareChain, EventBus, LifecycleManager). Plugins register services, commands, and middleware in their `setup()` hook.
 
-- 18 middleware hook points (message:incoming, agent:beforePrompt, permission:beforeRequest, etc.)
+- 19 middleware hook points (message:incoming, agent:beforePrompt, permission:beforeRequest, etc.)
 - 9 permission types (events:read, services:register, commands:register, etc.)
 - Per-plugin settings via SettingsManager (~/.openacp/plugins/<name>/settings.json)
 
 ### Adapter Patterns
 
-- **Forum topics** (Telegram): Each session gets its own topic
+- **Topics** (Telegram): Each session gets its own topic
 - **Callback routing**: Permission buttons use `p:` prefix, command buttons use `c/` prefix
 - **Response renderers**: Adapters render CommandResponse types (text, menu, list, confirm, error, silent) per platform
 
@@ -111,11 +111,64 @@ When changing code, **you must update corresponding docs** to keep code and docu
 - **General rule**: Do not merge code without updating docs for new features or changes. README is for users, `docs/` is for both users and contributors.
 - **Plugin Template Sync**: When changing plugin API, architecture, PluginContext, CommandDef, middleware hooks, permissions, or anything affecting how plugins are written → **must update plugin template** at `src/cli/plugin-template/` (especially `claude-md.ts` and `plugin-guide.ts`) so templates always reflect the current API. These templates are the primary reference for both AI agents and plugin developers.
 
+## Error Handling
+
+- **Never silently ignore errors.** Every failed operation must surface a meaningful response — proper HTTP status code + JSON error body for API routes, thrown error for internal services. No empty `catch {}` blocks.
+- API routes must return specific status codes (400 for validation, 401 for auth, 409 for conflicts, 500 for internal errors) with `{ error: "Human-readable message" }` body. Never return 200 for a failed operation.
+- Validate inputs at system boundaries (API route handlers) — reject early with clear error messages. Internal service code can trust validated inputs.
+- The only exception for silent handling is truly optional side-effects (e.g. non-critical logging, best-effort cleanup). When in doubt, surface the error.
+
 ## Conventions
 
 - **English only**: All code, comments, commit messages, documentation, specs, plans, and any text in the repository must be written in English. No exceptions.
 - ESM-only (`"type": "module"`), all imports use `.js` extension
 - TypeScript strict mode, target ES2022, NodeNext module resolution
+
+## Code Comments
+
+Comment to explain **why** and **how**, not **what** — the code itself shows what.
+
+**When to comment:**
+- Complex logic, non-obvious algorithms, or tricky edge cases
+- Business rules or constraints that aren't clear from the code
+- Workarounds, known limitations, or intentional design decisions
+- Public functions/classes/types (always use JSDoc)
+
+**When NOT to comment:**
+- Simple, self-explanatory code (e.g., `i++`, `return null`)
+- Line-by-line narration of code — this creates noise, not clarity
+- Things that variable/function names already express clearly
+
+**JSDoc for all public APIs:**
+```typescript
+/**
+ * Resolves a pending permission request and resumes the blocked prompt.
+ *
+ * If the request has already timed out or been resolved, this is a no-op.
+ * Approval triggers the queued agent prompt; denial sends an error event.
+ */
+resolvePermission(requestId: string, approved: boolean): void
+```
+
+**Inline comments for non-obvious logic:**
+```typescript
+// Topic 0 is the General topic in Telegram — skip it, we only use named topics
+if (topicId === 0) return;
+
+// Retry with exponential backoff; max 3 attempts before surfacing error to user
+const delay = Math.pow(2, attempt) * 100;
+```
+
+**Block comments for complex flows:**
+```typescript
+// ACP sends partial text chunks via `text_delta` events.
+// We buffer them until `text_done`, then flush to the adapter as a single message.
+// This avoids rate-limiting from sending too many small messages.
+```
+
+Keep comments concise. A good comment fits on 1–3 lines and removes ambiguity, not adds it.
+
+**Language:** All comments must be written in English — no exceptions.
 
 ## Testing Conventions
 

@@ -6,7 +6,10 @@ import { ConnectionManager } from './connection-manager.js';
 import { EventBuffer } from './event-buffer.js';
 import { SSEAdapter } from './adapter.js';
 import { sseRoutes } from './routes.js';
+import { BusEvent } from '../../core/events.js';
 
+// Module-level references held for teardown — the plugin lifecycle doesn't
+// pass instances between setup() and teardown(), so we store them here.
 let _adapter: SSEAdapter | null = null;
 let _connectionManager: ConnectionManager | null = null;
 
@@ -43,12 +46,16 @@ const plugin: OpenACPPlugin = {
     // Get command registry for command execution in routes
     const commandRegistry = ctx.getService<CommandRegistry>('command-registry');
 
+    // Resolve token→user mapping from the token-store service for user-level SSE streams.
+    // token-store is registered by api-server plugin, which is a declared dependency.
+    const tokenStore = ctx.getService<{ getUserId(tokenId: string): string | undefined } | undefined>('token-store');
+
     // Clean up event buffer when a session ends or is deleted to prevent unbounded memory growth
-    ctx.on('session:deleted', (data: unknown) => {
+    ctx.on(BusEvent.SESSION_DELETED, (data: unknown) => {
       const { sessionId } = data as { sessionId: string };
       eventBuffer.cleanup(sessionId);
     });
-    ctx.on('session:ended', (data: unknown) => {
+    ctx.on(BusEvent.SESSION_ENDED, (data: unknown) => {
       const { sessionId } = data as { sessionId: string };
       eventBuffer.cleanup(sessionId);
     });
@@ -60,6 +67,7 @@ const plugin: OpenACPPlugin = {
         connectionManager,
         eventBuffer,
         commandRegistry: commandRegistry ?? undefined,
+        getUserId: tokenStore ? (id) => tokenStore.getUserId(id) : undefined,
       });
     }, { auth: true });
 

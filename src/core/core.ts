@@ -1,5 +1,4 @@
 import path from "node:path";
-import os from "node:os";
 import { nanoid } from "nanoid";
 import type { SettingsManager } from "./plugin/settings-manager.js";
 import { ConfigManager } from "./config/config.js";
@@ -14,7 +13,7 @@ import type { FileServiceInterface } from "./plugin/types.js";
 import { JsonFileSessionStore, type SessionStore } from "./sessions/session-store.js";
 import type { SecurityGuard } from "../plugins/security/security-guard.js";
 import { SessionFactory } from "./sessions/session-factory.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, AgentEvent, SessionStatus, TurnMeta, Attachment } from "./types.js";
 import type { TunnelService } from "../plugins/tunnel/tunnel-service.js";
 import { getAgentCapabilities } from "./agents/agent-registry.js";
 import { AgentSwitchHandler } from "./agent-switch-handler.js";
@@ -25,7 +24,7 @@ import { LifecycleManager } from "./plugin/lifecycle-manager.js";
 import { MenuRegistry } from './menu-registry.js';
 import { AssistantRegistry, AssistantManager } from './assistant/index.js';
 import { registerCoreMenuItems } from './menu/core-items.js';
-import { createSessionsSection, createAgentsSection, createConfigSection, createSystemSection } from './assistant/index.js';
+import { createSessionsSection, createAgentsSection, createConfigSection, createSystemSection, createRemoteSection } from './assistant/index.js';
 import { ServiceRegistry } from "./plugin/service-registry.js";
 import { MiddlewareChain } from "./plugin/middleware-chain.js";
 import { ErrorTracker } from "./plugin/error-tracker.js";
@@ -33,8 +32,22 @@ import { createChildLogger } from "./utils/log.js";
 import type { SpeechService } from "../plugins/speech/exports.js";
 import type { ContextManager } from "../plugins/context/context-manager.js";
 import type { InstanceContext } from "./instance/instance-context.js";
+import { Hook, BusEvent, SessionEv } from "./events.js";
+import { extractSender, type TurnContext, type TurnRouting } from "./sessions/turn-context.js";
 const log = createChildLogger({ module: "core" });
 
+/**
+ * Top-level orchestrator that wires all OpenACP modules together.
+ *
+ * Responsibilities:
+ * - Registers messaging adapters (Telegram, Slack, SSE, etc.)
+ * - Routes incoming messages to the correct Session (by channel + thread)
+ * - Manages the full session lifecycle: creation, agent switch, archive, shutdown
+ * - Connects agent events to adapter callbacks via SessionBridge
+ * - Accesses plugin-provided services (security, notifications, speech, etc.)
+ *   through ServiceRegistry rather than direct references, since plugins
+ *   register their services asynchronously during boot
+ */
 export class OpenACPCore {
   configManager: ConfigManager;
   agentCatalog: AgentCatalog;
@@ -47,60 +60,80 @@ export class OpenACPCore {
   /** Set by main.ts — triggers graceful shutdown with restart exit code */
   requestRestart: (() => Promise<void>) | null = null;
   private _tunnelService?: TunnelService;
-  private sessionStore: SessionStore | null = null;
+  sessionStore: SessionStore | null = null;
   eventBus: EventBus;
   sessionFactory: SessionFactory;
   readonly lifecycleManager: LifecycleManager;
   private agentSwitchHandler: AgentSwitchHandler;
-  public readonly instanceContext?: InstanceContext;
+  public readonly instanceContext: InstanceContext;
   readonly menuRegistry = new MenuRegistry();
   readonly assistantRegistry = new AssistantRegistry();
   assistantManager!: AssistantManager;
 
-  // --- Lazy getters: resolve from ServiceRegistry (populated by plugins during boot) ---
+  // Services (security, notifications, speech, etc.) are provided by plugins that
+  // register during boot. Core accesses them lazily via ServiceRegistry so it doesn't
+  // need compile-time dependencies on plugin implementations.
 
+  /** @throws if the service hasn't been registered by its plugin yet */
   private getService<T>(name: string): T {
     const svc = this.lifecycleManager.serviceRegistry.get<T>(name);
     if (!svc) throw new Error(`Service '${name}' not registered — is the ${name} plugin loaded?`);
     return svc;
   }
 
+  /** Access control and rate-limiting guard (provided by security plugin). */
   get securityGuard(): SecurityGuard {
     return this.getService<SecurityGuard>('security');
   }
 
+  /** Cross-session notification delivery (provided by notifications plugin). */
   get notificationManager(): NotificationManager {
     return this.getService<NotificationManager>('notifications');
   }
 
+  /** File I/O service for agent attachment storage (provided by file-service plugin). */
   get fileService(): FileServiceInterface {
     return this.getService<FileServiceInterface>('file-service');
   }
 
+  /** Text-to-speech / speech-to-text engine (provided by speech plugin). */
   get speechService(): SpeechService {
     return this.getService<SpeechService>('speech');
   }
 
+  /** Conversation history builder for context injection (provided by context plugin). */
   get contextManager(): ContextManager {
     return this.getService<ContextManager>('context');
   }
 
+  /** Per-plugin persistent settings (e.g. API keys). */
   get settingsManager(): SettingsManager | undefined {
     return this.lifecycleManager.settingsManager;
   }
 
-  constructor(configManager: ConfigManager, ctx?: InstanceContext) {
+  /**
+   * Bootstrap all core subsystems. The boot order matters:
+   * 1. AgentCatalog + AgentManager (agent definitions)
+   * 2. SessionStore + SessionManager (session persistence and lookup)
+   * 3. EventBus (inter-module communication)
+   * 4. SessionFactory (session creation pipeline)
+   * 5. LifecycleManager (plugin infrastructure)
+   * 6. Wire middleware chain into factory + manager
+   * 7. AgentSwitchHandler, config listeners, menu/assistant registries
+   */
+  constructor(configManager: ConfigManager, ctx: InstanceContext) {
     this.configManager = configManager;
     this.instanceContext = ctx;
     const config = configManager.get();
     this.agentCatalog = new AgentCatalog(
-      ctx ? new AgentStore(ctx.paths.agents) : undefined,
-      ctx?.paths.registryCache,
-      ctx?.paths.agentsDir,
+      new AgentStore(ctx.paths.agents),
+      ctx.paths.registryCache,
+      ctx.paths.agentsDir,
     );
     this.agentCatalog.load();
+
     this.agentManager = new AgentManager(this.agentCatalog);
-    const storePath = ctx?.paths.sessions ?? path.join(os.homedir(), ".openacp", "sessions.json");
+    const storePath = ctx.paths.sessions;
     this.sessionStore = new JsonFileSessionStore(
       storePath,
       config.sessionStore.ttlDays,
@@ -117,7 +150,7 @@ export class OpenACPCore {
       this.sessionManager,
       () => this.speechService,
       this.eventBus,
-      ctx?.root,
+      ctx.root,
     );
 
     // Initialize plugin lifecycle manager (before setting middlewareChain on factory)
@@ -129,8 +162,8 @@ export class OpenACPCore {
       sessions: this.sessionManager,
       config: this.configManager,
       core: this,
-      storagePath: ctx?.paths.pluginsData ?? path.join(os.homedir(), ".openacp", "plugins", "data"),
-      instanceRoot: ctx?.root,
+      storagePath: ctx.paths.pluginsData,
+      instanceRoot: ctx.root,
       log: createChildLogger({ module: "plugin" }),
     });
 
@@ -207,15 +240,14 @@ export class OpenACPCore {
     registerCoreMenuItems(this.menuRegistry);
 
     // Set instance root for assistant CLI guidelines
-    if (ctx?.root) {
-      this.assistantRegistry.setInstanceRoot(path.dirname(ctx.root));
-    }
+    this.assistantRegistry.setInstanceRoot(path.dirname(ctx.root));
 
     // Register core assistant sections
     this.assistantRegistry.register(createSessionsSection(this));
     this.assistantRegistry.register(createAgentsSection(this as any));
     this.assistantRegistry.register(createConfigSection(this as any));
-    this.assistantRegistry.register(createSystemSection());
+    this.assistantRegistry.register(createSystemSection())
+    this.assistantRegistry.register(createRemoteSection());
 
     // Create assistant manager
     this.assistantManager = new AssistantManager(this as any, this.assistantRegistry);
@@ -225,19 +257,31 @@ export class OpenACPCore {
     this.lifecycleManager.serviceRegistry.register('assistant-registry', this.assistantRegistry, 'core');
   }
 
+  /** Optional tunnel for generating public URLs (code viewer links, etc.). */
   get tunnelService(): TunnelService | undefined {
     return this._tunnelService;
   }
 
+  /** Propagate tunnel service to MessageTransformer so it can generate viewer links. */
   set tunnelService(service: TunnelService | undefined) {
     this._tunnelService = service;
     this.messageTransformer.tunnelService = service;
   }
 
+  /**
+   * Register a messaging adapter (e.g. Telegram, Slack, SSE).
+   *
+   * Adapters must be registered before `start()`. The adapter name serves as its
+   * channel ID throughout the system — used in session records, bridge keys, and routing.
+   */
   registerAdapter(name: string, adapter: IChannelAdapter): void {
     this.adapters.set(name, adapter);
   }
 
+  /**
+   * Start all registered adapters. Adapters that fail are logged but do not
+   * prevent others from starting. Throws only if ALL adapters fail.
+   */
   async start(): Promise<void> {
     this.agentCatalog.refreshRegistryIfStale().catch((err) => {
       log.warn({ err }, "Background registry refresh failed");
@@ -258,6 +302,10 @@ export class OpenACPCore {
     }
   }
 
+  /**
+   * Graceful shutdown: notify users, persist session state, stop adapters.
+   * Agent subprocesses are not explicitly killed — they exit with the parent process.
+   */
   async stop(): Promise<void> {
     // 1. Notify users (best effort — service may not be available)
     try {
@@ -284,6 +332,13 @@ export class OpenACPCore {
 
   // --- Archive ---
 
+  /**
+   * Archive a session: delete its adapter topic/thread and cancel the session.
+   *
+   * Only sessions in archivable states (active, cancelled, error) can be archived —
+   * initializing and finished sessions are excluded.
+   * The adapter handles platform-side cleanup (e.g. deleting a Telegram topic).
+   */
   async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const session = this.sessionManager.getSession(sessionId);
     if (!session) return { ok: false, error: "Session not found (must be in memory)" };
@@ -314,7 +369,19 @@ export class OpenACPCore {
 
   // --- Message Routing ---
 
-  async handleMessage(message: IncomingMessage): Promise<void> {
+  /**
+   * Route an incoming platform message to the appropriate session.
+   *
+   * Flow:
+   * 1. Run `message:incoming` middleware (plugins can modify or block)
+   * 2. SecurityGuard checks user access and per-user session limits
+   * 3. Find session by channel+thread (in-memory lookup, then lazy resume from disk)
+   * 4. For assistant sessions, prepend any deferred system prompt
+   * 5. Emit `message:queued` for SSE clients, then enqueue the prompt on the session
+   *
+   * If no session is found, the user is told to start one with /new.
+   */
+  async handleMessage(message: IncomingMessage, initialMeta?: Record<string, unknown>): Promise<void> {
     log.debug(
       {
         channelId: message.channelId,
@@ -324,11 +391,17 @@ export class OpenACPCore {
       "Incoming message",
     );
 
+    // Generate turnId + meta early so message:incoming middleware can read/enrich them.
+    // Adapters may inject channel-specific context (e.g. display name, username) via initialMeta
+    // so plugins can read it without needing adapter-specific fields on IncomingMessage.
+    const turnId = nanoid(8);
+    const meta: TurnMeta = { turnId, ...initialMeta };
+
     // Hook: message:incoming — modifiable, can block
     if (this.lifecycleManager?.middlewareChain) {
       const result = await this.lifecycleManager.middlewareChain.execute(
-        'message:incoming',
-        message,
+        Hook.MESSAGE_INCOMING,
+        { ...message, meta },
         async (msg) => msg,
       );
       if (!result) return; // blocked by middleware
@@ -369,11 +442,6 @@ export class OpenACPCore {
       return;
     }
 
-    // Update activity timestamp
-    this.sessionManager.patchRecord(session.id, {
-      lastActiveAt: new Date().toISOString(),
-    });
-
     // For assistant sessions, prepend deferred system prompt on first real message
     let text = message.text;
     if (this.assistantManager?.isAssistant(session.id)) {
@@ -383,29 +451,130 @@ export class OpenACPCore {
       }
     }
 
-    // Emit message:queued immediately (before awaiting the queue) so SSE clients see the
-    // incoming message right away, not after the AI finishes processing.
-    const sourceAdapterId = message.routing?.sourceAdapterId ?? message.channelId;
-    if (sourceAdapterId && sourceAdapterId !== 'sse' && sourceAdapterId !== 'api') {
-      const turnId = nanoid(8);
-      this.eventBus.emit("message:queued", {
+    // Merge sourceAdapterId into routing so middleware hooks (e.g. history recorder)
+    // can identify the originating adapter even when the message is processed by a
+    // different adapter (e.g. an API-sourced message routed through a Telegram session).
+    // Carry enriched meta from middleware result (plugins may have attached sender info etc.)
+    const enrichedMeta = (message as any).meta as TurnMeta | undefined ?? meta;
+
+    await this._dispatchToSession(session, text, message.attachments, {
+      sourceAdapterId: message.routing?.sourceAdapterId ?? message.channelId,
+      responseAdapterId: message.routing?.responseAdapterId,
+    }, turnId, enrichedMeta);
+  }
+
+  /**
+   * Shared dispatch path for sending a prompt to a session.
+   * Called by both handleMessage (Telegram) and handleMessageInSession (SSE/API)
+   * after their respective middleware/enrichment steps.
+   */
+  private async _dispatchToSession(
+    session: Session,
+    text: string,
+    attachments: Attachment[] | undefined,
+    routing: TurnRouting,
+    turnId: string,
+    meta: TurnMeta,
+  ): Promise<void> {
+    // Update activity timestamp for all sources
+    this.sessionManager.patchRecord(session.id, {
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // Emit MESSAGE_QUEUED — always, for all sources, no adapter-specific conditions
+    this.eventBus.emit(BusEvent.MESSAGE_QUEUED, {
+      sessionId: session.id,
+      turnId,
+      text,
+      sourceAdapterId: routing.sourceAdapterId,
+      attachments,
+      timestamp: new Date().toISOString(),
+      queueDepth: session.queueDepth + 1,
+      sender: extractSender(meta),
+    });
+
+    // Fire-and-forget: return immediately after enqueueing so callers (API route, adapters)
+    // get a fast response without waiting for the agent to finish processing.
+    // Errors (e.g. blocked by middleware) surface via MESSAGE_FAILED on the event bus.
+    session.enqueuePrompt(text, attachments, routing, turnId, meta).catch(err => {
+      const reason = err instanceof Error ? err.message : String(err);
+      log.warn({ err, sessionId: session.id, turnId, reason }, 'enqueuePrompt failed — emitting message:failed');
+      this.eventBus.emit(BusEvent.MESSAGE_FAILED, {
         sessionId: session.id,
         turnId,
-        text,
-        sourceAdapterId,
-        attachments: message.attachments,
-        timestamp: new Date().toISOString(),
-        queueDepth: session.queueDepth,
+        reason,
       });
-      // Pass pre-generated turnId so message:processing shares the same ID
-      await session.enqueuePrompt(text, message.attachments, message.routing, turnId);
-    } else {
-      await session.enqueuePrompt(text, message.attachments, message.routing);
+    });
+  }
+
+  /**
+   * Send a message to a known session, running the full message:incoming → agent:beforePrompt
+   * middleware chain (same as handleMessage) but without the threadId-based session lookup.
+   *
+   * Used by channels that already hold a direct session reference (e.g. SSE adapter, api-server),
+   * where looking up by channelId+threadId is unreliable (API sessions may have no threadId).
+   *
+   * @param session  The target session — caller is responsible for validating its status.
+   * @param message  Sender context and message content.
+   * @param initialMeta  Optional adapter-specific context to seed the TurnMeta bag
+   *                     (e.g. channelUser with display name/username).
+   * @param options  Optional turnId override and response routing.
+   */
+  async handleMessageInSession(
+    session: Session,
+    message: { channelId: string; userId: string; text: string; attachments?: Attachment[] },
+    initialMeta?: Record<string, unknown>,
+    options?: { externalTurnId?: string; responseAdapterId?: string | null },
+  ): Promise<{ turnId: string; queueDepth: number }> {
+    const turnId = options?.externalTurnId ?? nanoid(8);
+    const meta: TurnMeta = { turnId, ...initialMeta };
+
+    // Run message:incoming middleware so plugins can enrich meta (sender identity, @mentions, etc.)
+    let text = message.text;
+    let { attachments } = message;
+    let enrichedMeta: TurnMeta = meta;
+    if (this.lifecycleManager?.middlewareChain) {
+      const payload = {
+        channelId: message.channelId,
+        threadId: session.id,
+        userId: message.userId,
+        text,
+        attachments,
+        meta,
+      };
+      const result = await this.lifecycleManager.middlewareChain.execute(
+        Hook.MESSAGE_INCOMING,
+        payload,
+        async (p) => p,
+      );
+      if (!result) return { turnId, queueDepth: session.queueDepth };
+      text = result.text;
+      attachments = result.attachments;
+      enrichedMeta = (result as any).meta as TurnMeta ?? meta;
     }
+
+    const routing: TurnRouting = {
+      sourceAdapterId: message.channelId,
+      responseAdapterId: options?.responseAdapterId,
+    };
+    await this._dispatchToSession(session, text, attachments, routing, turnId, enrichedMeta);
+
+    return { turnId, queueDepth: session.queueDepth };
   }
 
   // --- Unified Session Creation Pipeline ---
 
+  /**
+   * Create (or resume) a session with full wiring: agent, adapter thread, bridge, persistence.
+   *
+   * This is the single entry point for session creation. The pipeline:
+   * 1. SessionFactory spawns/resumes the agent process
+   * 2. Adapter creates a thread/topic if requested
+   * 3. Initial session record is persisted (so lazy resume can find it by threadId)
+   * 4. SessionBridge connects agent events to the adapter
+   * 5. For headless sessions (no adapter), fallback event handlers are wired inline
+   * 6. Side effects (usage tracking, tunnel cleanup) are attached
+   */
   async createSession(params: {
     channelId: string;
     agentName: string;
@@ -415,6 +584,7 @@ export class OpenACPCore {
     createThread?: boolean;
     initialName?: string;
     threadId?: string;
+    isAssistant?: boolean;
   }): Promise<Session> {
     // 1-3. Spawn/resume agent, create Session, register in SessionManager
     const session = await this.sessionFactory.create(params);
@@ -470,6 +640,7 @@ export class OpenACPCore {
       createdAt: session.createdAt.toISOString(),
       lastActiveAt: new Date().toISOString(),
       name: session.name,
+      isAssistant: params.isAssistant,
       platform,
       platforms,
       firstAgent: session.firstAgent,
@@ -489,7 +660,7 @@ export class OpenACPCore {
       });
       // Signal that thread is ready — all listeners (adapters, plugins, etc.) can react
       if (params.createThread && session.threadId) {
-        this.eventBus.emit("session:threadReady", {
+        this.eventBus.emit(BusEvent.SESSION_THREAD_READY, {
           sessionId: session.id,
           channelId: params.channelId,
           threadId: session.threadId,
@@ -497,9 +668,10 @@ export class OpenACPCore {
       }
     }
 
-    // 6b. Headless sessions (no adapter): auto-approve safe permissions so agents don't hang.
-    // Permissions without an explicit allow option are NOT auto-approved — they will time out.
+    // 6b. Headless sessions (no adapter): wire fallbacks normally handled by SessionBridge.
     if (!adapter) {
+      // Auto-approve safe permissions so agents don't hang.
+      // Permissions without an explicit allow option are NOT auto-approved — they will time out.
       session.agentInstance.onPermissionRequest = async (permRequest) => {
         const allowOption = permRequest.options.find((o) => o.isAllow);
         if (!allowOption) {
@@ -515,6 +687,63 @@ export class OpenACPCore {
         );
         return allowOption.id;
       };
+
+      // Persist session name and notify SSE clients when autoName fires.
+      // For bridged sessions this is handled by SessionBridge's "named" listener;
+      // headless sessions have no bridge so we wire it here instead.
+      session.on(SessionEv.NAMED, async (name: string) => {
+        await this.sessionManager.patchRecord(session.id, { name });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, name });
+      });
+
+      // Forward agent events to EventBus so SSE clients can observe the session.
+      // Also handles session lifecycle transitions (session_end → finish, error → fail)
+      // and fires agent:beforeEvent middleware — all normally handled by SessionBridge.
+      const mw = () => this.lifecycleManager?.middlewareChain;
+      session.on(SessionEv.AGENT_EVENT, async (event: AgentEvent) => {
+        let processedEvent = event;
+        const chain = mw();
+        if (chain) {
+          const result = await chain.execute(Hook.AGENT_BEFORE_EVENT, { sessionId: session.id, event }, async (e) => e);
+          if (!result) return; // blocked by middleware
+          processedEvent = result.event;
+        }
+        if (processedEvent.type === "session_end") {
+          session.finish((processedEvent as { reason?: string }).reason);
+        } else if (processedEvent.type === "error") {
+          session.fail((processedEvent as { message: string }).message);
+        }
+        this.eventBus.emit(BusEvent.AGENT_EVENT, { sessionId: session.id, turnId: session.activeTurnContext?.turnId ?? '', event: processedEvent });
+      });
+
+      // Persist status changes and notify SSE clients — normally wired by SessionBridge.
+      session.on(SessionEv.STATUS_CHANGE, (_from: SessionStatus, to: SessionStatus) => {
+        this.sessionManager.patchRecord(session.id, {
+          status: to,
+          lastActiveAt: new Date().toISOString(),
+        });
+        this.eventBus.emit(BusEvent.SESSION_UPDATED, { sessionId: session.id, status: to });
+      });
+
+      // Persist prompt count after each prompt — normally wired by SessionBridge.
+      session.on(SessionEv.PROMPT_COUNT_CHANGED, (count: number) => {
+        this.sessionManager.patchRecord(session.id, { currentPromptCount: count });
+      });
+
+      // Emit message:processing so SSE clients (App) can transition pending → conversation.
+      // Normally handled by SessionBridge; headless sessions have no bridge.
+      session.on(SessionEv.TURN_STARTED, (ctx: TurnContext) => {
+        this.eventBus.emit(BusEvent.MESSAGE_PROCESSING, {
+          sessionId: session.id,
+          turnId: ctx.turnId,
+          sourceAdapterId: ctx.sourceAdapterId,
+          userPrompt: ctx.userPrompt,
+          finalPrompt: ctx.finalPrompt,
+          attachments: ctx.attachments,
+          sender: extractSender(ctx.meta),
+          timestamp: new Date().toISOString(),
+        });
+      });
     }
 
     // 6c. Wire usage tracking and tunnel cleanup
@@ -531,6 +760,7 @@ export class OpenACPCore {
     return session;
   }
 
+  /** Convenience wrapper: create a new session with default agent/workspace resolution. */
   async handleNewSession(
     channelId: string,
     agentName?: string,
@@ -540,6 +770,12 @@ export class OpenACPCore {
     return this.sessionFactory.handleNewSession(channelId, agentName, workspacePath, options);
   }
 
+  /**
+   * Adopt an externally-started agent session (e.g. from a CLI `openacp adopt` command).
+   *
+   * Validates that the agent supports resume, checks session limits, avoids duplicates,
+   * then creates a full session via the unified pipeline with resume semantics.
+   */
   async adoptSession(
     agentName: string,
     agentSessionId: string,
@@ -583,8 +819,10 @@ export class OpenACPCore {
       };
     }
 
-    // 3. Check session limit
-    const maxSessions = this.configManager.get().security.maxConcurrentSessions;
+    // 3. Hard cap for the adoptSession path (CLI-initiated session adoption).
+    // This is separate from the per-user limits enforced by securityGuard.checkAccess
+    // during handleMessage. The security plugin cannot override this value.
+    const maxSessions = 20;
     if (this.sessionManager.listSessions().length >= maxSessions) {
       return {
         ok: false,
@@ -681,10 +919,12 @@ export class OpenACPCore {
     };
   }
 
+  /** Start a new chat within the same agent and workspace as the current session's thread. */
   async handleNewChat(channelId: string, currentThreadId: string): Promise<Session | null> {
     return this.sessionFactory.handleNewChat(channelId, currentThreadId);
   }
 
+  /** Create a session and inject conversation context from a prior session or repo. */
   async createSessionWithContext(params: {
     channelId: string;
     agentName: string;
@@ -699,18 +939,27 @@ export class OpenACPCore {
 
   // --- Agent Switch ---
 
+  /** Switch a session's active agent. Delegates to AgentSwitchHandler for state coordination. */
   async switchSessionAgent(sessionId: string, toAgent: string): Promise<{ resumed: boolean }> {
     return this.agentSwitchHandler.switch(sessionId, toAgent);
   }
 
+  /** Find a session by channel+thread, resuming from disk if not in memory. */
   async getOrResumeSession(channelId: string, threadId: string): Promise<Session | null> {
     return this.sessionFactory.getOrResume(channelId, threadId);
   }
 
+  /** Find a session by ID, resuming from disk if not in memory. */
   async getOrResumeSessionById(sessionId: string): Promise<Session | null> {
     return this.sessionFactory.getOrResumeById(sessionId);
   }
 
+  /**
+   * Attach an additional adapter to an existing session (multi-adapter support).
+   *
+   * Creates a thread on the target adapter and connects a SessionBridge so the
+   * session's agent events are forwarded to both the primary and attached adapters.
+   */
   async attachAdapter(sessionId: string, adapterId: string): Promise<{ threadId: string }> {
     const session = this.sessionManager.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
@@ -745,6 +994,10 @@ export class OpenACPCore {
     return { threadId };
   }
 
+  /**
+   * Detach a secondary adapter from a session. The primary adapter (channelId) cannot
+   * be detached. Disconnects the bridge and cleans up thread mappings.
+   */
   async detachAdapter(sessionId: string, adapterId: string): Promise<void> {
     const session = this.sessionManager.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
@@ -787,6 +1040,7 @@ export class OpenACPCore {
     });
   }
 
+  /** Build the platforms map (adapter → thread/topic IDs) for persistence. */
   private buildPlatformsFromSession(session: Session): Record<string, Record<string, unknown>> {
     const platforms: Record<string, Record<string, unknown>> = {};
     for (const [adapterId, threadId] of session.threadIds) {
@@ -823,8 +1077,13 @@ export class OpenACPCore {
     bridge.connect();
   }
 
-  /** Create a SessionBridge for the given session and adapter.
-   *  Disconnects any existing bridge for the same adapter+session first. */
+  /**
+   * Create a SessionBridge for the given session and adapter.
+   *
+   * The bridge subscribes to Session events (agent output, status changes, naming)
+   * and forwards them to the adapter for platform delivery. Disconnects any existing
+   * bridge for the same adapter+session first to avoid duplicate event handlers.
+   */
   createBridge(session: Session, adapter: IChannelAdapter, adapterId?: string): SessionBridge {
     const id = adapterId ?? adapter.name;
     const key = this.bridgeKey(id, session.id);

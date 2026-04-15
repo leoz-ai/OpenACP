@@ -3,8 +3,9 @@ import type { OpenACPCore } from '../../core/core.js';
 import type { ConnectionManager } from './connection-manager.js';
 import type { EventBuffer } from './event-buffer.js';
 import type { CommandRegistry } from '../../core/command-registry.js';
-import { NotFoundError, BadRequestError } from '../api-server/middleware/error-handler.js';
+import { NotFoundError, BadRequestError, ServiceUnavailableError } from '../api-server/middleware/error-handler.js';
 import { requireScopes } from '../api-server/middleware/auth.js';
+import { resolveAttachments } from '../api-server/routes/attachment-utils.js';
 import {
   SessionIdParamSchema,
   PromptBodySchema,
@@ -21,13 +22,22 @@ function decodeParam(value: string): string {
   }
 }
 
+/** Dependencies injected into the SSE route handlers. */
 export interface SSERouteDeps {
   core: OpenACPCore;
   connectionManager: ConnectionManager;
   eventBuffer: EventBuffer;
   commandRegistry?: CommandRegistry;
+  /** Resolves a tokenId to a userId for user-level connections. Provided by the token-store service. */
+  getUserId?: (tokenId: string) => string | undefined;
 }
 
+/**
+ * Registers all SSE adapter routes on the given Fastify sub-app.
+ *
+ * Routes are mounted under `/api/v1/sse` by the plugin's `setup()` hook.
+ * All routes require authentication (scopes enforced per-route).
+ */
 export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promise<void> {
   // GET /sessions/:sessionId/stream — SSE event stream
   app.get<{ Params: { sessionId: string } }>(
@@ -63,13 +73,15 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        // Disable buffering in Nginx/Cloudflare so events arrive without delay
         'X-Accel-Buffering': 'no',
       });
 
       // Send connected event
       raw.write(serializeConnected(connection.id, sessionId));
 
-      // Replay missed events from buffer using Last-Event-ID header
+      // Replay missed events from buffer using Last-Event-ID header.
+      // Null result means the referenced event ID has been evicted — notify the client.
       const lastEventId = request.headers['last-event-id'] as string | undefined;
       if (lastEventId) {
         const missed = deps.eventBuffer.getSince(sessionId, lastEventId);
@@ -89,10 +101,11 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
     },
   );
 
-  // POST /sessions/:sessionId/prompt — send a prompt to a session
+  // POST /sessions/:sessionId/prompt — send a prompt (with optional file attachments) to a session.
+  // bodyLimit is raised to 110 MB to accommodate up to 10 attachments × ~10 MB base64 each plus prompt overhead.
   app.post<{ Params: { sessionId: string } }>(
     '/sessions/:sessionId/prompt',
-    { preHandler: requireScopes('sessions:prompt') },
+    { preHandler: requireScopes('sessions:prompt'), bodyLimit: 115_000_000 },
     async (request, reply) => {
       const { sessionId: rawId } = SessionIdParamSchema.parse(request.params);
       const sessionId = decodeParam(rawId);
@@ -107,9 +120,33 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       }
 
       const body = PromptBodySchema.parse(request.body);
-      await session.enqueuePrompt(body.prompt, undefined, { sourceAdapterId: 'sse' });
 
-      return { ok: true, sessionId, queueDepth: session.queueDepth };
+      // Decode base64 attachments and persist via FileService when provided
+      let attachments;
+      if (body.attachments?.length) {
+        let fileService;
+        try {
+          fileService = deps.core.fileService;
+        } catch {
+          throw new ServiceUnavailableError(
+            'FILE_SERVICE_UNAVAILABLE',
+            'File attachments are not supported: file-service plugin is not loaded',
+          );
+        }
+        attachments = await resolveAttachments(fileService, sessionId, body.attachments);
+      }
+
+      const userId = (request as any).auth?.tokenId ?? 'api';
+      const { turnId, queueDepth } = await deps.core.handleMessageInSession(
+        session,
+        { channelId: 'api', userId, text: body.prompt, attachments },
+        { channelUser: { channelId: 'api', userId } },
+        // Route response back to the SSE adapter; 'api' is the identity namespace,
+        // not an adapter name, so responseAdapterId must be explicit.
+        { responseAdapterId: 'sse' },
+      );
+
+      return { ok: true, sessionId, queueDepth, turnId };
     },
   );
 
@@ -133,6 +170,16 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       }
 
       session.permissionGate.resolve(body.optionId);
+
+      if (body.feedback) {
+        // Abort current turn so the agent doesn't respond about the refusal,
+        // then queue feedback as next prompt.
+        await session.abortPrompt().catch((err: unknown) => {
+          request.log.warn({ err }, 'Failed to abort prompt before feedback enqueue');
+        });
+        await session.enqueuePrompt(body.feedback, undefined, { sourceAdapterId: 'sse' });
+      }
+
       return { ok: true };
     },
   );
@@ -173,12 +220,13 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       }
 
       const body = ExecuteCommandBodySchema.parse(request.body);
+      // Normalize command strings: ensure they start with `/` for CommandRegistry lookup
       const commandString = body.command.startsWith('/') ? body.command : `/${body.command}`;
 
       const result = await deps.commandRegistry.execute(commandString, {
         raw: '',
         sessionId,
-        channelId: 'sse',
+        channelId: 'api',
         userId: (request as any).auth?.tokenId ?? 'api',
         reply: async () => {},
       });
@@ -198,5 +246,52 @@ export async function sseRoutes(app: FastifyInstance, deps: SSERouteDeps): Promi
       })),
       total: connections.length,
     };
+  });
+
+  // GET /events — user-level SSE stream (notifications + system events)
+  // Not session-scoped — delivers notifications to any authenticated user with identity set up.
+  app.get('/events', async (request, reply) => {
+    const auth = (request as any).auth;
+    if (!auth?.tokenId) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    // Resolve userId from the token-store mapping set during identity setup
+    const userId = deps.getUserId?.(auth.tokenId);
+    if (!userId) {
+      return reply.status(403).send({ error: 'Identity not set up. Complete /identity/setup first.' });
+    }
+
+    // Check connection limits before hijacking — once hijacked, Fastify can no longer
+    // write error responses, so we must gate on limits before committing to the stream.
+    try {
+      deps.connectionManager.addUserConnection(userId, auth.tokenId, reply.raw);
+    } catch (err: any) {
+      return reply.status(503).send({ error: err.message });
+    }
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      // Disable buffering in Nginx/Cloudflare so events arrive without delay
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Initial heartbeat to confirm the stream is live
+    raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+
+    // Keep-alive heartbeat every 30s to survive proxy idle-connection timeouts
+    const heartbeat = setInterval(() => {
+      if (raw.writableEnded) {
+        clearInterval(heartbeat);
+        return;
+      }
+      raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+    }, 30_000);
+
+    raw.on('close', () => clearInterval(heartbeat));
   });
 }

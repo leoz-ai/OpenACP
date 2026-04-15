@@ -14,9 +14,11 @@ import type { ContextManager } from "../../plugins/context/context-manager.js";
 import type { ContextQuery, ContextOptions, ContextResult } from "../../plugins/context/context-provider.js";
 import { Session } from "./session.js";
 import { createChildLogger } from "../utils/log.js";
+import { Hook, BusEvent, SessionEv } from "../events.js";
 
 const log = createChildLogger({ module: "session-factory" });
 
+/** Parameters for creating a new session — used by SessionFactory.create() and Core.createFullSession(). */
 export interface SessionCreateParams {
   channelId: string;
   agentName: string;
@@ -24,6 +26,9 @@ export interface SessionCreateParams {
   resumeAgentSessionId?: string;
   existingSessionId?: string;
   initialName?: string;
+  isAssistant?: boolean;
+  /** User ID from identity system — who is creating this session. */
+  userId?: string;
 }
 
 export interface SideEffectDeps {
@@ -32,6 +37,14 @@ export interface SideEffectDeps {
   tunnelService?: TunnelService;
 }
 
+/**
+ * Constructs new Sessions with the right agent, working directory, and initial state.
+ *
+ * Handles agent spawning (or resuming from a previous ACP session), middleware integration,
+ * ACP state hydration, and side-effect wiring (usage tracking, tunnel cleanup).
+ * Also provides lazy resume: when a message arrives for a stored (not live) session,
+ * the factory transparently resumes it by re-spawning the agent with the stored session ID.
+ */
 export class SessionFactory {
   middlewareChain?: MiddlewareChain;
   private resumeLocks: Map<string, Promise<Session | null>> = new Map();
@@ -67,6 +80,10 @@ export class SessionFactory {
       : this.speechServiceAccessor;
   }
 
+  /**
+   * Create a new Session: spawn agent → create Session instance → hydrate ACP state → register.
+   * Runs session:beforeCreate middleware (which can modify params or block creation).
+   */
   async create(params: SessionCreateParams): Promise<Session> {
     // Hook: session:beforeCreate — modifiable, can block
     let createParams = params;
@@ -74,11 +91,11 @@ export class SessionFactory {
       const payload = {
         agentName: params.agentName,
         workingDir: params.workingDirectory,
-        userId: '', // userId is not part of SessionCreateParams — resolved upstream
+        userId: params.userId ?? '',
         channelId: params.channelId,
         threadId: '', // threadId is assigned after session creation
       };
-      const result = await this.middlewareChain.execute('session:beforeCreate', payload, async (p) => p);
+      const result = await this.middlewareChain.execute(Hook.SESSION_BEFORE_CREATE, payload, async (p) => p);
       if (!result) throw new Error("Session creation blocked by middleware");
       // Apply any middleware modifications back to create params
       createParams = {
@@ -90,18 +107,38 @@ export class SessionFactory {
     }
 
     // 1. Spawn or resume agent
+    // Include config-level allowedPaths so agents can read whitelisted directories from startup
+    const configAllowedPaths = this.configManager?.get().workspace?.security?.allowedPaths ?? [];
+
     let agentInstance;
     try {
-      agentInstance = createParams.resumeAgentSessionId
-        ? await this.agentManager.resume(
+      if (createParams.resumeAgentSessionId) {
+        try {
+          agentInstance = await this.agentManager.resume(
             createParams.agentName,
             createParams.workingDirectory,
             createParams.resumeAgentSessionId,
-          )
-        : await this.agentManager.spawn(
+            configAllowedPaths,
+          );
+        } catch (resumeErr) {
+          // Resume failed (session expired after restart) — fall back to fresh spawn
+          log.warn(
+            { agentName: createParams.agentName, resumeErr },
+            "Agent session resume failed, falling back to fresh spawn",
+          );
+          agentInstance = await this.agentManager.spawn(
             createParams.agentName,
             createParams.workingDirectory,
+            configAllowedPaths,
           );
+        }
+      } else {
+        agentInstance = await this.agentManager.spawn(
+          createParams.agentName,
+          createParams.workingDirectory,
+          configAllowedPaths,
+        );
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : String(err);
@@ -136,28 +173,13 @@ export class SessionFactory {
         message: guidanceLines.join("\n"),
       };
 
-      // Create a lightweight "failed" session context so UIs listening on the event bus
-      // still receive a message in the right channel/thread.
-      const failedSession = new Session({
-        id: createParams.existingSessionId,
-        channelId: createParams.channelId,
-        agentName: createParams.agentName,
-        workingDirectory: createParams.workingDirectory,
-        // Dummy agent instance — will never be prompted
-        agentInstance: {
-          sessionId: "",
-          prompt: async () => {},
-          cancel: async () => {},
-          destroy: async () => {},
-          on: () => {},
-          off: () => {},
-        } as any,
-        speechService: this.speechService,
-      });
-      this.sessionManager.registerSession(failedSession);
-      failedSession.emit("agent_event", guidance);
-      this.eventBus.emit("agent:event", {
-        sessionId: failedSession.id,
+      // Emit the error event directly on the event bus so UIs (SSE, adapters) can
+      // display it. We intentionally do NOT register a session — the dummy session
+      // would never be cleaned up, leaking memory in SessionManager.
+      const failedSessionId = createParams.existingSessionId ?? `failed-${Date.now()}`;
+      this.eventBus.emit(BusEvent.AGENT_EVENT, {
+        sessionId: failedSessionId,
+        turnId: '',
         event: guidance,
       });
 
@@ -195,11 +217,14 @@ export class SessionFactory {
 
     // 4. Register in SessionManager
     this.sessionManager.registerSession(session);
-    this.eventBus.emit("session:created", {
-      sessionId: session.id,
-      agent: session.agentName,
-      status: session.status,
-    });
+    if (!session.isAssistant) {
+      this.eventBus.emit(BusEvent.SESSION_CREATED, {
+        sessionId: session.id,
+        agent: session.agentName,
+        status: session.status,
+        userId: createParams.userId,
+      });
+    }
 
     return session;
   }
@@ -221,6 +246,7 @@ export class SessionFactory {
     if (!this.sessionStore || !this.createFullSession) return null;
     const record = this.sessionStore.get(sessionId);
     if (!record) return null;
+    if (record.isAssistant) return null;
     if (record.status === "error" || record.status === "cancelled") return null;
 
     // Deduplicate concurrent resumes for the same session
@@ -281,6 +307,11 @@ export class SessionFactory {
     return resumePromise;
   }
 
+  /**
+   * Attempt to resume a session from disk when a message arrives on a thread with
+   * no live session. Deduplicates concurrent resume attempts for the same thread
+   * via resumeLocks to avoid spawning multiple agents.
+   */
   private async lazyResume(channelId: string, threadId: string): Promise<Session | null> {
     const store = this.sessionStore;
     if (!store || !this.createFullSession) return null;
@@ -299,6 +330,7 @@ export class SessionFactory {
       log.debug({ threadId, channelId }, "No session record found for thread");
       return null;
     }
+    if (record.isAssistant) return null;
 
     // Don't resume errored or cancelled sessions
     if (record.status === "error" || record.status === "cancelled") {
@@ -358,6 +390,27 @@ export class SessionFactory {
           }
         }
 
+        // If resume fell back to a fresh spawn (session.agentSessionId differs from record),
+        // inject conversation history so the new agent has context from previous sessions.
+        const resumeFalledBack = record.agentSessionId && session.agentSessionId !== record.agentSessionId;
+        if (resumeFalledBack) {
+          log.info({ sessionId: session.id }, "Resume fell back to fresh spawn — injecting conversation history");
+          const contextManager = this.getContextManager?.();
+          if (contextManager) {
+            try {
+              const config = this.configManager?.get();
+              const labelAgent = config?.agentSwitch?.labelHistory ?? true;
+              const contextResult = await contextManager.buildContext(
+                { type: 'session', value: record.sessionId, repoPath: record.workingDir },
+                { labelAgent, noCache: true },
+              );
+              if (contextResult?.markdown) {
+                session.setContext(contextResult.markdown);
+              }
+            } catch { /* context injection is best-effort */ }
+          }
+        }
+
         log.info({ sessionId: session.id, threadId }, "Lazy resume successful");
         return session;
       } catch (err) {
@@ -382,6 +435,7 @@ export class SessionFactory {
     return resumePromise;
   }
 
+  /** Create a brand-new session, resolving agent name and workspace from config if not provided. */
   async handleNewSession(
     channelId: string,
     agentName?: string,
@@ -441,6 +495,7 @@ export class SessionFactory {
     );
   }
 
+  /** Create a session and inject conversation context from a ContextProvider (e.g., history from a previous session). */
   async createSessionWithContext(params: {
     channelId: string;
     agentName: string;
@@ -480,11 +535,12 @@ export class SessionFactory {
     return { session, contextResult };
   }
 
+  /** Wire session-level side effects: usage tracking (via EventBus) and tunnel cleanup on session end. */
   wireSideEffects(session: Session, deps: SideEffectDeps): void {
     // Wire usage tracking via event bus (consumed by usage plugin)
-    session.on("agent_event", (event: AgentEvent) => {
+    session.on(SessionEv.AGENT_EVENT, (event: AgentEvent) => {
       if (event.type !== "usage") return;
-      deps.eventBus.emit("usage:recorded", {
+      deps.eventBus.emit(BusEvent.USAGE_RECORDED, {
         sessionId: session.id,
         agentName: session.agentName,
         timestamp: new Date().toISOString(),
@@ -495,7 +551,7 @@ export class SessionFactory {
     });
 
     // Clean up user tunnels when session ends
-    session.on("status_change", (_from, to) => {
+    session.on(SessionEv.STATUS_CHANGE, (_from, to) => {
       if ((to === "finished" || to === "cancelled") && deps.tunnelService) {
         deps.tunnelService
           .stopBySession(session.id)

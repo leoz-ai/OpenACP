@@ -18,6 +18,9 @@ export type {
   CommandDef, CommandArgs, CommandResponse, MenuOption, ListItem,
 } from '@openacp/cli'
 
+// --- Config field types ---
+export type { FieldDef } from '@openacp/cli'
+
 // --- Service interfaces ---
 export type {
   SecurityService, FileServiceInterface, NotificationService,
@@ -55,7 +58,11 @@ export type {
   UsageRecord, InstallProgress,
   DisplayVerbosity, ToolCallMeta, ToolUpdateMeta, ViewerLinks,
   TelegramPlatformData,
+  TurnMeta,
 } from '@openacp/cli'
+
+// --- Middleware types ---
+export type { MiddlewarePayloadMap, MiddlewareHook } from '@openacp/cli'
 
 // --- New adapter primitive types ---
 export type {

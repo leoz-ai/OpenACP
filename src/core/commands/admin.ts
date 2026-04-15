@@ -2,6 +2,12 @@ import type { CommandRegistry } from '../command-registry.js'
 import type { CommandResponse } from '../plugin/types.js'
 import type { OpenACPCore } from '../core.js'
 
+/**
+ * Register administrative commands: /restart, /update, /doctor, /integrate.
+ *
+ * These commands manage the server itself — restarting, updating, running
+ * diagnostics, and setting up new platform integrations.
+ */
 export function registerAdminCommands(registry: CommandRegistry, _core: unknown): void {
   const core = _core as OpenACPCore;
   registry.register({
@@ -44,7 +50,7 @@ export function registerAdminCommands(registry: CommandRegistry, _core: unknown)
   registry.register({
     name: 'integrate',
     description: 'Set up a new channel integration',
-    usage: '<channel>',
+    usage: '[channel]',
     category: 'system',
     handler: async (args) => {
       const channel = args.raw.trim()

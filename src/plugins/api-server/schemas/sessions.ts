@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+// Zod schemas for session API requests. Security-relevant size limits are documented inline.
+
 export const ListSessionsQuerySchema = z.object({
   status: z.enum(['initializing', 'active', 'finished', 'cancelled', 'error']).optional(),
   agentName: z.string().max(200).optional(),
@@ -7,14 +9,10 @@ export const ListSessionsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-// Workspace names must be relative (no leading / or ~) to prevent path injection.
-// Absolute paths would let an authenticated caller point the AI agent at sensitive
-// system directories (e.g. workspace: "/").  Relative names are resolved by
-// ConfigManager.resolveWorkspace() into the configured base directory.
-const WorkspaceNameSchema = z.string().optional().refine(
-  (v) => v === undefined || (!v.startsWith('/') && !v.startsWith('~')),
-  { message: 'workspace must be a relative name, not an absolute path' },
-);
+// Workspace names may be relative (resolved under baseDir) or absolute paths.
+// Absolute path validation is handled by ConfigManager.resolveWorkspace(), which
+// enforces the allowExternalWorkspaces flag and verifies the path exists on disk.
+const WorkspaceNameSchema = z.string().optional();
 
 export const CreateSessionBodySchema = z.object({
   agent: z.string().max(200).optional(),
@@ -31,17 +29,38 @@ export const AdoptSessionBodySchema = z.object({
   channel: z.string().max(200).optional(),
 });
 
+// Attachment input: base64-encoded file sent alongside a prompt.
+// fileName accepts any non-empty string up to 255 chars — file-service sanitizes it before writing to disk.
+// mimeType must be structurally valid (type/subtype) to prevent misleading agent processing.
+// data is capped at ~10 MB base64 (~13.3 MB string); actual Fastify bodyLimit enforced per-route.
+const AttachmentInputSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  mimeType: z
+    .string()
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$/, 'mimeType must be a valid MIME type')
+    .max(200),
+  data: z.string().max(15_000_000), // ~10 MB base64 ≈ 13.3 MB string
+});
+
+export type AttachmentInput = z.infer<typeof AttachmentInputSchema>;
+
 export const PromptBodySchema = z.object({
   // 100 KB limit — prevents memory exhaustion / DoS via enormous payloads
   prompt: z.string().min(1).max(100_000),
   // Multi-adapter routing fields
   sourceAdapterId: z.string().optional(),
   responseAdapterId: z.string().nullable().optional(),
+  // Optional file attachments; each decoded and stored via FileService
+  attachments: z.array(AttachmentInputSchema).max(10).optional(),
+  // Client-provided turnId to avoid SSE echo race condition
+  turnId: z.string().max(64).optional(),
 });
 
 export const PermissionResponseBodySchema = z.object({
   permissionId: z.string().min(1).max(200),
   optionId: z.string().min(1).max(200),
+  /** Optional feedback text — when provided with a deny option, queued as next prompt */
+  feedback: z.string().max(100_000).optional(),
 });
 
 export const DangerousModeBodySchema = z.object({

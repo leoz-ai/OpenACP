@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { OpenACPPlugin, InstallContext } from '../../core/plugin/types.js'
 import type { OpenACPCore } from '../../core/core.js'
+import { BusEvent } from '../../core/events.js'
 import type { TopicManager } from '../telegram/topic-manager.js'
 import type { CommandRegistry } from '../../core/command-registry.js'
 import type { ContextManager } from '../context/context-manager.js'
@@ -17,6 +18,7 @@ const log = createChildLogger({ module: 'api-server' })
 
 let cachedVersion: string | undefined
 
+/** Reads the package.json version once and caches it for the lifetime of the process. */
 function getVersion(): string {
   if (cachedVersion) return cachedVersion
   try {
@@ -30,6 +32,14 @@ function getVersion(): string {
   return cachedVersion!
 }
 
+/**
+ * Loads a secret from disk, or generates a new one and persists it with mode 0600.
+ *
+ * Used for both the raw API secret and the JWT signing secret. The file is created
+ * with restrictive permissions on first run; subsequent starts re-use the existing value
+ * so secrets survive restarts. An SSH-style warning is logged if the file permissions
+ * are too open (group/other readable), which can happen if the user copied the file.
+ */
 function loadOrCreateSecret(secretFilePath: string): string {
   const dir = path.dirname(secretFilePath)
   fs.mkdirSync(dir, { recursive: true })
@@ -62,12 +72,19 @@ function loadOrCreateSecret(secretFilePath: string): string {
   return secret
 }
 
+/**
+ * Writes the actual listening port to `<instanceRoot>/api.port`.
+ *
+ * The CLI reads this file to locate the running server when the user runs
+ * `openacp` commands against a daemonized instance.
+ */
 function writePortFile(portFilePath: string, port: number): void {
   const dir = path.dirname(portFilePath)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(portFilePath, String(port))
 }
 
+/** Removes the port file on shutdown so stale files don't mislead CLI auto-discovery. */
 function removePortFile(portFilePath: string): void {
   try {
     fs.unlinkSync(portFilePath)
@@ -85,6 +102,19 @@ export interface ApiConfig {
 
 // ─── Plugin Definition ─────────────────────────────────────────────────────
 
+/**
+ * Creates the `@openacp/api-server` plugin.
+ *
+ * This plugin wires together:
+ * - A Fastify HTTP server with JWT auth, rate limiting, and Swagger docs
+ * - REST route groups for sessions, agents, config, system, auth, plugins, topics, tunnel, etc.
+ * - An SSE manager that relays EventBus events to connected App clients in real time
+ * - Static file serving for the bundled OpenACP App dashboard
+ * - An `api-server` service registered in ServiceRegistry for other plugins to extend
+ *
+ * Startup is deferred to the `SYSTEM_READY` event so all other plugins are fully
+ * booted before the server accepts connections.
+ */
 function createApiServerPlugin(): OpenACPPlugin {
   let server: ApiServerInstance | null = null
   let portFilePath = ''
@@ -98,23 +128,10 @@ function createApiServerPlugin(): OpenACPPlugin {
     version: '1.0.0',
     description: 'REST API + SSE streaming server',
     essential: false,
-    permissions: ['services:register', 'services:use', 'kernel:access', 'events:read', 'events:emit'],
+    permissions: ['services:register', 'services:use', 'kernel:access', 'commands:register', 'events:read', 'events:emit'],
 
     async install(ctx: InstallContext) {
-      const { settings, legacyConfig, terminal } = ctx
-
-      // Migrate from legacy config if present
-      if (legacyConfig) {
-        const apiCfg = legacyConfig.api as Record<string, unknown> | undefined
-        if (apiCfg) {
-          await settings.setAll({
-            port: apiCfg.port ?? 21420,
-            host: apiCfg.host ?? '127.0.0.1',
-          })
-          terminal.log.success('API server settings migrated from legacy config')
-          return
-        }
-      }
+      const { settings, terminal } = ctx
 
       // Save defaults
       await settings.setAll({
@@ -169,6 +186,10 @@ function createApiServerPlugin(): OpenACPPlugin {
     inheritableKeys: ['host'],
 
     async setup(ctx) {
+      ctx.registerEditableFields([
+        { key: 'port', displayName: 'API Port', type: 'number', scope: 'safe', hotReload: false },
+      ])
+
       const config = ctx.pluginConfig as Record<string, unknown>
       const instanceRoot = ctx.instanceRoot
       const core = ctx.core as OpenACPCore
@@ -200,6 +221,10 @@ function createApiServerPlugin(): OpenACPPlugin {
       const tokenStore = new TokenStore(tokensFilePath)
       await tokenStore.load()
       tokenStoreRef = tokenStore
+
+      // Expose tokenStore as a service so other plugins (e.g. identity) can associate
+      // their user IDs with tokens without a direct import dependency.
+      ctx.registerService('token-store', tokenStore)
 
       // Lazy import to avoid loading Fastify unless needed
       const { createApiServer } = await import('./server.js')
@@ -238,11 +263,21 @@ function createApiServerPlugin(): OpenACPPlugin {
       // Build auth pre-handler for route-level auth on unauthenticated route groups
       const routeAuthPreHandler = createAuthPreHandler(() => secret, () => jwtSecret, tokenStore)
 
+      // Resolve instance ID from registry — used in health response for instance verification
+      const { InstanceRegistry } = await import('../../core/instance/instance-registry.js')
+      const { getGlobalRoot } = await import('../../core/instance/instance-context.js')
+      const globalRoot = getGlobalRoot()
+      const instanceReg = new InstanceRegistry(path.join(globalRoot, 'instances.json'))
+      instanceReg.load()
+      const instanceEntry = instanceReg.getByRoot(instanceRoot)
+      const workspaceId = instanceEntry?.id ?? 'main'
+
       const deps: RouteDeps = {
         core,
         topicManager,
         startedAt,
         getVersion,
+        instanceId: workspaceId,
         commandRegistry,
         authPreHandler: routeAuthPreHandler,
         contextManager,
@@ -258,17 +293,13 @@ function createApiServerPlugin(): OpenACPPlugin {
       server.registerPlugin('/api/v1/tunnel', async (app) => tunnelRoutes(app, deps))
       server.registerPlugin('/api/v1/notify', async (app) => notifyRoutes(app, deps))
       server.registerPlugin('/api/v1/commands', async (app) => commandRoutes(app, deps))
-      server.registerPlugin('/api/v1/auth', async (app) => authRoutes(app, { tokenStore, getJwtSecret: () => jwtSecret }))
+      server.registerPlugin('/api/v1/auth', async (app) => authRoutes(app, {
+        tokenStore,
+        getJwtSecret: () => jwtSecret,
+        // Lazy resolver: identity plugin may not be loaded, so we fetch it on demand
+        getIdentityService: () => ctx.getService<{ getUser(userId: string): Promise<{ displayName: string } | undefined> }>('identity') ?? undefined,
+      }))
       server.registerPlugin('/api/v1/plugins', async (app) => pluginRoutes(app, deps))
-
-      // Workspace info route (authenticated)
-      const { InstanceRegistry } = await import('../../core/instance/instance-registry.js')
-      const { getGlobalRoot } = await import('../../core/instance/instance-context.js')
-      const globalRoot = getGlobalRoot()
-      const instanceReg = new InstanceRegistry(path.join(globalRoot, 'instances.json'))
-      instanceReg.load()
-      const instanceEntry = instanceReg.getByRoot(instanceRoot)
-      const workspaceId = instanceEntry?.id ?? 'main'
       const appConfig = core.configManager.get()
       const workspaceName = (appConfig as Record<string, unknown>).instanceName as string ?? 'Main'
       const workspaceDir = path.dirname(instanceRoot)
@@ -281,9 +312,10 @@ function createApiServerPlugin(): OpenACPPlugin {
         })
       })
 
-      // Exchange endpoint — NO auth (code in body IS the credential)
-      // Fastify encapsulation makes dual registerPlugin on the same prefix safe —
-      // each registration gets its own scope with independent hooks.
+      // Exchange endpoint — NO auth. The one-time code in the request body IS the
+      // credential; adding Bearer auth here would require the caller to already have a
+      // token, defeating the purpose. Fastify encapsulation makes dual registerPlugin
+      // on the same prefix safe — each call creates an independent scope with its own hooks.
       server.registerPlugin('/api/v1/auth', async (app) => {
         const { ExchangeCodeBodySchema } = await import('./schemas/auth.js')
         const { signToken } = await import('./auth/jwt.js')
@@ -315,6 +347,7 @@ function createApiServerPlugin(): OpenACPPlugin {
             tokenId: token.id,
             expiresAt: new Date(Date.now() + parseDuration(code.expire)).toISOString(),
             refreshDeadline: token.refreshDeadline,
+            identitySecret: token.identitySecret,
           })
         })
       }, { auth: false })
@@ -379,7 +412,7 @@ function createApiServerPlugin(): OpenACPPlugin {
       cleanupInterval = setInterval(() => tokenStore.cleanup(), 60 * 60 * 1000)
 
       // Start on system:ready
-      ctx.on('system:ready', async () => {
+      ctx.on(BusEvent.SYSTEM_READY, async () => {
         log.info(
           { configPort: apiConfig.port, configHost: apiConfig.host },
           'API server starting...',

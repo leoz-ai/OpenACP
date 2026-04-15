@@ -30,7 +30,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 // Mock autostart module
-vi.mock('../core/autostart.js', () => ({
+vi.mock('../cli/autostart.js', () => ({
   isAutoStartSupported: vi.fn(() => false),
   installAutoStart: vi.fn(() => ({ success: true })),
 }))
@@ -167,8 +167,6 @@ describe('runSetup integration', () => {
     // text() call order:
     // 1. Instance name prompt
     mockedText.mockResolvedValueOnce('Main' as any)
-    // 2. setupWorkspace: workspace base dir
-    mockedText.mockResolvedValueOnce('~/my-workspace' as any)
 
     // Confirm call order:
     // 1. Claude CLI integration prompt (decline to avoid needing ClaudeIntegration mock)
@@ -207,9 +205,12 @@ describe('runSetup integration', () => {
     }
 
     const cm = new ConfigManager()
+    const instanceRoot = path.join(tmpDir, '.openacp')
+    fs.mkdirSync(instanceRoot, { recursive: true })
     const shouldStart = await runSetup(cm, {
       settingsManager: mockSettingsManager as any,
       pluginRegistry: mockPluginRegistry as any,
+      instanceRoot,
     })
 
     expect(shouldStart).toBe(true)
@@ -229,14 +230,7 @@ describe('runSetup integration', () => {
     )
 
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-    // Channels are now managed by plugins, core config has empty channels
-    expect(written.channels).toEqual({})
-    // agents are now stored in agents.json, not config.json
-    expect(written.agents).toEqual({})
     expect(written.defaultAgent).toBe('claude')
-    expect(written.workspace.baseDir).toBe('~/my-workspace')
-    expect(written.security.maxConcurrentSessions).toBe(20)
-    expect(written.security.sessionTimeoutMinutes).toBe(60)
 
     // Built-in plugins were auto-registered
     expect(mockPluginRegistry.save).toHaveBeenCalled()
@@ -276,7 +270,7 @@ describe('runReconfigure integration', () => {
       },
       agents: {},
       defaultAgent: 'claude',
-      workspace: { baseDir: '~/workspace' },
+      workspace: { allowExternalWorkspaces: true, security: { allowedPaths: [], envWhitelist: [] } },
       security: {
         allowedUserIds: [],
         maxConcurrentSessions: 20,

@@ -29,6 +29,7 @@ function createMockSession(overrides: Record<string, unknown> = {}) {
       resolve: vi.fn(),
     },
     enqueuePrompt: vi.fn().mockResolvedValue(undefined),
+    abortPrompt: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -86,6 +87,8 @@ function createMockDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
       agentManager: {
         getAvailableAgents: vi.fn().mockReturnValue([]),
       },
+      eventBus: { emit: vi.fn() },
+      handleMessageInSession: vi.fn().mockResolvedValue({ turnId: 'test-turn', queueDepth: 0 }),
     } as any,
     topicManager: undefined,
     startedAt: Date.now(),
@@ -187,6 +190,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -212,10 +216,13 @@ describe('session routes', () => {
     });
 
     it('returns 429 when max sessions reached', async () => {
-      (deps.core.configManager.get as any).mockReturnValue({
-        defaultAgent: 'claude',
-        security: { maxConcurrentSessions: 0 },
-      });
+      // Override lifecycleManager with settingsManager returning maxConcurrentSessions=0
+      // so that any active session triggers the limit
+      deps.lifecycleManager = {
+        settingsManager: {
+          loadSettings: vi.fn().mockResolvedValue({ maxConcurrentSessions: 0 }),
+        },
+      } as any;
 
       const response = await app.inject({
         method: 'POST',
@@ -305,8 +312,13 @@ describe('session routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.ok).toBe(true);
-      const session = (deps.core.sessionManager.getSession as any).mock.results[0].value;
-      expect(session.enqueuePrompt).toHaveBeenCalledWith('Hello!', undefined, expect.objectContaining({ sourceAdapterId: 'api' }));
+      expect(body.turnId).toBe('test-turn');
+      expect(deps.core.handleMessageInSession).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sess-1' }),
+        expect.objectContaining({ text: 'Hello!' }),
+        expect.any(Object),
+        expect.any(Object),
+      );
     });
 
     it('returns 404 for unknown session', async () => {
@@ -367,6 +379,60 @@ describe('session routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+
+    it('aborts current turn and enqueues feedback when feedback provided', async () => {
+      const mockAbortPrompt = vi.fn().mockResolvedValue(undefined);
+      const mockEnqueuePrompt = vi.fn().mockResolvedValue('turn-1');
+      const mockResolve = vi.fn();
+      (deps.core.sessionManager.getSession as any).mockReturnValue(
+        createMockSession({
+          permissionGate: { isPending: true, requestId: 'perm-1', resolve: mockResolve },
+          abortPrompt: mockAbortPrompt,
+          enqueuePrompt: mockEnqueuePrompt,
+        }),
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/sessions/sess-1/permission',
+        payload: { permissionId: 'perm-1', optionId: 'deny', feedback: 'Please use a different approach' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockResolve).toHaveBeenCalledWith('deny');
+      expect(mockAbortPrompt).toHaveBeenCalled();
+      expect(mockEnqueuePrompt).toHaveBeenCalledWith(
+        'Please use a different approach',
+        undefined,
+        { sourceAdapterId: 'api' },
+      );
+      // abort must complete before enqueue (sequential, not concurrent)
+      const abortOrder = mockAbortPrompt.mock.invocationCallOrder[0];
+      const enqueueOrder = mockEnqueuePrompt.mock.invocationCallOrder[0];
+      expect(abortOrder).toBeLessThan(enqueueOrder);
+    });
+
+    it('does not abort or enqueue when no feedback provided', async () => {
+      const mockAbortPrompt = vi.fn().mockResolvedValue(undefined);
+      const mockEnqueuePrompt = vi.fn().mockResolvedValue('turn-1');
+      (deps.core.sessionManager.getSession as any).mockReturnValue(
+        createMockSession({
+          permissionGate: { isPending: true, requestId: 'perm-1', resolve: vi.fn() },
+          abortPrompt: mockAbortPrompt,
+          enqueuePrompt: mockEnqueuePrompt,
+        }),
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/sessions/sess-1/permission',
+        payload: { permissionId: 'perm-1', optionId: 'allow' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockAbortPrompt).not.toHaveBeenCalled();
+      expect(mockEnqueuePrompt).not.toHaveBeenCalled();
     });
   });
 
@@ -442,6 +508,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -521,6 +588,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -596,6 +664,7 @@ describe('session routes', () => {
 
     it('returns 404 for unknown session', async () => {
       (deps.core.sessionManager.getSession as any).mockReturnValue(null);
+      (deps.core.sessionManager.getSessionRecord as any).mockReturnValue(null);
 
       const response = await app.inject({
         method: 'DELETE',
