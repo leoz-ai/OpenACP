@@ -35,7 +35,15 @@ const plugin: OpenACPPlugin = {
 
     const connectionManager = new ConnectionManager({ maxPerSession: 10, maxTotal: 100 });
     const eventBuffer = new EventBuffer(100);
-    const adapter = new SSEAdapter(connectionManager, eventBuffer);
+
+    // Resolve token-store early so the adapter can map tokenId → userId for notification routing.
+    // token-store is registered by api-server (a declared dependency), so it's always available here.
+    const tokenStore = ctx.getService<{ getUserId(tokenId: string): string | undefined } | undefined>('token-store');
+    const adapter = new SSEAdapter(
+      connectionManager,
+      eventBuffer,
+      tokenStore ? (id) => tokenStore.getUserId(id) : undefined,
+    );
 
     _adapter = adapter;
     _connectionManager = connectionManager;
@@ -49,10 +57,6 @@ const plugin: OpenACPPlugin = {
 
     // Get command registry for command execution in routes
     const commandRegistry = ctx.getService<CommandRegistry>('command-registry');
-
-    // Resolve token→user mapping from the token-store service for user-level SSE streams.
-    // token-store is registered by api-server plugin, which is a declared dependency.
-    const tokenStore = ctx.getService<{ getUserId(tokenId: string): string | undefined } | undefined>('token-store');
 
     // Clean up event buffer when a session ends or is deleted to prevent unbounded memory growth
     ctx.on(BusEvent.SESSION_DELETED, (data: unknown) => {

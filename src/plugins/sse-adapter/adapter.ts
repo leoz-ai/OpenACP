@@ -47,6 +47,9 @@ export class SSEAdapter implements IChannelAdapter {
   constructor(
     private readonly connectionManager: ConnectionManager,
     private readonly eventBuffer: EventBuffer,
+    // Resolves tokenId (identity.platformId for API users) to internal userId
+    // for user-level SSE connection lookup. Required for mention notifications.
+    private readonly resolveUserId?: (tokenId: string) => string | undefined,
   ) {}
 
   /**
@@ -119,15 +122,17 @@ export class SSEAdapter implements IChannelAdapter {
   /**
    * Delivers a push notification to a specific user's SSE connections.
    *
-   * `platformId` is the userId for the SSE adapter — SSE has no concept of
-   * platform-specific user handles, so we use the internal userId directly.
+   * `platformId` for API users is the tokenId (set during identity setup).
+   * The userIndex is keyed by internal userId, so we resolve tokenId → userId
+   * via `resolveUserId` before looking up the connection.
    */
   async sendUserNotification(platformId: string, message: any, options?: any): Promise<void> {
+    const userId = this.resolveUserId?.(platformId) ?? platformId;
     const serialized = `event: notification:text\ndata: ${JSON.stringify({
       text: message.text ?? message.summary ?? '',
       ...(options ?? {}),
     })}\n\n`;
-    this.connectionManager.pushToUser(platformId, serialized);
+    this.connectionManager.pushToUser(userId, serialized);
   }
 
   /** SSE has no concept of threads — return sessionId as the threadId */
