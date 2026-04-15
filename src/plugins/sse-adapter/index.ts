@@ -35,25 +35,13 @@ const plugin: OpenACPPlugin = {
 
     const connectionManager = new ConnectionManager({ maxPerSession: 10, maxTotal: 100 });
     const eventBuffer = new EventBuffer(100);
-
-    // Resolve token-store early so the adapter can map tokenId → userId for notification routing.
-    // token-store is registered by api-server (a declared dependency), so it's always available here.
-    const tokenStore = ctx.getService<{ getUserId(tokenId: string): string | undefined } | undefined>('token-store');
-    const adapter = new SSEAdapter(
-      connectionManager,
-      eventBuffer,
-      tokenStore ? (id) => tokenStore.getUserId(id) : undefined,
-    );
+    const adapter = new SSEAdapter(connectionManager, eventBuffer);
 
     _adapter = adapter;
     _connectionManager = connectionManager;
 
-    // Register adapter as a service so main.ts wires it into core.
-    // 'sse' is the routing key; 'api' is the identity source for app users —
-    // both must be registered so NotificationService can resolve the adapter
-    // when delivering user-targeted notifications to app clients.
+    // Register adapter as a service so main.ts wires it into core
     ctx.registerService('adapter:sse', adapter);
-    ctx.registerService('adapter:api', adapter);
 
     // Get command registry for command execution in routes
     const commandRegistry = ctx.getService<CommandRegistry>('command-registry');
@@ -75,7 +63,6 @@ const plugin: OpenACPPlugin = {
         connectionManager,
         eventBuffer,
         commandRegistry: commandRegistry ?? undefined,
-        getUserId: tokenStore ? (id) => tokenStore.getUserId(id) : undefined,
       });
     }, { auth: true });
 
