@@ -155,8 +155,13 @@ export class TelegramAdapter extends MessagingAdapter {
   private _configChangedHandler?: (data: { sessionId: string }) => void;
   /** Mutable ref passed to callbacks before topics are ready; updated in-place by initTopicDependentFeatures */
   private _systemTopicIds = { notificationTopicId: 0, assistantTopicId: 0 };
-  /** Tracks queue notification message IDs per turnId so they can be dismissed */
-  private _queueNotifications = new Map<string, number>();
+  /**
+   * Tracks queue notification state per turnId:
+   * - 'pending': notification is being sent (sendQueue delay), not yet assigned a msgId
+   * - 'delete': MESSAGE_PROCESSING fired before the send completed — delete as soon as it's sent
+   * - number: notification sent successfully, this is the Telegram message_id to delete
+   */
+  private _queueNotifications = new Map<string, number | 'pending' | 'delete'>();
   /** True once topics are initialized and Phase 2 is complete */
   private _topicsInitialized = false;
   /** Background watcher timer — cancelled on stop() or when topics succeed */
@@ -551,12 +556,20 @@ export class TelegramAdapter extends MessagingAdapter {
         await ctx.answerCallbackQuery({ text: '🔄 Session flushed.' });
       }
 
-      // For clear/flush/now, all queued notifications are obsolete — dismiss them all
+      // For clear/flush/now, all queued notifications are obsolete — dismiss them all.
+      // For sent notifications (number), delete via API immediately.
+      // For pending notifications (not yet sent due to sendQueue delay), mark as 'delete'
+      // so the send handler deletes them right after sending.
       if (action === 'clear' || action === 'flush' || action === 'now') {
-        for (const [, msgId] of this._queueNotifications) {
-          this.bot.api.deleteMessage(this.telegramConfig.chatId, msgId).catch(() => {});
+        for (const [turnId, entry] of this._queueNotifications) {
+          if (typeof entry === 'number') {
+            this.bot.api.deleteMessage(this.telegramConfig.chatId, entry).catch(() => {});
+            this._queueNotifications.delete(turnId);
+          } else if (entry === 'pending') {
+            this._queueNotifications.set(turnId, 'delete');
+          }
+          // 'delete' entries are already handled
         }
-        this._queueNotifications.clear();
       }
 
       // Delete this notification message
@@ -786,6 +799,10 @@ export class TelegramAdapter extends MessagingAdapter {
         '🔄 <b>Flush All</b> — Cancel everything, start fresh',
       ].join('\n');
 
+      // Mark as 'pending' BEFORE awaiting sendQueue so MESSAGE_PROCESSING can observe this
+      // turnId and mark it for deletion if the message is processed before the notification is sent.
+      // Without this, MESSAGE_PROCESSING may fire during the 3s sendQueue delay and see no entry.
+      this._queueNotifications.set(data.turnId, 'pending');
       try {
         const result = await this.sendQueue.enqueue(() =>
           this.bot.api.sendMessage(this.telegramConfig.chatId, text, {
@@ -795,20 +812,42 @@ export class TelegramAdapter extends MessagingAdapter {
             disable_notification: true,
           }),
         );
-        if (result) {
+        const current = this._queueNotifications.get(data.turnId);
+        if (current === 'delete') {
+          // MESSAGE_PROCESSING fired while we were waiting — delete the notification immediately
+          this._queueNotifications.delete(data.turnId);
+          if (result) {
+            this.bot.api.deleteMessage(this.telegramConfig.chatId, result.message_id).catch((err) => {
+              log.warn({ err }, 'Failed to delete queue notification after race');
+            });
+          }
+        } else if (result) {
           this._queueNotifications.set(data.turnId, result.message_id);
+        } else {
+          this._queueNotifications.delete(data.turnId);
         }
       } catch (err) {
+        this._queueNotifications.delete(data.turnId);
         log.warn({ err }, 'Failed to send queue notification');
       }
     });
 
     // Dismiss the queue notification once the queued message starts processing.
+    // Handles two cases: notification already sent (number) → delete via API immediately;
+    // notification still in sendQueue ('pending') → mark as 'delete' so the send handler cleans up.
     this.core.eventBus.on(BusEvent.MESSAGE_PROCESSING, async (data) => {
-      const msgId = this._queueNotifications.get(data.turnId);
-      if (!msgId) return;
-      this._queueNotifications.delete(data.turnId);
-      this.bot.api.deleteMessage(this.telegramConfig.chatId, msgId).catch(() => {});
+      const entry = this._queueNotifications.get(data.turnId);
+      if (entry === undefined) return;
+      if (typeof entry === 'number') {
+        this._queueNotifications.delete(data.turnId);
+        this.bot.api.deleteMessage(this.telegramConfig.chatId, entry).catch((err) => {
+          log.warn({ err }, 'Failed to delete queue notification on processing');
+        });
+      } else if (entry === 'pending') {
+        // Notification not sent yet — mark for deletion when the sendQueue flush completes
+        this._queueNotifications.set(data.turnId, 'delete');
+      }
+      // 'delete' state: already handled
     });
 
     // Send welcome message
