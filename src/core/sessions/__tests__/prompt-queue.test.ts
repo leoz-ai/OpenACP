@@ -129,6 +129,40 @@ describe('PromptQueue', () => {
     expect(capturedText).not.toBe(capturedUserPrompt)
   })
 
+  it('clearPending discards queued items without aborting current', async () => {
+    let resolveFirst!: () => void
+    const firstPromise = new Promise<void>((r) => { resolveFirst = r })
+    const calls: string[] = []
+
+    const processor = vi.fn().mockImplementation(async (text: string) => {
+      calls.push(text)
+      if (text === 'first') await firstPromise
+    })
+
+    const queue = new PromptQueue(processor)
+
+    const p1 = queue.enqueue('first')
+    const p2 = queue.enqueue('second')
+    const p3 = queue.enqueue('third')
+
+    expect(queue.pending).toBe(2)
+
+    // Clear pending — should discard second and third, but NOT abort first
+    queue.clearPending()
+    expect(queue.pending).toBe(0)
+    expect(queue.isProcessing).toBe(true)
+
+    // Resolve first — should complete without processing second/third
+    resolveFirst()
+    await p1
+    // p2 and p3 should also resolve (not hang)
+    await p2
+    await p3
+
+    expect(calls).toEqual(['first'])
+    expect(queue.isProcessing).toBe(false)
+  })
+
   it('pendingItems returns userPrompt (not text) for queued items', async () => {
     let resolveFirst!: () => void
     const firstPromise = new Promise<void>((r) => { resolveFirst = r })

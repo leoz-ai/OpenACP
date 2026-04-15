@@ -95,6 +95,19 @@ export class PromptQueue {
     this.queue = []
   }
 
+  /**
+   * Discard all queued prompts without aborting the in-flight prompt.
+   * The currently processing prompt continues to completion; only pending
+   * (not-yet-started) items are removed. Their promises are resolved
+   * (not rejected) so callers don't see unhandled rejections.
+   */
+  clearPending(): void {
+    for (const item of this.queue) {
+      item.resolve()
+    }
+    this.queue = []
+  }
+
   get pending(): number {
     return this.queue.length
   }
