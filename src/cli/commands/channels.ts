@@ -53,6 +53,14 @@ OpenACP daemon (e.g. telegram, slack, sse).
   try {
     const { apiCall } = await import('../api-client.js')
     const res = await apiCall(port, '/api/system/adapters', { method: 'GET' }, instanceRoot ?? undefined)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as Record<string, unknown>
+      const msg = (body.error as string) ?? `HTTP ${res.status}`
+      if (json) jsonError(ErrorCodes.API_ERROR, `Failed to fetch adapters: ${msg}`)
+      console.log(`Failed to fetch adapters: ${msg}`)
+      process.exit(1)
+    }
+
     const data = await res.json() as { adapters?: { name: string; type: string }[] }
 
     const adapters = data.adapters ?? []
