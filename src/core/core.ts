@@ -874,7 +874,7 @@ export class OpenACPCore {
       if (this.adapters.size > 1) {
         const available = Array.from(this.adapters.keys());
         // Map internal adapter names to human-readable display names for the prompt
-        const displayName: Record<string, string> = { sse: "desktop app" };
+        const displayName: Record<string, string> = { sse: "Desktop App" };
         return {
           ok: false,
           error: "channel_required",
