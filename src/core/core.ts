@@ -866,11 +866,15 @@ export class OpenACPCore {
       }
       adapterChannelId = channelId;
     } else {
-      const firstEntry = this.adapters.entries().next().value;
-      if (!firstEntry) {
+      if (this.adapters.size === 0) {
         return { ok: false, error: "no_adapter", message: "No channel adapter registered" };
       }
-      adapterChannelId = firstEntry[0];
+      // Prefer adapters that support threads (e.g. Telegram) over stream adapters (e.g. SSE).
+      // SSE's createSessionThread returns sessionId — not a real platform thread — so adopting
+      // into it would succeed silently without creating a visible messaging thread.
+      const threadingEntry = Array.from(this.adapters.entries()).find(([, a]) => a.capabilities.threads);
+      const firstEntry = this.adapters.entries().next().value!;
+      adapterChannelId = threadingEntry ? threadingEntry[0] : firstEntry[0];
     }
 
     // 6. Create session via unified pipeline
