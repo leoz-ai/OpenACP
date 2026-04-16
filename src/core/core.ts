@@ -873,10 +873,12 @@ export class OpenACPCore {
       // intentionally picks the target platform rather than silently landing in the wrong one.
       if (this.adapters.size > 1) {
         const available = Array.from(this.adapters.keys());
+        // Map internal adapter names to human-readable display names for the prompt
+        const displayName: Record<string, string> = { sse: "desktop app" };
         return {
           ok: false,
           error: "channel_required",
-          message: `Multiple channels available. Specify one with --channel:\n${available.map(c => `  - ${c}`).join("\n")}`,
+          message: `Multiple channels available. Specify one with --channel:\n${available.map(c => `  - ${c} (${displayName[c] ?? c})`).join("\n")}`,
         };
       }
       adapterChannelId = this.adapters.keys().next().value!;
