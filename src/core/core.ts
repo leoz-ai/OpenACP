@@ -897,8 +897,10 @@ export class OpenACPCore {
         workingDirectory: cwd,
         resumeAgentSessionId: agentSessionId,
         createThread: true,
-        // threadTitle sets the Telegram topic display name without locking session.name,
-        // so auto-naming can still trigger after the first user message.
+        // initialName shows a placeholder in the app immediately after adopt.
+        // auto-naming checks for this placeholder value and overwrites it on first
+        // user message, so the name is still updated automatically.
+        initialName: "Adopted session",
         threadTitle: "Adopted session",
       });
     } catch (err) {

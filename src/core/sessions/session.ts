@@ -457,7 +457,8 @@ export class Session extends TypedEmitter<SessionEvents> {
       });
     }
 
-    if (!this.name) {
+    // Also trigger auto-naming when name is still the adopted session placeholder.
+    if (!this.name || this.name === "Adopted session") {
       await this.autoName();
     }
   }
