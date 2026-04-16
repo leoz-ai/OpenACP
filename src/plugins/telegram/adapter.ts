@@ -356,9 +356,16 @@ export class TelegramAdapter extends MessagingAdapter {
       const text = ctx.message?.text;
       if (!text?.startsWith("/")) return next();
 
+      // /retry is always allowed — it is specifically for recovering from the not-initialized state
+      const rawCmd = text.split(" ")[0].slice(1).split("@")[0].toLowerCase();
+      if (rawCmd === "retry") {
+        await this.handleRetryCommand(ctx);
+        return;
+      }
+
       if (!this._topicsInitialized) {
         await ctx.reply(
-          "⏳ OpenACP is still setting up. Check the General topic for instructions.",
+          "⏳ OpenACP is still setting up. Open the Topics list of this group and check the 📌 General topic for setup instructions. Or send /retry to re-check now.",
         ).catch(() => {});
         return;
       }
@@ -891,11 +898,60 @@ export class TelegramAdapter extends MessagingAdapter {
     log.info("Telegram adapter fully initialized");
   }
 
+  /**
+   * Handle the /retry command — re-runs prerequisite checks immediately.
+   *
+   * This command is allowed even before topics are initialized so users can
+   * trigger a recheck right after fixing permissions, without waiting for the
+   * next automatic retry cycle.
+   */
+  private async handleRetryCommand(ctx: { reply: (text: string, opts?: Record<string, unknown>) => Promise<unknown> }): Promise<void> {
+    if (this._topicsInitialized) {
+      await ctx.reply("✅ OpenACP is already running.").catch(() => {});
+      return;
+    }
+
+    await ctx.reply("🔄 Re-checking prerequisites...").catch(() => {});
+
+    const { checkTopicsPrerequisites } = await import('./validators.js');
+    const result = await checkTopicsPrerequisites(
+      this.telegramConfig.botToken,
+      this.telegramConfig.chatId,
+    );
+
+    if (result.ok) {
+      try {
+        // Cancel the background watcher since we're handling init inline
+        if (this._prerequisiteWatcher !== null) {
+          clearTimeout(this._prerequisiteWatcher);
+          this._prerequisiteWatcher = null;
+        }
+        await this.initTopicDependentFeatures();
+        const assistantTopicLink = this.assistantTopicId
+          ? ` <a href="https://t.me/c/${String(this.telegramConfig.chatId).replace(/^-100/, '')}/${this.assistantTopicId}">🤖 Assistant</a>`
+          : ' 🤖 Assistant';
+        await ctx.reply(
+          `✅ <b>OpenACP is ready!</b> Tap${assistantTopicLink} to get started.`,
+          { parse_mode: 'HTML' },
+        ).catch(() => {});
+      } catch (err) {
+        log.error({ err }, 'handleRetryCommand: init failed after prerequisites met');
+        await ctx.reply("⚠️ Prerequisites are met but initialization failed. Check server logs and try /retry again.").catch(() => {});
+      }
+    } else {
+      const issueText = result.issues.join('\n\n');
+      await ctx.reply(
+        `⚠️ <b>Still not ready:</b>\n\n${issueText}\n\nFix the issues above and send /retry again.`,
+        { parse_mode: 'HTML' },
+      ).catch(() => {});
+    }
+  }
+
   private startPrerequisiteWatcher(issues: string[]): void {
     const setupMessage =
       `⚠️ <b>OpenACP needs setup before it can start.</b>\n\n` +
       issues.join('\n\n') +
-      `\n\nOpenACP will automatically retry until this is resolved.`;
+      `\n\nOpenACP will automatically retry every 30 seconds. After fixing the issues above, send /retry to re-check immediately.`;
 
     this.bot.api.sendMessage(this.telegramConfig.chatId, setupMessage, {
       parse_mode: 'HTML',
@@ -916,17 +972,25 @@ export class TelegramAdapter extends MessagingAdapter {
       );
 
       if (result.ok) {
-        this._prerequisiteWatcher = null;
         log.info('Prerequisites met — completing Telegram adapter initialization');
         try {
           await this.initTopicDependentFeatures();
+          // Only cancel watcher after successful init — if init fails we keep retrying
+          this._prerequisiteWatcher = null;
+          const assistantTopicLink = this.assistantTopicId
+            ? ` <a href="https://t.me/c/${String(this.telegramConfig.chatId).replace(/^-100/, '')}/${this.assistantTopicId}">🤖 Assistant</a>`
+            : ' 🤖 Assistant';
           await this.bot.api.sendMessage(
             this.telegramConfig.chatId,
-            '✅ <b>OpenACP is ready!</b>\n\nSystem topics have been created. Use the 🤖 Assistant topic to get started.',
+            `✅ <b>OpenACP is ready!</b>\n\nSystem topics have been created. Tap${assistantTopicLink} to get started.`,
             { parse_mode: 'HTML' },
           );
         } catch (err) {
-          log.error({ err }, 'Failed to complete initialization after prerequisites met');
+          log.error({ err }, 'Failed to complete initialization after prerequisites met — will retry');
+          // Don't cancel watcher; schedule next retry so init can be reattempted
+          const delay = schedule[Math.min(attempt, schedule.length - 1)];
+          attempt++;
+          this._prerequisiteWatcher = setTimeout(retry, delay);
         }
         return;
       }
@@ -1081,7 +1145,7 @@ export class TelegramAdapter extends MessagingAdapter {
       // Guard: topics not yet initialized — non-command messages would use stale/zero topic IDs
       if (!this._topicsInitialized) {
         await ctx.reply(
-          "⏳ OpenACP is still setting up. Check the General topic for instructions.",
+          "⏳ OpenACP is still setting up. Open the Topics list of this group and check the 📌 General topic for setup instructions. Or send /retry to re-check now.",
         ).catch(() => {});
         return;
       }
