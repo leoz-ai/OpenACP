@@ -220,6 +220,7 @@ export class SessionFactory {
     if (!session.isAssistant) {
       this.eventBus.emit(BusEvent.SESSION_CREATED, {
         sessionId: session.id,
+        name: session.name,
         agent: session.agentName,
         status: session.status,
         userId: createParams.userId,

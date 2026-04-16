@@ -583,6 +583,10 @@ export class OpenACPCore {
     existingSessionId?: string;
     createThread?: boolean;
     initialName?: string;
+    // threadTitle sets the adapter thread display name without populating session.name.
+    // Use this when you want a placeholder thread title (e.g. "Adopted session") but
+    // still need auto-naming to run after the first prompt.
+    threadTitle?: string;
     threadId?: string;
     isAssistant?: boolean;
   }): Promise<Session> {
@@ -599,7 +603,7 @@ export class OpenACPCore {
     if (params.createThread && adapter) {
       const threadId = await adapter.createSessionThread(
         session.id,
-        params.initialName ?? `🔄 ${params.agentName} — New Session`,
+        params.threadTitle ?? params.initialName ?? `🔄 ${params.agentName} — New Session`,
       );
       session.threadId = threadId;
     }
@@ -893,7 +897,9 @@ export class OpenACPCore {
         workingDirectory: cwd,
         resumeAgentSessionId: agentSessionId,
         createThread: true,
-        initialName: "Adopted session",
+        // threadTitle sets the Telegram topic display name without locking session.name,
+        // so auto-naming can still trigger after the first user message.
+        threadTitle: "Adopted session",
       });
     } catch (err) {
       return {
