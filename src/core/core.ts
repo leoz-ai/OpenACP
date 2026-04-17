@@ -335,8 +335,8 @@ export class OpenACPCore {
   /**
    * Archive a session: delete its adapter topic/thread and cancel the session.
    *
-   * Only sessions in archivable states (active, cancelled, error) can be archived —
-   * initializing and finished sessions are excluded.
+   * Sessions in any state except 'initializing' can be archived.
+   * Initializing sessions are excluded because the agent subprocess may not be fully started yet.
    * The adapter handles platform-side cleanup (e.g. deleting a Telegram topic).
    */
   async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -355,8 +355,9 @@ export class OpenACPCore {
       status = record.status;
     }
 
-    // Must be active (not initializing or finished)
-    if (status !== "active" && status !== "cancelled" && status !== "error") {
+    // Only archivable from non-initializing states — initializing sessions are excluded
+    // because the agent subprocess may not be fully started yet.
+    if (status === "initializing") {
       return { ok: false, error: `Cannot archive session in '${status}' state` };
     }
 
