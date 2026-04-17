@@ -341,28 +341,40 @@ export class OpenACPCore {
    */
   async archiveSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const session = this.sessionManager.getSession(sessionId);
-    if (!session) return { ok: false, error: "Session not found (must be in memory)" };
 
-    // Must be active (not initializing or finished)
-    if (session.status !== "active" && session.status !== "cancelled" && session.status !== "error") {
-      return { ok: false, error: `Cannot archive session in '${session.status}' state` };
+    // Determine channelId and status — prefer live session, fall back to stored record
+    let channelId: string;
+    let status: string;
+    if (session) {
+      channelId = session.channelId;
+      status = session.status;
+    } else {
+      const record = this.sessionManager.getSessionRecord(sessionId);
+      if (!record) return { ok: false, error: "Session not found" };
+      channelId = record.channelId;
+      status = record.status;
     }
 
-    const adapter = this.adapters.get(session.channelId);
+    // Must be active (not initializing or finished)
+    if (status !== "active" && status !== "cancelled" && status !== "error") {
+      return { ok: false, error: `Cannot archive session in '${status}' state` };
+    }
+
+    const adapter = this.adapters.get(channelId);
     if (!adapter) return { ok: false, error: "Adapter not found for session" };
     if (!adapter.archiveSessionTopic) return { ok: false, error: "Adapter does not support topic archiving" };
 
     try {
       // archiveSessionTopic handles: cleanup trackers → delete topic
-      await adapter.archiveSessionTopic(session.id);
+      await adapter.archiveSessionTopic(sessionId);
 
       // Cancel session — stops agent, removes from active sessions, marks record as cancelled
       await this.sessionManager.cancelSession(sessionId);
 
       return { ok: true };
     } catch (err) {
-      // Clear archiving flag on error
-      session.archiving = false;
+      // Clear archiving flag on error (only relevant for live sessions)
+      if (session) session.archiving = false;
       return { ok: false, error: (err as Error).message };
     }
   }

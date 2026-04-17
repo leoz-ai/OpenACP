@@ -2025,24 +2025,32 @@ export class TelegramAdapter extends MessagingAdapter {
     this.getTracer(sessionId)?.log("telegram", { action: "thread:archive", sessionId });
     const core = this.core as OpenACPCore;
     const session = core.sessionManager.getSession(sessionId);
-    if (!session) throw new Error("Session not found");
 
     const chatId = this.telegramConfig.chatId;
-    const oldTopicId = Number(session.threadId);
+    let oldTopicId: number;
 
-    // Set archiving flag — sendMessage will skip while this is true.
-    session.archiving = true;
+    if (session) {
+      // Set archiving flag — sendMessage will skip while this is true.
+      session.archiving = true;
+      oldTopicId = Number(session.threadId);
 
-    // Finalize any pending draft
-    await this.draftManager.finalize(session.id, this.core.assistantManager?.get('telegram')?.id);
+      // Finalize any pending draft
+      await this.draftManager.finalize(session.id, this.core.assistantManager?.get('telegram')?.id);
 
-    // Cleanup all trackers
-    this.draftManager.cleanup(session.id);
-    await this.skillManager.cleanup(session.id);
-    const tracker = this.sessionTrackers.get(session.id);
-    if (tracker) {
-      tracker.destroy();
-      this.sessionTrackers.delete(session.id);
+      // Cleanup all trackers
+      this.draftManager.cleanup(session.id);
+      await this.skillManager.cleanup(session.id);
+      const tracker = this.sessionTrackers.get(session.id);
+      if (tracker) {
+        tracker.destroy();
+        this.sessionTrackers.delete(session.id);
+      }
+    } else {
+      // Session not in memory — get topicId from stored record
+      const record = core.sessionManager.getSessionRecord(sessionId);
+      const platform = record?.platform as TelegramPlatformData | undefined;
+      if (!platform?.topicId) throw new Error("Session not found");
+      oldTopicId = platform.topicId;
     }
 
     // Delete topic (removes all messages) — no recreation
