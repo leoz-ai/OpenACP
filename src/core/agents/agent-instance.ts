@@ -490,6 +490,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
       instance.connection.newSession({ cwd: workingDirectory, mcpServers: resolvedMcp as any }),
       agentDef.name,
       'newSession',
+      agentDef.initTimeoutMs,
     );
 
     log.info(response, 'newSession response');
@@ -544,6 +545,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
           instance.connection.loadSession({ sessionId: agentSessionId, cwd: workingDirectory, mcpServers: resolvedMcp as any }),
           agentDef.name,
           'loadSession',
+          agentDef.initTimeoutMs,
         );
         instance.sessionId = agentSessionId;
         instance.initialSessionResponse = response;
@@ -561,6 +563,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
           instance.connection.unstable_resumeSession({ sessionId: agentSessionId, cwd: workingDirectory }),
           agentDef.name,
           'resumeSession',
+          agentDef.initTimeoutMs,
         );
         instance.sessionId = response.sessionId;
         instance.initialSessionResponse = response;
@@ -583,6 +586,7 @@ export class AgentInstance extends TypedEmitter<AgentInstanceEvents> {
         instance.connection.newSession({ cwd: workingDirectory, mcpServers: resolvedMcp as any }),
         agentDef.name,
         'newSession (fallback)',
+        agentDef.initTimeoutMs,
       );
       instance.sessionId = response.sessionId;
       instance.initialSessionResponse = response;
@@ -1076,14 +1080,15 @@ const AGENT_INIT_TIMEOUT_MS = 30_000;
  * a timeout so a non-responsive agent process fails fast instead of hanging
  * the HTTP request and blocking a server thread indefinitely.
  */
-function withAgentTimeout<T>(promise: Promise<T>, agentName: string, op: string): Promise<T> {
+function withAgentTimeout<T>(promise: Promise<T>, agentName: string, op: string, timeoutMs?: number): Promise<T> {
+  const timeout = timeoutMs ?? AGENT_INIT_TIMEOUT_MS;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(
-        `Agent "${agentName}" did not respond to ${op} within ${AGENT_INIT_TIMEOUT_MS / 1000}s. ` +
+        `Agent "${agentName}" did not respond to ${op} within ${timeout / 1000}s. ` +
         `The agent process may have hung during initialization.`
       ));
-    }, AGENT_INIT_TIMEOUT_MS);
+    }, timeout);
 
     promise.then(
       (val) => { clearTimeout(timer); resolve(val); },
