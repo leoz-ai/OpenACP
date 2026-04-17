@@ -379,6 +379,40 @@ describe('AgentManager warm-pool', () => {
     })
   })
 
+  // ── Review fix: prewarm evicts mismatched entry, warms with new params ──────
+
+  describe('prewarm() — mismatched allowedPaths eviction', () => {
+    it('evicts a mismatched warm entry and warms with the new allowedPaths', async () => {
+      const catalog = mockCatalog({ claude: { command: 'claude-agent-acp' } })
+      const manager = new AgentManager(catalog)
+
+      // First prewarm: allowedPaths = ['/a']
+      const firstInstance = fakeWarmInstance()
+      vi.mocked(AgentInstance.spawnSubprocess).mockResolvedValueOnce(firstInstance as any)
+
+      manager.prewarm('claude', '/workspace', ['/a'])
+      await vi.waitFor(() =>
+        expect(AgentInstance.spawnSubprocess).toHaveBeenCalledTimes(1),
+      )
+
+      vi.mocked(AgentInstance.spawnSubprocess).mockClear()
+
+      // Second prewarm with different paths — must evict the first and warm again
+      manager.prewarm('claude', '/workspace', ['/a', '/b'])
+      expect(firstInstance.destroy).toHaveBeenCalled()
+
+      await vi.waitFor(() =>
+        expect(AgentInstance.spawnSubprocess).toHaveBeenCalledTimes(1),
+      )
+
+      // New warm slot matches ['/a', '/b'] — spawn should hit it
+      vi.mocked(AgentInstance.spawn).mockClear()
+      const result = await manager.spawn('claude', '/workspace', ['/a', '/b'])
+      expect((result as any).claimForSession).toHaveBeenCalled()
+      expect(AgentInstance.spawn).not.toHaveBeenCalled()
+    })
+  })
+
   // ── Review fix: concurrent prewarm + spawn race ───────────────────────────
 
   describe('race: prewarm in flight when spawn fires', () => {
