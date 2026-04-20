@@ -1785,13 +1785,23 @@ export class TelegramAdapter extends MessagingAdapter {
   /**
    * Create a new Telegram forum topic for a session and return its thread ID as a string.
    * Called by the core when a session is created via the API or CLI (not from the Telegram UI).
+   *
+   * Sends "⏳ Setting up..." immediately after topic creation so the user sees
+   * activity while the agent subprocess initializes in the background.
    */
   async createSessionThread(sessionId: string, name: string): Promise<string> {
     this.getTracer(sessionId)?.log("telegram", { action: "thread:create", sessionId, name });
     log.info({ sessionId, name }, "Session topic created");
-    return String(
-      await createSessionTopic(this.bot, this.telegramConfig.chatId, name),
-    );
+    const threadId = await createSessionTopic(this.bot, this.telegramConfig.chatId, name);
+    // Non-critical — fire and forget so topic creation still succeeds even if this fails
+    this.bot.api.sendMessage(
+      this.telegramConfig.chatId,
+      "⏳ Setting up session, please wait...",
+      { message_thread_id: threadId, parse_mode: "HTML" },
+    ).catch((err) => {
+      log.warn({ err, sessionId, threadId }, "Failed to send setup message to new topic");
+    });
+    return String(threadId);
   }
 
   /**

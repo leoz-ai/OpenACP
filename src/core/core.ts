@@ -603,22 +603,24 @@ export class OpenACPCore {
     threadId?: string;
     isAssistant?: boolean;
   }): Promise<Session> {
+    const adapter = this.adapters.get(params.channelId);
+
+    // Create thread FIRST (before spawning the agent) so the user sees the topic
+    // appear immediately. Session ID is not yet known at this point — the adapter
+    // logs it as empty and skips tracing; this is updated in the persisted record below.
+    let preCreatedThreadId: string | undefined;
+    if (params.createThread && adapter) {
+      const name = params.threadTitle ?? params.initialName ?? `🔄 ${params.agentName} — New Session`;
+      preCreatedThreadId = await adapter.createSessionThread("", name);
+    }
+
     // 1-3. Spawn/resume agent, create Session, register in SessionManager
     const session = await this.sessionFactory.create(params);
 
-    // Set threadId early so agent events during bridge.connect() can find the thread
-    if (params.threadId) {
-      session.threadId = params.threadId;
-    }
-
-    // 4. Create thread if needed
-    const adapter = this.adapters.get(params.channelId);
-    if (params.createThread && adapter) {
-      const threadId = await adapter.createSessionThread(
-        session.id,
-        params.threadTitle ?? params.initialName ?? `🔄 ${params.agentName} — New Session`,
-      );
-      session.threadId = threadId;
+    // Apply thread ID: pre-created thread takes priority over params.threadId
+    const resolvedThreadId = preCreatedThreadId ?? params.threadId;
+    if (resolvedThreadId) {
+      session.threadId = resolvedThreadId;
     }
 
     // 5. Persist initial record BEFORE bridge.connect() so that:
