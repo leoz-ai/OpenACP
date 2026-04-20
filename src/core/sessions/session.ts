@@ -119,6 +119,8 @@ export class Session extends TypedEmitter<SessionEvents> {
   private pendingContext: string | null = null;
   /** Per-turn abort tracking — avoids race when next turn resets before current turn reads */
   private _abortedTurnIds = new Set<string>();
+  /** Last completed turnId — used by abortPrompt() to retroactively mark a just-finished turn as interrupted */
+  private _lastCompletedTurnId: string | null = null;
 
   constructor(opts: {
     id?: string;
@@ -436,6 +438,8 @@ export class Session extends TypedEmitter<SessionEvents> {
         }, async (p) => p).catch(() => {});
       }
 
+      // Track the completed turnId so late abortPrompt() calls can retroactively mark it
+      this._lastCompletedTurnId = finalTurnId || null;
       // Always clear turn context so routing state is never stale after a failed turn
       this.activeTurnContext = null;
     }
@@ -714,17 +718,35 @@ export class Session extends TypedEmitter<SessionEvents> {
       if (!result) return; // blocked by middleware
     }
     const turnId = this.activeTurnContext?.turnId;
-    if (turnId) this._abortedTurnIds.add(turnId);
 
-    // Cancel agent FIRST so the orphaned processPrompt resolves before
-    // drainNext starts the next item. Timeout prevents hanging if agent
-    // is unresponsive — queue abort proceeds regardless after 5 seconds.
-    await Promise.race([
-      this.agentInstance.cancel().catch(() => {}),
-      new Promise<void>((r) => setTimeout(r, 5000)),
-    ]);
+    if (turnId) {
+      // Turn is still in-flight — mark for interrupted stopReason in the finally block
+      this._abortedTurnIds.add(turnId);
 
-    this.queue.abortCurrent();
+      // Cancel agent FIRST so the orphaned processPrompt resolves before
+      // drainNext starts the next item. Timeout prevents hanging if agent
+      // is unresponsive — queue abort proceeds regardless after 5 seconds.
+      await Promise.race([
+        this.agentInstance.cancel().catch(() => {}),
+        new Promise<void>((r) => setTimeout(r, 5000)),
+      ]);
+
+      this.queue.abortCurrent();
+    } else if (this._lastCompletedTurnId && !this.queue.isProcessing) {
+      // Turn already completed before cancel arrived — retroactively update
+      // the history record so the client sees stopReason: "interrupted" on reload.
+      const retroTurnId = this._lastCompletedTurnId;
+      this._lastCompletedTurnId = null;
+      if (this.middlewareChain) {
+        await this.middlewareChain.execute(Hook.TURN_END, {
+          sessionId: this.id,
+          stopReason: 'interrupted' as import('../types.js').StopReason,
+          durationMs: 0,
+          turnId: retroTurnId,
+        }, async (p) => p).catch(() => {});
+      }
+    }
+
     this.log.info("Prompt aborted (queue preserved, %d pending)", this.queue.pending);
   }
 
