@@ -10,7 +10,7 @@ import type { MiddlewareChain } from "../plugin/middleware-chain.js";
 import type { DebugTracer } from "../utils/debug-tracer.js";
 import { createChildLogger } from "../utils/log.js";
 import { isPermissionBypass } from "../utils/bypass-detection.js";
-import { isSystemEvent, getEffectiveTarget, extractSender, type TurnContext } from "./turn-context.js";
+import { isSystemEvent, getEffectiveTarget, extractSender, type TurnContext, type TurnRouting } from "./turn-context.js";
 import { Hook, BusEvent, SessionEv } from "../events.js";
 
 const log = createChildLogger({ module: "session-bridge" });
@@ -181,10 +181,8 @@ export class SessionBridge {
       }
     });
 
-    // Wire lifecycle: persist and relay name changes — only rename thread once per session.
+    // Wire lifecycle: persist and relay name changes to all adapters.
     this.listen(this.session, SessionEv.NAMED, async (name: string) => {
-      const record = this.deps.sessionManager.getSessionRecord(this.session.id);
-      const alreadyNamed = !!record?.name;
       await this.deps.sessionManager.patchRecord(this.session.id, { name });
       if (!this.session.isAssistant) {
         this.deps.eventBus?.emit(BusEvent.SESSION_UPDATED, {
@@ -192,9 +190,7 @@ export class SessionBridge {
           name,
         });
       }
-      if (!alreadyNamed) {
-        await this.adapter.renameSessionThread(this.session.id, name);
-      }
+      await this.adapter.renameSessionThread(this.session.id, name);
     });
 
     // Wire lifecycle: persist prompt count after each prompt for resume decisions
@@ -214,6 +210,18 @@ export class SessionBridge {
         attachments: ctx.attachments,
         sender: extractSender(ctx.meta),
         timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Wire prompt_queued → emit prompt:waiting on EventBus for adapters to show queue notifications.
+    // This event fires synchronously from inside PromptQueue.enqueue() when an item is placed
+    // behind a running prompt, so sourceAdapterId and queueDepth are accurate (no race condition).
+    this.listen(this.session, SessionEv.PROMPT_QUEUED, (data: { turnId: string | undefined; position: number; routing: TurnRouting | undefined }) => {
+      this.deps.eventBus?.emit(BusEvent.PROMPT_WAITING, {
+        sessionId: this.session.id,
+        turnId: data.turnId ?? '',
+        sourceAdapterId: data.routing?.sourceAdapterId ?? this.session.channelId,
+        queueDepth: data.position,
       });
     });
 

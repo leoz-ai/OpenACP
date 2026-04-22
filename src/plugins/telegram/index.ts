@@ -66,8 +66,8 @@ function createTelegramPlugin(): OpenACPPlugin {
       }
 
       // Chat ID detection
-      terminal.log.info('Send a message in your Telegram group to detect the chat ID,')
-      terminal.log.info('or enter the chat ID manually.')
+      terminal.log.info('To find your group chat ID, you can either send a message in the group')
+      terminal.log.info('(OpenACP will detect it automatically) or enter it manually.')
 
       const chatIdMethod = await terminal.select({
         message: 'How to get the chat ID?',
@@ -90,11 +90,12 @@ function createTelegramPlugin(): OpenACPPlugin {
         chatId = Number(val.trim())
       } else {
         // Simple polling-based detection
-        terminal.log.step('Listening for messages... Send "hi" in the group.')
+        terminal.log.step('Open Telegram, go to your group, and send any message (e.g. "hi"). Waiting up to 4 minutes...')
         chatId = await detectChatIdViaPolling(botToken, terminal)
       }
 
       // Validate chat ID
+      const pendingIssues: string[] = []
       const chatResult = await validateChatId(botToken, chatId)
       if (chatResult.ok) {
         terminal.log.success(`Group: ${chatResult.title}`)
@@ -105,16 +106,18 @@ function createTelegramPlugin(): OpenACPPlugin {
           terminal.log.info('To enable Topics:')
           terminal.log.info('  1. Open your group in Telegram')
           terminal.log.info('  2. Go to Group Settings → Edit')
-          terminal.log.info('  3. Enable "Topics"')
+          terminal.log.info('  3. Toggle on "Topics"')
+          terminal.log.info('  4. Tap Save / Done (the checkmark) — easy to miss!')
           terminal.log.info('')
           const proceed = await terminal.confirm({
-            message: 'Topics not enabled. Continue anyway? (You can fix this before starting OpenACP)',
+            message: 'Topics not enabled. Continue anyway? (OpenACP won\'t work until you fix this)',
             initialValue: false,
           })
           if (!proceed) {
             terminal.log.info('Setup cancelled. Re-run when Topics are enabled.')
             return
           }
+          pendingIssues.push('Topics not enabled on the group')
         }
       } else {
         terminal.log.warning(chatResult.error)
@@ -127,22 +130,35 @@ function createTelegramPlugin(): OpenACPPlugin {
         if (!adminResult.canManageTopics) {
           terminal.log.warning('Bot does not have "Manage Topics" permission.')
           terminal.log.info('')
-          terminal.log.info('To fix:')
+          terminal.log.info('To fix (you must be a group admin):')
           terminal.log.info('  1. Open Group Settings → Administrators')
-          terminal.log.info('  2. Select the bot')
-          terminal.log.info('  3. Enable "Manage Topics"')
+          terminal.log.info('  2. Tap the bot in the admin list')
+          terminal.log.info('  3. Toggle on "Manage Topics"')
+          terminal.log.info('  4. Tap Save / Done (the checkmark) — easy to miss!')
           terminal.log.info('')
           const proceed = await terminal.confirm({
-            message: 'Bot cannot manage topics. Continue anyway? (You can fix this before starting OpenACP)',
+            message: 'Bot cannot manage topics. Continue anyway? (OpenACP won\'t work until you fix this)',
             initialValue: false,
           })
           if (!proceed) {
             terminal.log.info('Setup cancelled. Re-run when bot permissions are set.')
             return
           }
+          pendingIssues.push('Bot "Manage Topics" permission not set')
         }
       } else {
         terminal.log.warning(adminResult.error)
+        pendingIssues.push('Bot is not a group admin')
+      }
+
+      if (pendingIssues.length > 0) {
+        terminal.log.info('')
+        terminal.log.warning('⚠️  Setup saved with pending issues — OpenACP will not work until these are fixed:')
+        for (const issue of pendingIssues) {
+          terminal.log.info(`  • ${issue}`)
+        }
+        terminal.log.info('After fixing, run OpenACP and it will detect the changes automatically.')
+        terminal.log.info('')
       }
 
       await settings.setAll({

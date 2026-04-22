@@ -64,6 +64,7 @@ export class SSEManager {
       BusEvent.MESSAGE_QUEUED,
       BusEvent.MESSAGE_PROCESSING,
       BusEvent.MESSAGE_FAILED,
+      BusEvent.PROMPT_WAITING,
     ] as const;
 
     for (const eventName of events) {
@@ -73,6 +74,15 @@ export class SSEManager {
       this.eventBus.on(eventName, handler);
       this.boundHandlers.push({ event: eventName, handler });
     }
+
+    // user:notification is broadcast as notification:text so the App's existing
+    // SSE listener picks it up without any client-side changes.
+    const userNotificationHandler = (data: unknown) => {
+      const { text, sessionId } = data as { userId: string; text: string; sessionId?: string };
+      this.broadcast('notification:text', { text, sessionId });
+    };
+    this.eventBus.on(BusEvent.USER_NOTIFICATION, userNotificationHandler);
+    this.boundHandlers.push({ event: BusEvent.USER_NOTIFICATION, handler: userNotificationHandler });
 
     // Health heartbeat every 15s
     this.healthInterval = setInterval(() => {
@@ -161,6 +171,7 @@ export class SSEManager {
       BusEvent.MESSAGE_QUEUED,
       BusEvent.MESSAGE_PROCESSING,
       BusEvent.MESSAGE_FAILED,
+      BusEvent.PROMPT_WAITING,
     ];
     for (const res of this.sseConnections) {
       const filter = (res as SSEResponse).sessionFilter;

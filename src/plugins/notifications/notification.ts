@@ -1,5 +1,7 @@
 import type { IChannelAdapter } from '../../core/channel.js'
 import type { NotificationMessage } from '../../core/types.js'
+import type { EventBus } from '../../core/event-bus.js'
+import { BusEvent } from '../../core/events.js'
 
 /** Target for user-directed notifications. */
 export type NotificationTarget =
@@ -40,8 +42,14 @@ interface IdentityResolver {
  */
 export class NotificationService {
   private identityResolver?: IdentityResolver
+  private eventBus?: EventBus
 
   constructor(private adapters: Map<string, IChannelAdapter>) {}
+
+  /** Inject EventBus to broadcast user:notification events for SSE delivery to App clients. */
+  setEventBus(bus: EventBus): void {
+    this.eventBus = bus
+  }
 
   /** Inject identity resolver for user-targeted notifications. */
   setIdentityResolver(resolver: IdentityResolver): void {
@@ -94,7 +102,17 @@ export class NotificationService {
     options?: NotificationOptions,
   ): Promise<void> {
     try {
+      const userId = 'userId' in target ? target.userId : undefined
       await this._resolveAndDeliver(target, message, options)
+      // Emit on EventBus so SSEManager can broadcast to App clients over /api/v1/events.
+      // This is the only SSE stream the App subscribes to.
+      if (this.eventBus && userId) {
+        this.eventBus.emit(BusEvent.USER_NOTIFICATION, {
+          userId,
+          text: message.text,
+          sessionId: options?.sessionId,
+        })
+      }
     } catch {
       // Fire-and-forget
     }

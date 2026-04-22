@@ -19,6 +19,10 @@ export class PromptQueue {
   constructor(
     private processor: (text: string, userPrompt: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta) => Promise<void>,
     private onError?: (err: unknown) => void,
+    // Fires synchronously when an item is placed behind a running prompt — before it's pushed
+    // to the pending list. Called with accurate queue depth so callers can emit notifications
+    // without a race condition on promptRunning state.
+    private onActuallyQueued?: (turnId: string | undefined, position: number, routing: TurnRouting | undefined) => void,
   ) {}
 
   /**
@@ -28,6 +32,11 @@ export class PromptQueue {
    */
   async enqueue(text: string, userPrompt: string, attachments?: Attachment[], routing?: TurnRouting, turnId?: string, meta?: TurnMeta): Promise<void> {
     if (this.processing) {
+      // Fire synchronously BEFORE pushing so the caller sees accurate position and promptRunning state.
+      // This eliminates the race condition where multiple concurrent enqueue() calls all observe
+      // processing=false before any of them sets it to true.
+      const position = this.queue.length + 1;
+      this.onActuallyQueued?.(turnId, position, routing);
       return new Promise<void>((resolve) => {
         this.queue.push({ text, userPrompt, attachments, routing, turnId, meta, resolve })
       })
@@ -93,6 +102,39 @@ export class PromptQueue {
       item.resolve()
     }
     this.queue = []
+  }
+
+  /**
+   * Discard all queued prompts without aborting the in-flight prompt.
+   * The currently processing prompt continues to completion; only pending
+   * (not-yet-started) items are removed. Their promises are resolved
+   * (not rejected) so callers don't see unhandled rejections.
+   */
+  clearPending(): void {
+    for (const item of this.queue) {
+      item.resolve()
+    }
+    this.queue = []
+  }
+
+  /**
+   * Promote a specific queued item to the front and discard all others.
+   *
+   * Finds the item with the matching turnId, removes every other pending item
+   * (resolving their promises), and leaves only the target in the queue.
+   * Does NOT abort the in-flight prompt — caller handles that separately.
+   *
+   * @returns true if the item was found and promoted, false if not in queue
+   */
+  prioritize(turnId: string): boolean {
+    const idx = this.queue.findIndex(item => item.turnId === turnId)
+    if (idx === -1) return false
+    const target = this.queue[idx]
+    for (let i = 0; i < this.queue.length; i++) {
+      if (i !== idx) this.queue[i].resolve()
+    }
+    this.queue = [target]
+    return true
   }
 
   get pending(): number {

@@ -1,4 +1,5 @@
 import type { OpenACPPlugin, InstallContext, CoreAccess } from '../../core/plugin/types.js'
+import type { OpenACPCore } from '../../core/core.js'
 import { NotificationService } from './notification.js'
 
 function createNotificationsPlugin(): OpenACPPlugin {
@@ -40,7 +41,11 @@ function createNotificationsPlugin(): OpenACPPlugin {
     async setup(ctx) {
       // NotificationService needs the live adapters Map from core
       const core = ctx.core as CoreAccess
+      const fullCore = ctx.core as OpenACPCore
       const service = new NotificationService(core.adapters)
+
+      // Wire EventBus so user:notification events reach the SSE stream the App subscribes to
+      if (fullCore.eventBus) service.setEventBus(fullCore.eventBus)
 
       // Wire identity resolver if available — enables user-targeted notifications
       const identity = ctx.getService<any>('identity')

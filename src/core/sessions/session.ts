@@ -51,6 +51,8 @@ export interface SessionEvents {
   error: (error: Error) => void;
   prompt_count_changed: (count: number) => void;
   turn_started: (ctx: TurnContext) => void;
+  /** Fired synchronously when a prompt is placed behind a running prompt in the queue. */
+  prompt_queued: (data: { turnId: string | undefined; position: number; routing: TurnRouting | undefined }) => void;
 }
 
 /**
@@ -117,6 +119,8 @@ export class Session extends TypedEmitter<SessionEvents> {
   private pendingContext: string | null = null;
   /** Per-turn abort tracking — avoids race when next turn resets before current turn reads */
   private _abortedTurnIds = new Set<string>();
+  /** Last completed turnId — used by abortPrompt() to retroactively mark a just-finished turn as interrupted */
+  private _lastCompletedTurnId: string | null = null;
 
   constructor(opts: {
     id?: string;
@@ -147,6 +151,9 @@ export class Session extends TypedEmitter<SessionEvents> {
         const message = err instanceof Error ? err.message : String(err);
         this.fail(message);
         this.emit(SessionEv.AGENT_EVENT, { type: "error", message: `Prompt execution failed: ${message}` });
+      },
+      (turnId, position, routing) => {
+        this.emit(SessionEv.PROMPT_QUEUED, { turnId, position, routing });
       },
     );
 
@@ -431,6 +438,8 @@ export class Session extends TypedEmitter<SessionEvents> {
         }, async (p) => p).catch(() => {});
       }
 
+      // Track the completed turnId so late abortPrompt() calls can retroactively mark it
+      this._lastCompletedTurnId = finalTurnId || null;
       // Always clear turn context so routing state is never stale after a failed turn
       this.activeTurnContext = null;
     }
@@ -452,7 +461,8 @@ export class Session extends TypedEmitter<SessionEvents> {
       });
     }
 
-    if (!this.name) {
+    // Also trigger auto-naming when name is still the adopted session placeholder.
+    if (!this.name || this.name === "Adopted session") {
       await this.autoName();
     }
   }
@@ -708,10 +718,96 @@ export class Session extends TypedEmitter<SessionEvents> {
       if (!result) return; // blocked by middleware
     }
     const turnId = this.activeTurnContext?.turnId;
-    if (turnId) this._abortedTurnIds.add(turnId);
-    this.queue.abortCurrent();
+
+    if (turnId) {
+      // Turn is still in-flight — mark for interrupted stopReason in the finally block
+      this._abortedTurnIds.add(turnId);
+
+      // Cancel agent FIRST so the orphaned processPrompt resolves before
+      // drainNext starts the next item. Timeout prevents hanging if agent
+      // is unresponsive — queue abort proceeds regardless after 5 seconds.
+      await Promise.race([
+        this.agentInstance.cancel().catch(() => {}),
+        new Promise<void>((r) => setTimeout(r, 5000)),
+      ]);
+
+      this.queue.abortCurrent();
+    } else if (this._lastCompletedTurnId && !this.queue.isProcessing) {
+      // Turn already completed before cancel arrived — retroactively update
+      // the history record so the client sees stopReason: "interrupted" on reload.
+      const retroTurnId = this._lastCompletedTurnId;
+      this._lastCompletedTurnId = null;
+      if (this.middlewareChain) {
+        await this.middlewareChain.execute(Hook.TURN_END, {
+          sessionId: this.id,
+          stopReason: 'interrupted' as import('../types.js').StopReason,
+          durationMs: 0,
+          turnId: retroTurnId,
+        }, async (p) => p).catch(() => {});
+      }
+    }
+
     this.log.info("Prompt aborted (queue preserved, %d pending)", this.queue.pending);
-    await this.agentInstance.cancel();
+  }
+
+  /** Discard all queued prompts without interrupting the in-flight prompt. */
+  clearQueue(): void {
+    const dropped = this.queue.pending;
+    this.queue.clearPending();
+    this.log.info("Queue cleared (%d pending prompts discarded)", dropped);
+  }
+
+  /**
+   * Cancel the in-flight prompt AND discard all queued prompts.
+   * Full reset — nothing remains in the pipeline after this call.
+   */
+  async flushAll(): Promise<void> {
+    // Hook: agent:beforeCancel — modifiable, can block
+    if (this.middlewareChain) {
+      const result = await this.middlewareChain.execute(Hook.AGENT_BEFORE_CANCEL, { sessionId: this.id }, async (p) => p);
+      if (!result) return; // blocked by middleware
+    }
+    const turnId = this.activeTurnContext?.turnId;
+    if (turnId) this._abortedTurnIds.add(turnId);
+
+    // Cancel agent first, then clear everything
+    await Promise.race([
+      this.agentInstance.cancel().catch(() => {}),
+      new Promise<void>((r) => setTimeout(r, 5000)),
+    ]);
+
+    this.queue.clear();
+    this.log.info("Session flushed (prompt cancelled, queue cleared)");
+  }
+
+  /**
+   * Skip the queue: cancel the in-flight prompt, discard all other queued
+   * items, and promote the specified turn to process next.
+   *
+   * Used when the user clicks "Process Now" on a queued message — they want
+   * THIS message handled immediately, discarding everything else in the pipeline.
+   *
+   * @returns true if the turn was found and promoted, false if already processed
+   */
+  async prioritizePrompt(turnId: string): Promise<boolean> {
+    // Rearrange queue: keep only the target item
+    const found = this.queue.prioritize(turnId);
+    if (!found) return false;
+
+    // Cancel agent so the current processPrompt resolves and drainNext
+    // picks up the promoted item. Timeout fallback if agent is unresponsive.
+    await Promise.race([
+      this.agentInstance.cancel().catch(() => {}),
+      new Promise<void>((r) => setTimeout(r, 5000)),
+    ]);
+
+    // If the process didn't settle naturally (timeout), force abort
+    if (this.queue.isProcessing) {
+      this.queue.abortCurrent();
+    }
+
+    this.log.info({ turnId }, "Prompt prioritized");
+    return true;
   }
 
   /** Search backward through agentSwitchHistory for the last entry matching agentName */

@@ -217,6 +217,7 @@ export const STATIC_COMMANDS = [
   { command: "restart", description: "Restart OpenACP" },
   { command: "update", description: "Update to latest version and restart" },
   { command: "doctor", description: "Run system diagnostics" },
+  { command: "retry", description: "Re-check setup prerequisites (use if bot is stuck on startup)" },
   { command: "tunnel", description: "Create/stop tunnel for a local port" },
   { command: "tunnels", description: "List active tunnels" },
   { command: 'archive', description: 'Archive session topic (recreate with clean history)' },
